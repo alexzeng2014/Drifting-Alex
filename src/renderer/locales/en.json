@@ -1346,6 +1346,8 @@
       "aria": "Model and reasoning settings",
       "model": "Model",
       "switchModel": "Switch model",
+      "filterModels": "Filter models",
+      "noModelMatches": "No matching model",
       "modelUnavailable": "The selected model is absent from the current catalog. Choose another model.",
       "reasoning": "Reasoning",
       "extendedThinking": "Extended thinking",

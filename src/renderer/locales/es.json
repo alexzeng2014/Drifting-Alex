@@ -1350,6 +1350,8 @@
       "aria": "Ajustes de modelo y razonamiento",
       "model": "Modelo",
       "switchModel": "Cambiar modelo",
+      "filterModels": "Filtrar modelos",
+      "noModelMatches": "Ningún modelo coincide",
       "modelUnavailable": "El modelo elegido no figura en el catálogo actual. Elige otro.",
       "reasoning": "Razonamiento",
       "extendedThinking": "Razonamiento ampliado",

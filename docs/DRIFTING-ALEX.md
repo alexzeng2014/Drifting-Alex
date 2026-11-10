@@ -54,7 +54,13 @@ Provider id `opencode-go`, OpenAI-compatible wire, endpoint
 
 Bundled models, in menu order: **glm-5.3** (default), deepseek-v4-pro,
 deepseek-v4.1-flash, kimi-k2.7-code, glm-5.2. The subscription's own `/models`
-list replaces this when the key works.
+list replaces this when the key works — it publishes about thirty ids today,
+across GLM, DeepSeek, Kimi, Qwen, Claude, GPT, Gemini, Grok, MiniMax and more.
+
+The Agent's model menu (`AgentComposerConfig`) filters that list by provider
+name, model id or label once it is longer than eight entries, so a thirty-model
+catalogue stays navigable. The choice persists per provider in the settings
+store (`agentModel`).
 
 The adapter never sends `reasoning_effort` or an output cap: the endpoint takes
 no reasoning switch, and (as Textus's generic client does) it publishes its own

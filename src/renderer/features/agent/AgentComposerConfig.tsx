@@ -55,6 +55,8 @@ export function AgentComposerConfig({
 
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'main' | 'model' | 'memory'>('main');
+  /** The model menu's filter; subscriptions list dozens of ids. */
+  const [modelQuery, setModelQuery] = useState('');
   const triggerRef = useRef<HTMLButtonElement>(null);
   const catalog = useCodexModelCatalog(open && view === 'model');
   useByokModelLists(open && view === 'model');
@@ -66,6 +68,21 @@ export function AgentComposerConfig({
   const modelShort = modelOption.responses ? modelOption.short : t(`settings.agent.modelOptions.${agentModel}.short`, {
     defaultValue: modelOption?.short ?? agentModel,
   });
+
+  // Subscriptions list dozens of ids, so the menu filters by provider name,
+  // model id or model label once the list is long enough to need it.
+  const providerGroups = AGENT_PROVIDER_OPTIONS.map(({ value }) => agentProviderOption(value));
+  const modelQueryText = modelQuery.trim().toLowerCase();
+  const showModelSearch = providerGroups.reduce((total, group) => total + group.models.length, 0) > 8;
+  const modelGroups = modelQueryText
+    ? providerGroups
+        .map((provider) => ({
+          ...provider,
+          models: provider.models.filter((model) =>
+            `${provider.label} ${model.value} ${model.label}`.toLowerCase().includes(modelQueryText)),
+        }))
+        .filter((provider) => provider.models.length > 0)
+    : providerGroups;
   const close = () => {
     setOpen(false);
     setView('main');
@@ -127,7 +144,10 @@ export function AgentComposerConfig({
             <button
               type="button"
               className={rowButtonClass}
-              onClick={() => setView('model')}
+              onClick={() => {
+                setModelQuery('');
+                setView('model');
+              }}
             >
               <span>{t('agentPanel.config.switchModel')}</span>
               <span className="agt-menu__val">
@@ -188,10 +208,32 @@ export function AgentComposerConfig({
           </>
         ) : view === 'model' ? (
           <>
-            <button type="button" className={backClass} onClick={() => setView('main')}>
+            <button
+              type="button"
+              className={backClass}
+              onClick={() => {
+                setModelQuery('');
+                setView('main');
+              }}
+            >
               <BrushIcon name="chevron-left" size={9} /> {t('agentPanel.config.model')}
             </button>
-            {AGENT_PROVIDER_OPTIONS.map(({ value }) => agentProviderOption(value)).map((provider) => (
+            {showModelSearch && (
+              <input
+                type="search"
+                className="agt-menu__search"
+                value={modelQuery}
+                placeholder={t('agentPanel.config.filterModels')}
+                aria-label={t('agentPanel.config.filterModels')}
+                onChange={(event) => setModelQuery(event.target.value)}
+              />
+            )}
+            {modelGroups.length === 0 && (
+              <div className="agt-menu__empty" role="status">
+                {t('agentPanel.config.noModelMatches')}
+              </div>
+            )}
+            {modelGroups.map((provider) => (
               <div key={provider.value}>
                 <div className={sectionClass}>{provider.label}</div>
                 {provider.value === 'openai-codex' && catalog.state === 'ready'

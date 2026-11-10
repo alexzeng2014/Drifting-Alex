@@ -1346,6 +1346,8 @@
       "aria": "Modell- und Denkeinstellungen",
       "model": "Modell",
       "switchModel": "Modell wechseln",
+      "filterModels": "Modelle filtern",
+      "noModelMatches": "Kein passendes Modell",
       "modelUnavailable": "Das gewählte Modell fehlt im aktuellen Katalog. Wähle ein anderes.",
       "reasoning": "Schlussfolgern",
       "extendedThinking": "Erweitertes Denken",

@@ -1346,6 +1346,8 @@
       "aria": "モデル・推論の設定",
       "model": "モデル",
       "switchModel": "モデルを切り替え",
+      "filterModels": "モデルを絞り込む",
+      "noModelMatches": "一致するモデルはありません",
       "modelUnavailable": "選択したモデルは現在の一覧にありません。別のモデルを選んでください。",
       "reasoning": "推論",
       "extendedThinking": "拡張思考",
