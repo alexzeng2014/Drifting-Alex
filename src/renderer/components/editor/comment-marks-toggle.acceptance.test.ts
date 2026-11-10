@@ -5,13 +5,8 @@ import { describe, expect, it } from 'vitest';
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 const exists = (path: string) => existsSync(resolve(process.cwd(), path));
 
-/**
- * Drifting-Alex edits chapters with the vendored Textus surface, which does
- * not emit Drifting's selection-comment request yet (docs/DRIFTING-ALEX.md,
- * "What the chapter surface does not have yet"). Every other entity editor
- * keeps the composer; the chapter view is asserted separately below.
- */
 const editors: Array<[path: string, kind: string]> = [
+  ['src/renderer/views/NodeEditorView.tsx', 'node'],
   ['src/renderer/views/ElementEditorView.tsx', 'element'],
   ['src/renderer/views/StorylineEditorView.tsx', 'storyline'],
   ['src/renderer/views/CategoryEditorView.tsx', 'category'],
@@ -35,9 +30,6 @@ describe('the paper comment toggle and composer (sticky-note rail retired 2026-1
   });
 
   it('writes a selection comment in the floating composer beside it, on every entity editor', () => {
-    // Chapters mount the Textus surface; that this fork trades its selection
-    // comments away is recorded rather than silently unmet.
-    expect(source('src/renderer/views/NodeEditorView.tsx')).toContain('<TextusChapterEditor');
     for (const [path, kind] of editors) {
       const editor = source(path);
       expect(editor).toMatch(/onAddCommentRequest(?::|=\{) ?setPendingComment/);

@@ -5,6 +5,9 @@ This page records exactly what was changed, where the seams are, and what is
 still rough, so the next person (or the next session) does not have to
 rediscover it.
 
+Scope, in one line: **Drifting's app and editor, Sarasa Gothic SC as the
+typeface, and Textus's AI provider catalogue including OpenCode Go / GLM-5.3.**
+
 ## 1. Identity
 
 | Thing | Value |
@@ -35,10 +38,11 @@ the .icns step needs macOS tooling (`sips`, `iconutil`).
 will not match this build — that check is expected to be re-recorded, not
 "fixed".
 
-## 3. AI — OpenCode Go with GLM-5.3
+## 3. AI — the Textus catalogue, including OpenCode Go
 
 Provider id `opencode-go`, OpenAI-compatible wire, endpoint
-`https://opencode.ai/zen/go/v1`.
+`https://opencode.ai/zen/go/v1`. The bundled models and their names follow
+Textus's catalogue.
 
 | Layer | File |
 | --- | --- |
@@ -48,23 +52,21 @@ Provider id `opencode-go`, OpenAI-compatible wire, endpoint
 | Client factory | `src/renderer/lib/ai/client/build-default-client.ts` |
 | Keychain ids | `src/renderer/lib/byok-keychain.ts` (`byok.opencode-go`) |
 | Native model list | `src-tauri/src/byok_models.rs` |
+| Native completions | `src-tauri/src/openai_responses.rs` (`byok_completion_stream`) |
 | Settings UI | `src/renderer/features/settings/panels/IntelligenceSettingsPanels.tsx` |
-| First-run guide | `src/renderer/features/agent/onboarding/` |
+| Model menu | `src/renderer/features/agent/AgentComposerConfig.tsx` |
 | CSP allow-list | `src-tauri/tauri.conf.json` → `https://opencode.ai` |
 
 Bundled models, in menu order: **glm-5.3** (default), deepseek-v4-pro,
 deepseek-v4.1-flash, kimi-k2.7-code, glm-5.2. The subscription's own `/models`
-list replaces this when the key works — it publishes about thirty ids today,
-across GLM, DeepSeek, Kimi, Qwen, Claude, GPT, Gemini, Grok, MiniMax and more.
+list replaces this when the key works — it publishes about thirty ids today.
 
-The Agent's model menu (`AgentComposerConfig`) filters that list by provider
-name, model id or label once it is longer than eight entries, so a thirty-model
-catalogue stays navigable. The choice persists per provider in the settings
-store (`agentModel`).
+Two places choose the model, and both write the same setting:
 
-The adapter never sends `reasoning_effort` or an output cap: the endpoint takes
-no reasoning switch, and (as Textus's generic client does) it publishes its own
-completion ceiling, so neither field is sent.
+- the **Agent model** dropdown on the provider's row in Settings → Models &
+  API (`settings.agentModel` / `agentProvider`), and
+- the composer's model menu, which filters by provider name, id or label once
+  the list passes eight entries.
 
 ### Why OpenCode Go requests leave from native code
 
@@ -87,55 +89,31 @@ driver and the Agent runtime are unchanged.
 Any future provider whose endpoint refuses browser requests goes through the
 same pair of commands rather than a second transport.
 
-Test connection (Settings → Models & API) uses the same path, so it exercises
-the real wire.
+### Why the models declare no thinking control
 
-## 4. Chapter editor — Textus
+The adapter never sends `reasoning_effort` or an output cap: the endpoint takes
+no reasoning switch, and (as Textus's generic client does) it publishes its own
+completion ceiling, so neither field is sent.
 
-The chapter prose surface is Textus's Markdown editor (Milkdown/ProseMirror).
+The models also declare **no thinking control** (`thinkingModes: ['off']`).
+That is not cosmetic: Drifting's OpenAI-compatible driver can only replay
+reasoning state on its DeepSeek path, and a model whose profile says it always
+thinks makes the driver refuse the turn with "Reasoning is not supported by the
+General Agent driver." Declaring no control keeps the request identical to
+Textus's — the model may still reason server-side, but the app neither asks for
+nor replays it. Adding real reasoning support for this wire means teaching the
+driver to replay `reasoning_content`, which is a larger change.
 
-- `src/renderer/textus/` — pruned copy of Textus's `src/editor` plus the
-  modules it needs (MIT, see `THIRD_PARTY_NOTICES.md` in that folder).
-  `platform/`, `storage/` and `prefs/SettingsContext.ts` are stand-ins: Drifting
-  owns documents, settings and AI.
-- `src/renderer/components/editor/TextusChapterEditor.tsx` — the surface.
-  Title and summary fields stay Drifting's; the body is the Textus editor.
-- `src/renderer/components/editor/textus-chapter.css` — Drifting's manuscript
-  typography (family, size, leading, ink) applied to the `.milkdown` root.
-- `src/renderer/lib/chapter-markdown.ts` — the bridge.
-- `src/renderer/views/NodeEditorView.tsx` — now mounts `TextusChapterEditor`.
+## 4. The editor is Drifting's
 
-### The data contract
+No Textus editor code is compiled in. `NodeEditorView` mounts Drifting's
+`ChapterEditor` exactly as upstream does, so comments, review marks, Agent
+diff decorations, patch cards and typewriter scrolling all keep working.
 
-A chapter is stored as TipTap JSON. The editor opens with
-`pmJsonToMarkdown(content)`; each edit is debounced 400 ms, converted back
-with `markdownToPmJson`, and handed to `materializeCanonicalNodeProse`, so
-`contentJson`, `outlineJson` and `wordCount` are Drifting's own canonical
-projection. Nothing else in the app learns a new document format.
-
-Drifting's `prose` schema has paragraphs, headings 1–3, block quotes,
-horizontal rules, hard breaks and bold / italic / strike / underline / link /
-inline-code. Markdown that means more than that (lists, code blocks, tables)
-keeps its **words** as paragraphs on save; the structure is not stored. This is
-deliberate: the alternative is silently losing text.
-
-Edits the Agent makes land in Yjs; the surface watches the stored content and
-replaces the document when a newer one arrives.
-
-### What the chapter surface does not have yet
-
-- Drifting's inline comment / review decorations on the prose (no
-  `AgentDiffDecoration`, no selection comment bar on this surface). The other
-  entity editors keep theirs; `comment-marks-toggle.acceptance.test.ts` records
-  the chapter view as the one exception instead of asserting a feature it no
-  longer has.
-- The `patch` card flow and the "typewriter" scroll mode.
-- Entity name auto-linking inside the prose: `entityLink` marks are not
-  representable in Markdown, so they are not preserved through an edit.
-- Spellcheck/grammar from Textus (Textus AI is not part of this build).
-
-`VirtualChapterRow` (the all-chapters scroll view) still uses Drifting's TipTap
-surface, so the two views edit the same stored JSON by different means.
+Textus's editor was integrated during development and then removed: the
+chapter schema is deliberately narrow (no lists, code blocks or tables), and
+the swap cost Drifting's inline comments and Agent decorations. What this fork
+takes from Textus is the AI provider catalogue, not the editor.
 
 ## 5. Building on Windows without Visual Studio
 
@@ -151,6 +129,11 @@ PATH += <w64devkit>/bin        # gcc.exe for cc-rs (ring and friends)
 `dlltool.exe` (with `as.exe` beside it) satisfies the windows-gnu import-library
 step. `cargo check` and the renderer build are the gates used here; a signed
 installer is not produced by this setup.
+
+`src-tauri/Cargo.toml` lists only `rlib` for the library: the upstream list
+also builds a staticlib/cdylib for the iOS and Android shells, and on the GNU
+toolchain a cdylib exports every symbol and exceeds PE's 65535-export limit.
+Restore the full list when building mobile targets with MSVC.
 
 ### Shipping the executable
 

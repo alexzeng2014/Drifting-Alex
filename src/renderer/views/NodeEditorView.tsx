@@ -14,7 +14,7 @@ import {
   type WritingStatus,
 } from '../domain/book-node';
 import type { Storyline } from '../domain/storyline';
-import { TextusChapterEditor } from '../components/editor/TextusChapterEditor';
+import { ChapterEditor, type ChapterEditorRef } from '../components/editor/ChapterEditor';
 import { EditorDocumentLoadError } from '../components/editor/EditorDocumentLoadError';
 import { LoadingStatus } from '../components/ui/LoadingStatus';
 import { EditorReviewLayer } from '../components/editor/EditorReviewLayer';
@@ -32,6 +32,8 @@ import { useAgentChangeMarks } from '../hooks/useAgentChangeMarks';
 import { unbindMarkersForDrift } from '../hooks/useTimelineMarkers';
 import { unbindActsForDrift } from '../usecase/useBookAct';
 import type { OutlineItem } from '../lib/outline';
+import type { EntityLinkRef } from '../lib/extensions/entity-link';
+import { openEntityLinkTarget } from '../features/editor/open-entity-link';
 import {
   CONVERT_DRIFT_TO_CHAPTER_ACTION,
   CONVERT_DRIFT_TO_ELEMENT_ACTION,
@@ -65,6 +67,7 @@ import {
   ModalRoot,
 } from '../components/ui/Modal';
 import { useCanPromoteOnEdit, usePromoteCurrentTab, useUiStore } from '../store/ui-store';
+import { editorTabSelectionKey } from '../lib/editor-selection-memory';
 import type { EditorCommentRequest } from '../hooks/useEntityEditor';
 import { getLiveYDoc } from '../lib/yjs-doc-registry';
 import { makeDocId } from '../lib/yjs-doc-id';
@@ -193,6 +196,8 @@ const NodeEditorSession = memo(function NodeEditorSession({ nodeId, projectId }:
     walk(ROOT_GROUP_KEY, 0);
     return out;
   }, [driftGroups]);
+  // for focus at this level
+  const editorRef = useRef<ChapterEditorRef>(null);
   const activeNodeIdRef = useRef<string | null>(nodeId ?? null);
   // The planner seeds from its grid once; a write from outside it (the Agent)
   // reloads the projection and remounts the planner on the new grid.
@@ -380,6 +385,11 @@ const NodeEditorSession = memo(function NodeEditorSession({ nodeId, projectId }:
     reportReady(true);
     return () => reportReady(false);
   }, [isActiveNodeLoadError, reportReady]);
+
+  const handleEntityClick = useCallback(
+    (ref: EntityLinkRef) => openEntityLinkTarget(openEntity, ref),
+    [openEntity],
+  );
 
   // The ⁂ menu's "new chapter after" creates the next chapter in reading
   // order and opens it as a kept tab, like the sidebar's 新章节; its title
@@ -713,8 +723,9 @@ const NodeEditorSession = memo(function NodeEditorSession({ nodeId, projectId }:
                   )}
 
                   {isActiveNodeReady && !isActiveNodeLoadError ? (
-                    <TextusChapterEditor
+                    <ChapterEditor
                       key={nodeId}
+                      ref={editorRef}
                       nodeId={nodeId}
                       projectId={activeProjectId}
                       content={bookContent?.contentJson ?? null}
@@ -724,13 +735,20 @@ const NodeEditorSession = memo(function NodeEditorSession({ nodeId, projectId }:
                       onContentUpdate={handleContentUpdate}
                       onTitleUpdate={handleTitleUpdate}
                       onSummaryUpdate={handleSummaryUpdate}
+                      onEntityClick={handleEntityClick}
                       onOutlineChange={setOutline}
+                      onAddCommentRequest={setPendingComment}
                       showTitle={true}
                       showSummary={true}
                       editableTitle={true}
                       editableSummary={true}
                       autoFocus={false}
                       minHeight="400px"
+                      onReadyChange={reportReady}
+                      selectionKey={editorTabSelectionKey(activeProjectId, {
+                        entityType: 'node',
+                        id: nodeId,
+                      })}
                     />
                   ) : isActiveNodeLoadError ? (
                     <EditorDocumentLoadError />

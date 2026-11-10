@@ -1,10 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2021",
     "useDefineForClassFields": true,
-    /* ES2023 for Array.prototype.at and Intl.Segmenter, which the vendored
-       Textus editor uses. */
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
