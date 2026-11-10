@@ -123,3 +123,27 @@ PATH += <w64devkit>/bin        # gcc.exe for cc-rs (ring and friends)
 `dlltool.exe` (with `as.exe` beside it) satisfies the windows-gnu import-library
 step. `cargo check` and the renderer build are the gates used here; a signed
 installer is not produced by this setup.
+
+### Shipping the executable
+
+Use the Tauri CLI, not `cargo build` directly — a plain `cargo build --release`
+still bakes the dev URL in:
+
+```
+pnpm exec tauri build --no-bundle
+```
+
+The GNU toolchain links WebView2 **dynamically**: `cargo` leaves
+`WebView2Loader.dll` next to `drifting.exe` in `target/release/`, and the app
+fails with "WebView2Loader.dll was not found" if the executable is moved away
+from it. Every packaged download therefore contains both:
+
+```
+Drifting-Alex.exe
+WebView2Loader.dll      # Microsoft, x64, from the WebView2 build
+运行说明.txt
+```
+
+An MSVC build links `WebView2LoaderStatic.lib` instead and does not need the
+DLL; if a compiler-and-linker toolchain is ever installed, switch the target to
+`x86_64-pc-windows-msvc` and the extra file goes away.
