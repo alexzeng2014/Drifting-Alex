@@ -284,6 +284,8 @@ pub fn run() {
             mcp_stdio::mcp_stdio_status,
             openai_responses::openai_responses_stream,
             openai_responses::openai_responses_cancel,
+            openai_responses::byok_completion_stream,
+            openai_responses::byok_completion_cancel,
             codex_oauth::codex_oauth_start,
             codex_oauth::codex_oauth_status,
             codex_models::codex_models_list,

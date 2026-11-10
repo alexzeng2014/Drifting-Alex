@@ -412,6 +412,19 @@ export interface OpenAIResponsesRequestInput {
   credentialSource?: OpenAIResponsesCredentialSource;
 }
 
+/** Subscription providers whose chat endpoint must be reached natively. */
+export type ByokCompletionProvider = 'opencode_go';
+
+export interface ByokCompletionRequestInput {
+  /** Transport-only cancellation identity. */
+  requestId: string;
+  /** Chat-completions JSON body. Authorization and the routing session are
+   *  injected by native code. */
+  body: string;
+  timeoutMs: number;
+  provider: ByokCompletionProvider;
+}
+
 export type CodexLoginPhase =
   | 'awaiting_authorization'
   | 'exchanging'
@@ -813,6 +826,11 @@ export interface TauriCommandContract {
     result: void;
   };
   openai_responses_cancel: { args: { requestId: string }; result: boolean };
+  byok_completion_stream: {
+    args: { input: ByokCompletionRequestInput; onEvent: unknown };
+    result: void;
+  };
+  byok_completion_cancel: { args: { requestId: string }; result: boolean };
   codex_oauth_start: { args: undefined; result: CodexLoginProjection };
   codex_oauth_status: { args: undefined; result: CodexSubscriptionStatus };
   codex_models_list: { args: undefined; result: CodexModelCatalogResponse };

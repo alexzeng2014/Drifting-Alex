@@ -24,11 +24,22 @@ export interface OpenAIProviderConfig {
   /** Name used in user-facing error text. Defaults to `OpenAI`. */
   label?: string;
   /**
+   * Transport override. Endpoints that send no CORS headers (OpenCode Go)
+   * take their requests through native code instead of the WebView's fetch.
+   */
+  fetch?: typeof globalThis.fetch;
+  /**
    * Whether a model whose profile allows reasoning off gets
    * `reasoning_effort: "none"`. Endpoints that don't take the parameter
    * (`opencode-go`) leave it off entirely.
    */
   sendReasoningOff?: boolean;
+  /**
+   * Whether the request carries an output cap as `max_completion_tokens`.
+   * Gateways that publish their own ceiling (OpenCode Go, like Textus's
+   * generic client) leave the field out and let the endpoint decide.
+   */
+  sendCompletionCap?: boolean;
 }
 
 /** OpenAI Chat Completions adapter with strict Agent terminal accounting. */
@@ -42,17 +53,20 @@ export class OpenAIProvider implements LLMProvider {
   private readonly providerId: AgentProviderId;
   private readonly label: string;
   private readonly sendReasoningOff: boolean;
+  private readonly sendCompletionCap: boolean;
 
   constructor(config: OpenAIProviderConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
       ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+      ...(config.fetch ? { fetch: config.fetch } : {}),
       dangerouslyAllowBrowser: true,
     });
     this.providerId = config.id ?? 'openai';
     this.id = this.providerId;
     this.label = config.label ?? 'OpenAI';
     this.sendReasoningOff = config.sendReasoningOff ?? true;
+    this.sendCompletionCap = config.sendCompletionCap ?? true;
     this.defaultModel = config.defaultModel ?? defaultAgentProviderModel(this.providerId);
   }
 
@@ -66,7 +80,9 @@ export class OpenAIProvider implements LLMProvider {
           messages: buildMessages(request),
           tools: buildTools(request),
           tool_choice: buildToolChoice(request),
-          max_completion_tokens: request.maxOutputTokens,
+          ...(this.sendCompletionCap
+            ? { max_completion_tokens: request.maxOutputTokens }
+            : {}),
           ...(this.allowsReasoningOff(model)
             ? { reasoning_effort: 'none' as const }
             : {}),
@@ -111,7 +127,9 @@ export class OpenAIProvider implements LLMProvider {
           messages: buildMessages(request),
           tools: buildTools(request),
           tool_choice: buildToolChoice(request),
-          max_completion_tokens: request.maxOutputTokens,
+          ...(this.sendCompletionCap
+            ? { max_completion_tokens: request.maxOutputTokens }
+            : {}),
           ...(this.allowsReasoningOff(model)
             ? { reasoning_effort: 'none' as const }
             : {}),

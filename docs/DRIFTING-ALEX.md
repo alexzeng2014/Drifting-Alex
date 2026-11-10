@@ -56,11 +56,33 @@ Bundled models, in menu order: **glm-5.3** (default), deepseek-v4-pro,
 deepseek-v4.1-flash, kimi-k2.7-code, glm-5.2. The subscription's own `/models`
 list replaces this when the key works.
 
-The adapter never sends `reasoning_effort`: the endpoint takes no reasoning
-switch, so the button group is hidden by the model's reasoning profile rather
-than being sent and rejected.
+The adapter never sends `reasoning_effort` or an output cap: the endpoint takes
+no reasoning switch, and (as Textus's generic client does) it publishes its own
+completion ceiling, so neither field is sent.
 
-Test connection (Settings → Models & API) uses the same adapter.
+### Why OpenCode Go requests leave from native code
+
+The endpoint is not usable from the WebView:
+
+- its CORS preflight (`OPTIONS`) answers **404**, so any renderer `fetch` with
+  an `Authorization` header is blocked before the request exists;
+- it rejects a request without an `x-opencode-session` routing id
+  (`400 MissingSessionID`), a header Textus adds in its Rust client.
+
+So `src-tauri/src/openai_responses.rs` also serves BYOK completions:
+`byok_completion_stream` / `byok_completion_cancel` read the key from secure
+storage, add `Authorization: Bearer` and a per-run
+`x-opencode-session: drifting-alex-<hex>`, and relay the response as
+start/chunk/finish channel events. `src/renderer/platform/tauri.ts` turns those
+events into a streaming `Response`, and `opencode-go.ts` hands that
+`Response`-producing function to the OpenAI SDK as its `fetch`. The SDK, the
+driver and the Agent runtime are unchanged.
+
+Any future provider whose endpoint refuses browser requests goes through the
+same pair of commands rather than a second transport.
+
+Test connection (Settings → Models & API) uses the same path, so it exercises
+the real wire.
 
 ## 4. Chapter editor — Textus
 

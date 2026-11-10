@@ -6,6 +6,7 @@ import { hasPdfSignature, renderPdfThumbnail } from '../lib/pdf-thumbnail';
 import { consumePendingNativeOAuth, createPendingNativeOAuth } from './native-oauth-state';
 import { LOCATION_OPEN_PREFIX } from '../lib/location-link';
 import type {
+  ByokCompletionRequestInput,
   ContractAvailability,
   AppUpdateDownloadEvent,
   CodexImagesGenerateInput,
@@ -15,6 +16,7 @@ import type {
   NativeBytes,
   NativePlatformCapabilities,
   OpenAIResponsesCredentialSource,
+  OpenAIResponsesRequestInput,
   OpenAIResponsesStreamEvent,
   PlatformCapabilities,
   PrepareImageResult,
@@ -290,10 +292,46 @@ function nativeOpenAIResponse(
   signal: AbortSignal,
   credentialSource: OpenAIResponsesCredentialSource,
 ): Promise<Response> {
-  requireTauriRuntime('openai_responses_stream');
+  return nativeStreamedResponse({
+    command: 'openai_responses_stream',
+    cancelCommand: 'openai_responses_cancel',
+    input: {
+      requestId: openAIRequestId(),
+      body,
+      timeoutMs: 600_000,
+      credentialSource,
+    },
+    signal,
+  });
+}
+
+/**
+ * One native, streamed provider request. Both the OpenAI Responses transport
+ * and the BYOK subscription completions share this shape: a channel of
+ * start/chunk/finish events becomes a `Response` whose body is a
+ * `ReadableStream`, so a provider SDK sees an ordinary `fetch`.
+ */
+type NativeStreamRequest =
+  | {
+      command: 'openai_responses_stream';
+      cancelCommand: 'openai_responses_cancel';
+      input: OpenAIResponsesRequestInput;
+      signal: AbortSignal;
+    }
+  | {
+      command: 'byok_completion_stream';
+      cancelCommand: 'byok_completion_cancel';
+      input: ByokCompletionRequestInput;
+      signal: AbortSignal;
+    };
+
+function nativeStreamedResponse(request: NativeStreamRequest): Promise<Response> {
+  const { command, cancelCommand, input, signal } = request;
+  const body = typeof input['body'] === 'string' ? input['body'] : '';
+  requireTauriRuntime(command);
   if (signal.aborted) return Promise.reject(abortException());
 
-  const requestId = openAIRequestId();
+  const requestId = input.requestId;
   let streamController!: ReadableStreamDefaultController<Uint8Array>;
   let started = false;
   let finished = false;
@@ -314,7 +352,7 @@ function nativeOpenAIResponse(
     }
   };
   const cancelNative = () => {
-    void invokeContract('openai_responses_cancel', { requestId }).catch(() => undefined);
+    void invokeContract(cancelCommand, { requestId }).catch(() => undefined);
   };
   const onAbort = () => {
     cancelNative();
@@ -338,11 +376,16 @@ function nativeOpenAIResponse(
     if (finished) return;
     if (event.type === 'started') {
       if (started) {
-        fail(new PlatformCommandError('openai_responses_stream', 'duplicate start event'));
+        fail(new PlatformCommandError(command, 'duplicate start event'));
         return;
       }
       started = true;
-      const headers = new Headers({ 'content-type': 'text/event-stream' });
+      // A streaming request answers with SSE; a one-shot completion answers
+      // with JSON. The caller's own body says which.
+      const streaming = body.includes('"stream":true');
+      const headers = new Headers({
+        'content-type': streaming ? 'text/event-stream' : 'application/json',
+      });
       if (event.requestId) headers.set('x-request-id', event.requestId);
       if (event.errorCode) headers.set('x-drifting-openai-error-code', event.errorCode);
       if (event.errorMessage) headers.set('x-drifting-openai-error-message', event.errorMessage);
@@ -351,7 +394,7 @@ function nativeOpenAIResponse(
       return;
     }
     if (!started) {
-      fail(new PlatformCommandError('openai_responses_stream', 'stream data preceded start'));
+      fail(new PlatformCommandError(command, 'stream data preceded start'));
       return;
     }
     if (event.type === 'chunk') {
@@ -366,10 +409,11 @@ function nativeOpenAIResponse(
   });
 
   signal.addEventListener('abort', onAbort, { once: true });
-  void invokeContract('openai_responses_stream', {
-    input: { requestId, body, timeoutMs: 600_000, credentialSource },
-    onEvent,
-  }).catch(fail);
+  if (request.command === 'openai_responses_stream') {
+    void invokeContract('openai_responses_stream', { input: request.input, onEvent }).catch(fail);
+  } else {
+    void invokeContract('byok_completion_stream', { input: request.input, onEvent }).catch(fail);
+  }
   return response;
 }
 
@@ -903,6 +947,16 @@ export const tauriPlatform: PlatformApi = {
 
   openAIResponses: {
     request: (body, signal) => nativeOpenAIResponse(body, signal, 'api_key'),
+  },
+
+  byokCompletion: {
+    request: (body, signal, provider) =>
+      nativeStreamedResponse({
+        command: 'byok_completion_stream',
+        cancelCommand: 'byok_completion_cancel',
+        input: { requestId: openAIRequestId(), body, timeoutMs: 600_000, provider },
+        signal,
+      }),
   },
 
   codexSubscription: {

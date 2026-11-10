@@ -13,6 +13,9 @@ use crate::secure_storage;
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 const OPENAI_KEY_ID: &str = "byok.openai";
+/// The OpenCode Go subscription's OpenAI-compatible chat endpoint.
+const OPENCODE_GO_URL: &str = "https://opencode.ai/zen/go/v1/chat/completions";
+const OPENCODE_GO_KEY_ID: &str = "byok.opencode-go";
 const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_ERROR_BYTES: usize = 64 * 1024;
@@ -141,19 +144,23 @@ pub fn openai_responses_cancel(
     state: State<'_, OpenAIResponsesState>,
     request_id: String,
 ) -> Result<bool, String> {
-    validate_id(&request_id)?;
+    cancel_request(&state, &request_id)
+}
+
+fn cancel_request(state: &OpenAIResponsesState, request_id: &str) -> Result<bool, String> {
+    validate_id(request_id)?;
     let mut pending = state
         .pending
         .lock()
         .map_err(|_| "OPENAI_TRANSPORT_UNAVAILABLE: request state is unavailable")?;
-    if let Some(handle) = pending.requests.remove(&request_id) {
+    if let Some(handle) = pending.requests.remove(request_id) {
         handle.abort();
         return Ok(true);
     }
     if pending.pre_cancelled.len() >= MAX_PRE_CANCELLED {
         return Err("OPENAI_TRANSPORT_UNAVAILABLE: cancellation queue is full".into());
     }
-    Ok(pending.pre_cancelled.insert(request_id))
+    Ok(pending.pre_cancelled.insert(request_id.to_owned()))
 }
 
 async fn execute(
@@ -202,10 +209,21 @@ async fn execute(
         return Ok(());
     }
 
+    relay_success(response, status.as_u16(), request_id, on_event).await
+}
+
+/// Relays a successful upstream response to the renderer: one start event,
+/// the body's chunks as they arrive, then the terminate event.
+async fn relay_success(
+    response: reqwest::Response,
+    status: u16,
+    request_id: Option<String>,
+    on_event: Channel<OpenAIResponsesStreamEvent>,
+) -> Result<(), String> {
     send_event(
         &on_event,
         OpenAIResponsesStreamEvent::Started {
-            status: status.as_u16(),
+            status,
             request_id,
             error_code: None,
             error_message: None,
@@ -248,6 +266,185 @@ async fn send_openai_request(
         .send()
         .await
         .map_err(project_network_error)
+}
+
+/* ------------------------------------------------------------------ */
+/* BYOK OpenCode Go completions                                        */
+/* ------------------------------------------------------------------ */
+
+/// Which subscription endpoint a completion is for. Only OpenCode Go needs
+/// the native route today: its endpoint sends no CORS headers and refuses a
+/// request without a routing session id, neither of which a renderer `fetch`
+/// can satisfy.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ByokCompletionProvider {
+    OpencodeGo,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ByokCompletionRequestInput {
+    request_id: String,
+    body: String,
+    timeout_ms: u64,
+    provider: ByokCompletionProvider,
+}
+
+/// One session id for this run of the app, as OpenCode's routing (and its
+/// prompt cache) expects it to stay stable across a conversation.
+fn opencode_session() -> &'static str {
+    static SESSION: OnceLock<String> = OnceLock::new();
+    SESSION.get_or_init(|| {
+        let mut bytes = [0_u8; 8];
+        if getrandom::getrandom(&mut bytes).is_err() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or(0) as u64;
+            bytes = nanos.to_le_bytes();
+        }
+        format!("drifting-alex-{:016x}", u64::from_le_bytes(bytes))
+    })
+}
+
+/// Streams one chat-completions request for a BYOK subscription provider.
+/// The credential is read here and never crosses IPC.
+#[tauri::command]
+pub async fn byok_completion_stream(
+    app: AppHandle,
+    state: State<'_, OpenAIResponsesState>,
+    input: ByokCompletionRequestInput,
+    on_event: Channel<OpenAIResponsesStreamEvent>,
+) -> Result<(), String> {
+    validate_id(&input.request_id)?;
+    if input.body.len() > MAX_REQUEST_BYTES {
+        return Err("OPENAI_INVALID_REQUEST: request body is too large".into());
+    }
+    let client = state.client()?;
+    let (abort, registration) = AbortHandle::new_pair();
+    {
+        let mut pending = state
+            .pending
+            .lock()
+            .map_err(|_| "OPENAI_TRANSPORT_UNAVAILABLE: request state is unavailable")?;
+        if pending.pre_cancelled.remove(&input.request_id) {
+            return Err("OPENAI_REQUEST_CANCELLED: request was cancelled".into());
+        }
+        if pending
+            .requests
+            .insert(input.request_id.clone(), abort)
+            .is_some()
+        {
+            return Err("OPENAI_INVALID_REQUEST: request id is already active".into());
+        }
+    }
+
+    let request_id = input.request_id.clone();
+    let result =
+        Abortable::new(execute_byok(app, client, input, on_event), registration).await;
+    if let Ok(mut pending) = state.pending.lock() {
+        pending.requests.remove(&request_id);
+        pending.pre_cancelled.remove(&request_id);
+    }
+    match result {
+        Ok(result) => result,
+        Err(_) => Err("OPENAI_REQUEST_CANCELLED: request was cancelled".into()),
+    }
+}
+
+#[tauri::command]
+pub fn byok_completion_cancel(
+    state: State<'_, OpenAIResponsesState>,
+    request_id: String,
+) -> Result<bool, String> {
+    cancel_request(&state, &request_id)
+}
+
+async fn execute_byok(
+    app: AppHandle,
+    client: reqwest::Client,
+    input: ByokCompletionRequestInput,
+    on_event: Channel<OpenAIResponsesStreamEvent>,
+) -> Result<(), String> {
+    let key_id = match input.provider {
+        ByokCompletionProvider::OpencodeGo => OPENCODE_GO_KEY_ID,
+    };
+    let api_key = tauri::async_runtime::spawn_blocking(move || {
+        secure_storage::read_secret(&app, key_id)
+    })
+    .await
+    .map_err(|_| "OPENAI_CREDENTIAL_UNAVAILABLE: secure storage worker failed")?
+    .map_err(|_| "OPENAI_CREDENTIAL_UNAVAILABLE: provider key could not be read")?
+    .filter(|value| !value.trim().is_empty())
+    .ok_or_else(|| {
+        "OPENAI_CREDENTIAL_MISSING: no OpenCode Go API key is configured".to_string()
+    })?;
+
+    let timeout = Duration::from_millis(input.timeout_ms.min(600_000));
+    let response = client
+        .post(OPENCODE_GO_URL)
+        .header(ACCEPT, "text/event-stream")
+        .header(CONTENT_TYPE, "application/json")
+        .header("x-opencode-session", opencode_session())
+        .bearer_auth(api_key)
+        .timeout(timeout)
+        .body(input.body)
+        .send()
+        .await
+        .map_err(project_network_error)?;
+
+    let status = response.status();
+    let request_id = project_request_id(response.headers());
+    if !status.is_success() {
+        let body = read_bounded_error(response).await?;
+        let (error_code, error_message) = project_byok_error(status.as_u16(), &body);
+        send_event(
+            &on_event,
+            OpenAIResponsesStreamEvent::Started {
+                status: status.as_u16(),
+                request_id,
+                error_code: Some(error_code),
+                error_message: Some(error_message),
+            },
+        )?;
+        send_event(&on_event, OpenAIResponsesStreamEvent::Finished)?;
+        return Ok(());
+    }
+
+    relay_success(response, status.as_u16(), request_id, on_event).await
+}
+
+/// The subscription's own error vocabulary, kept short: the renderer maps the
+/// status to the message the author sees.
+fn project_byok_error(status: u16, body: &[u8]) -> (String, String) {
+    let kind = serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("error")
+                .and_then(|error| error.get("type"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if status == 401 || status == 403 || kind.contains("authentication") {
+        return ("authentication_failed".into(), "OpenCode Go rejected the API key.".into());
+    }
+    if status == 429 || kind.contains("rate") {
+        return ("rate_limited".into(), "OpenCode Go rate limit reached.".into());
+    }
+    if kind.contains("missing") || status == 400 {
+        return (
+            "invalid_request".into(),
+            "OpenCode Go rejected the request shape.".into(),
+        );
+    }
+    (
+        "provider_unavailable".into(),
+        "OpenCode Go is temporarily unavailable.".into(),
+    )
 }
 
 /// Codex backend request with the subscription bearer. A rejected token is

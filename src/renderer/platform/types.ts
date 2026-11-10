@@ -21,6 +21,7 @@ import type {
   AssetVariant,
   CodexLoginProjection,
   CodexModelCatalogResponse,
+  ByokCompletionProvider,
   ByokModelCatalogResponse,
   ByokModelProvider,
   CodexImagesGenerateInput,
@@ -322,6 +323,20 @@ export interface OpenAIResponsesPlatformApi {
 }
 
 /**
+ * Subscription providers whose chat endpoint sends no CORS headers (and wants
+ * a routing session id), so the request has to leave from native code. The
+ * response is an ordinary `Response`, which is what a provider SDK's `fetch`
+ * needs.
+ */
+export interface ByokCompletionPlatformApi {
+  request(
+    body: string,
+    signal: AbortSignal,
+    provider: ByokCompletionProvider,
+  ): Promise<Response>;
+}
+
+/**
  * Experimental ChatGPT subscription route. The OAuth tokens live only in
  * native secure storage; the renderer drives sign-in and reads status.
  */
@@ -418,6 +433,7 @@ export interface PlatformApi {
   readonly mcpStdio: McpStdioPlatformApi;
   readonly mcpHttp: McpHttpPlatformApi;
   readonly openAIResponses: OpenAIResponsesPlatformApi;
+  readonly byokCompletion: ByokCompletionPlatformApi;
   readonly codexSubscription: CodexSubscriptionPlatformApi;
   readonly byokModels: ByokModelsPlatformApi;
   readonly imageGeneration: ImageGenerationPlatformApi;
