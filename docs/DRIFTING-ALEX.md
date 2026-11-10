@@ -141,7 +141,7 @@ from it. Every packaged download therefore contains both:
 ```
 Drifting-Alex.exe
 WebView2Loader.dll      # Microsoft, x64, from the WebView2 build
-运行说明.txt
+README.txt              # how to run it, in Chinese
 ```
 
 An MSVC build links `WebView2LoaderStatic.lib` instead and does not need the
