@@ -205,21 +205,25 @@ export const AGENT_PROVIDER_OPTIONS: readonly AgentProviderOption[] = Object.fre
         label: 'GLM-5.3 · writing',
         short: 'GLM-5.3',
         context: profile('glm-5.3:opencode-go-agent-v1', 1_000_000, 128_000, 512),
-        reasoning: ALWAYS_REASONING,
+        // The subscription's endpoint takes no reasoning switch and the
+        // generic completion driver cannot replay reasoning state, so these
+        // models declare no thinking control. The model still thinks on the
+        // server; the Agent simply never asks for or replays it.
+        reasoning: NO_REASONING,
       },
       {
         value: 'deepseek-v4-pro',
         label: 'DeepSeek V4 Pro · steady',
         short: 'V4 Pro',
         context: profile('deepseek-v4-pro:opencode-go-agent-v1', 1_048_576, 393_216, 512),
-        reasoning: DEEPSEEK_CURRENT_REASONING,
+        reasoning: NO_REASONING,
       },
       {
         value: 'deepseek-v4.1-flash',
         label: 'DeepSeek V4.1 Flash · fast',
         short: 'V4.1 Flash',
         context: profile('deepseek-v4.1-flash:opencode-go-agent-v1', 1_048_576, 393_216, 512),
-        reasoning: DEEPSEEK_CURRENT_REASONING,
+        reasoning: NO_REASONING,
       },
       {
         value: 'kimi-k2.7-code',
@@ -233,7 +237,7 @@ export const AGENT_PROVIDER_OPTIONS: readonly AgentProviderOption[] = Object.fre
         label: 'GLM-5.2 · previous',
         short: 'GLM-5.2',
         context: profile('glm-5.2:opencode-go-agent-v1', 1_000_000, 128_000, 512),
-        reasoning: ALWAYS_REASONING,
+        reasoning: NO_REASONING,
       },
     ]),
   },
@@ -404,10 +408,13 @@ function byokModelOption(
         provider === 'anthropic' ? 768 : provider === 'openai' ? 640 : 512,
       ),
       // Not every listed model accepts reasoning off (`none` / disabled
-      // thinking); the OpenCode Go endpoint takes no reasoning switch at all.
+      // thinking); the OpenCode Go endpoint takes no reasoning switch at all,
+      // and its models therefore declare none.
       reasoning: provider === 'deepseek'
         ? DEEPSEEK_REASONING
-        : reasoningProfile(['adaptive'], ['low', 'medium', 'high']),
+        : provider === 'opencode-go'
+          ? NO_REASONING
+          : reasoningProfile(['adaptive'], ['low', 'medium', 'high']),
       ...(provider === 'anthropic' ? { forcedToolChoice: false } : {}),
     };
   }
@@ -428,8 +435,7 @@ function byokModelOption(
         null,
         512,
       ),
-      reasoning: known?.reasoning
-        ?? reasoningProfile(['adaptive'], ['low', 'medium', 'high']),
+      reasoning: known?.reasoning ?? NO_REASONING,
     };
   }
   if (provider === 'deepseek') {

@@ -338,7 +338,9 @@ describe('OpenCode Go', () => {
     expect(hasListedAgentModels('opencode-go')).toBe(true);
     expect(agentProviderModelOption('opencode-go', 'glm-5.3')).toMatchObject({
       context: { contextWindowTokens: 1_000_000 },
-      reasoning: { thinkingModes: ['adaptive'] },
+      // The generic completion driver cannot replay reasoning state, so the
+      // subscription's models offer no thinking control at all.
+      reasoning: { thinkingModes: ['off'], efforts: [] },
     });
     setByokModelCatalog('opencode-go', null);
     expect(hasListedAgentModels('opencode-go')).toBe(false);
