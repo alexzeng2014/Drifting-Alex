@@ -1,0 +1,316 @@
+import { registerAuthoredYjsMaterialization } from '../sync/journal/yjs-materialization';
+/**
+ * Snapshot restore — applies a time-machine capture back onto the entity.
+ *
+ * Prose restore is COVER semantics through the normal Yjs write paths (a CRDT
+ * can't rewind, so we author a forward edit that replaces the body with the
+ * snapshot's content): the snapshot blob is hydrated into a scratch doc and
+ * its fragment children are CLONED into the target doc inside one transaction.
+ *   - live doc (entity open in an editor): the editor's own update handler
+ *     persists + syncs the transaction like any user edit
+ *   - closed doc with Yjs state: rehydrate → mutate → append diff + snapshot
+ *     (the same shape as the agent's closed-doc write path)
+ *   - never-opened doc: no Yjs to mutate; the contentJson cache write below
+ *     seeds the editor on first open
+ * Metadata (title/name/summary/kv…) is written back through the same live
+ * usecases agent edits use, so optimistic updates + the sync outbox apply.
+ *
+ * Before touching anything, the CURRENT state is captured into the history
+ * (reason 'restore', interval-exempt) — a restore is always undoable by
+ * restoring the auto-captured pre-restore row.
+ */
+import { yDocToProsemirrorJSON } from 'y-prosemirror';
+import * as Y from 'yjs';
+import loglevel from 'loglevel';
+import {
+  createEntitySnapshotRepository,
+  type EntitySnapshotRow,
+} from '../sqlite-repo/entity-snapshot-repo';
+import { createYjsRepository } from '../sqlite-repo/yjs-repo';
+import { isProseEntityType, snapshotDocId, type ProseEntityType } from '../lib/yjs-doc-id';
+import { getLiveYDoc } from '../lib/yjs-doc-registry';
+import { getActiveAgentToolContext, type AgentToolContext } from '../lib/agent/tool-handlers';
+import { useAgentEditStore } from '../store/agent-edit-store';
+import { useAgentActivityStore } from '../store/agent-activity-store';
+import { materializeCanonicalNodeProse } from './node-prose-metrics.service';
+import { createLibraryItemUsecases } from '../usecase/useLibraryItem';
+import { useAuthStore } from '../store/auth';
+import { useDataStore } from '../store/data-store';
+import { isNoteTaskTodo, noteTaskTodoInput } from '../domain/comment';
+import { noteTaskItems } from '../lib/note-tasks';
+import { readNoteTaskLinks, setNoteTaskLinks } from '../lib/note-task-document';
+import type { WritingStatus } from '../domain/book-node';
+import {
+  compactUpdatesAfterSnapshot,
+  flushOpenYjsDocument,
+} from './yjs-local-durability.service';
+import { appendYjsUpdateMutation, runAuthoredTransaction } from '../sync/journal';
+import {
+  captureSnapshotHistory,
+  maybeCaptureSnapshotHistory,
+  type SnapshotMeta,
+} from './snapshot-history.service';
+
+const log = loglevel.getLogger('snapshot-restore');
+log.setLevel(loglevel.levels.WARN);
+
+// Treated as a LOCAL edit by useYjsDoc's update handler (unlike the reserved
+// 'restore' origin, which marks server-known state): the replacement ops are
+// brand-new and must persist + journal like a user edit.
+const RESTORE_ORIGIN = 'history-restore';
+
+/** Replace the target fragment's children with deep clones of the source's. */
+function replaceFragmentContent(target: Y.XmlFragment, source: Y.XmlFragment): void {
+  if (target.length > 0) target.delete(0, target.length);
+  const clones = source
+    .toArray()
+    .map((node) => node.clone() as Y.XmlElement | Y.XmlText);
+  if (clones.length > 0) target.insert(0, clones);
+}
+
+async function applyProseState(
+  projectId: string,
+  docId: string,
+  stateBlob: Uint8Array,
+): Promise<string> {
+  const source = new Y.Doc();
+  try {
+    Y.applyUpdate(source, stateBlob, 'load');
+    const sourceFrag = source.getXmlFragment('default');
+
+    const live = getLiveYDoc(docId);
+    if (live) {
+      live.transact(() => replaceFragmentContent(live.getXmlFragment('default'), sourceFrag), RESTORE_ORIGIN);
+      await flushOpenYjsDocument(docId);
+      return JSON.stringify(yDocToProsemirrorJSON(live, 'default'));
+    }
+
+    const yrepo = createYjsRepository();
+    if (await yrepo.hasDocState(docId)) {
+      const doc = new Y.Doc();
+      try {
+        const snap = await yrepo.getSnapshot(docId);
+        if (snap) Y.applyUpdate(doc, snap.stateBlob, 'load');
+        for (const u of await yrepo.listUpdates(docId)) Y.applyUpdate(doc, u.updateBlob, 'load');
+
+        const diff: Uint8Array[] = [];
+        const onUpdate = (u: Uint8Array, origin: unknown) => {
+          if (origin === RESTORE_ORIGIN) diff.push(new Uint8Array(u));
+        };
+        doc.on('update', onUpdate);
+        doc.transact(
+          () => replaceFragmentContent(doc.getXmlFragment('default'), sourceFrag),
+          RESTORE_ORIGIN,
+        );
+        doc.off('update', onUpdate);
+
+        const fullState = Y.encodeStateAsUpdate(doc);
+        if (diff.length > 0) {
+          const coveredId = await runAuthoredTransaction(
+            projectId,
+            'history.restore-prose',
+            async ({ tx, changes }) => {
+              const txRepo = createYjsRepository(tx);
+              let lastUpdateId = 0;
+              for (const update of diff) {
+                const mutationIndex = appendYjsUpdateMutation(changes, docId, update);
+                const appended = await txRepo.appendMaterializedUpdate(
+                  docId,
+                  update,
+                  { kind: 'authored', builder: changes, mutationIndex },
+                  { kind: 'user' },
+                );
+                lastUpdateId = appended.updateId;
+                registerAuthoredYjsMaterialization(tx, changes, mutationIndex, appended.token);
+              }
+              await txRepo.upsertSnapshot(docId, fullState, {
+                source: { kind: 'user' },
+              });
+              return lastUpdateId;
+            },
+          );
+          maybeCaptureSnapshotHistory(docId, fullState, 'restore');
+          await compactUpdatesAfterSnapshot(docId, coveredId, yrepo);
+        }
+        return JSON.stringify(yDocToProsemirrorJSON(doc, 'default'));
+      } finally {
+        doc.destroy();
+      }
+    }
+
+    // Never-opened doc: nothing to mutate — the caller persists the snapshot's
+    // contentJson as the seed the editor reads on first open.
+    return JSON.stringify(yDocToProsemirrorJSON(source, 'default'));
+  } finally {
+    source.destroy();
+  }
+}
+
+/**
+ * Keeps a restored note's checklist and TODOs agreeing
+ * (docs/material-workbench.md): lines the restore removed take their TODOs
+ * with them, and restored lines whose TODO is gone get a new one (or wait to
+ * be projected while the note's switch is off). Returns the note's body JSON.
+ * Exported for tests.
+ */
+export async function settleRestoredNoteTasks(
+  ctx: AgentToolContext,
+  row: EntitySnapshotRow,
+  linkedBefore: ReadonlySet<string>,
+  contentJson: string,
+): Promise<string> {
+  const noteId = row.entityId;
+  const byId = new Map(useDataStore.getState().comments.map((comment) => [comment.id, comment]));
+  const tasks = noteTaskItems(contentJson);
+  const linkedAfter = new Set(tasks.map((task) => task.todoId).filter((id): id is string => Boolean(id)));
+
+  for (const todoId of linkedBefore) {
+    if (linkedAfter.has(todoId)) continue;
+    const todo = byId.get(todoId);
+    if (todo && isNoteTaskTodo(todo) && todo.targetId === noteId) await ctx.write.deleteComment(todoId);
+  }
+
+  // A never-opened note only gets the snapshot as its seed; it has no lines
+  // to link yet.
+  const docId = snapshotDocId('library_item', noteId);
+  if (!getLiveYDoc(docId) && !(await createYjsRepository().hasDocState(docId))) return contentJson;
+  const projecting = useDataStore.getState().libraryItems.find((item) => item.id === noteId)?.taskTodos ?? true;
+  const links = new Map<string, string | null>();
+  for (const task of tasks) {
+    if (!task.todoId || !task.blockId || byId.get(task.todoId)?.kind === 'todo') continue;
+    if (!projecting || !task.text) {
+      links.set(task.blockId, null);
+      continue;
+    }
+    const created = (await ctx.write.createComment(noteTaskTodoInput(noteId, task.blockId, task.text))) as { id: string };
+    if (task.checked) await ctx.write.resolveComment(created.id);
+    links.set(task.blockId, created.id);
+  }
+  return (await setNoteTaskLinks(row.projectId, noteId, links)) ?? contentJson;
+}
+
+/** Capture the CURRENT state as a pre-restore safety row (if any state exists). */
+async function captureCurrentState(docId: string): Promise<void> {
+  const live = getLiveYDoc(docId);
+  if (live) {
+    await captureSnapshotHistory(docId, Y.encodeStateAsUpdate(live), 'restore');
+    return;
+  }
+  const yrepo = createYjsRepository();
+  if (!(await yrepo.hasDocState(docId))) return;
+  const doc = new Y.Doc();
+  try {
+    const snap = await yrepo.getSnapshot(docId);
+    if (snap) Y.applyUpdate(doc, snap.stateBlob, 'load');
+    for (const u of await yrepo.listUpdates(docId)) Y.applyUpdate(doc, u.updateBlob, 'load');
+    await captureSnapshotHistory(docId, Y.encodeStateAsUpdate(doc), 'restore');
+  } finally {
+    doc.destroy();
+  }
+}
+
+async function restoreMetadata(
+  ctx: AgentToolContext,
+  row: EntitySnapshotRow,
+  contentJson: string,
+): Promise<void> {
+  const meta: SnapshotMeta = row.metaJson ? (JSON.parse(row.metaJson) as SnapshotMeta) : {};
+  switch (row.entityKind) {
+    case 'node': {
+      await materializeCanonicalNodeProse(row.projectId, row.entityId, contentJson);
+      await ctx.write.updateNode(row.entityId, {
+        ...(meta.title !== undefined ? { title: meta.title } : {}),
+        ...(meta.summary !== undefined ? { summary: meta.summary } : {}),
+        ...(meta.writingStatus !== undefined
+          ? { writingStatus: meta.writingStatus as WritingStatus }
+          : {}),
+      });
+      return;
+    }
+    case 'element': {
+      const fields = {
+        contentJson,
+        ...(meta.summary !== undefined ? { summary: meta.summary } : {}),
+        ...(meta.groupName !== undefined ? { groupName: meta.groupName } : {}),
+        ...(meta.kvJson !== undefined ? { kvJson: meta.kvJson } : {}),
+      };
+      try {
+        await ctx.write.updateElement(row.entityId, {
+          ...fields,
+          ...(meta.name !== undefined ? { name: meta.name } : {}),
+          ...(meta.aliases !== undefined ? { aliases: meta.aliases } : {}),
+        });
+      } catch (err) {
+        // The historical name/aliases may now collide with another element
+        // (uniqueness invariant). Keep the current identity, restore the rest.
+        log.warn('snapshot restore: name/alias conflict — keeping current name', err);
+        await ctx.write.updateElement(row.entityId, fields);
+      }
+      return;
+    }
+    case 'storyline': {
+      await ctx.write.updateStoryline({
+        id: row.entityId,
+        contentJson,
+        ...(meta.name !== undefined ? { name: meta.name } : {}),
+        ...(meta.summary !== undefined ? { summary: meta.summary } : {}),
+        ...(meta.kvJson !== undefined ? { kvJson: meta.kvJson } : {}),
+      });
+      return;
+    }
+    case 'category': {
+      await ctx.write.updateCategory(row.entityId, {
+        contentJson,
+        ...(meta.name !== undefined ? { name: meta.name } : {}),
+        ...(meta.elementTemplateKvJson !== undefined
+          ? { elementTemplateKvJson: meta.elementTemplateKvJson }
+          : {}),
+      });
+      return;
+    }
+    case 'library_item': {
+      const userId = useAuthStore.getState().user?.id;
+      if (!userId) throw new Error('No signed-in user to restore the note as.');
+      const notes = createLibraryItemUsecases({ projectId: row.projectId, userId });
+      await notes.projectNoteBody(row.entityId, contentJson);
+      if (meta.title !== undefined) await notes.updateLibraryItem(row.entityId, { title: meta.title });
+      return;
+    }
+  }
+}
+
+/**
+ * Restore an entity to a history snapshot (prose + metadata). Throws when the
+ * snapshot row is gone or no project layout is mounted (no write context).
+ */
+export async function restoreEntitySnapshot(snapshotId: string): Promise<void> {
+  const repo = createEntitySnapshotRepository();
+  const row = await repo.getById(snapshotId);
+  if (!row) throw new Error('Snapshot does not exist or may have been cleaned up');
+  await restoreEntitySnapshotPayload(row);
+}
+
+/** Apply one history row after the caller resolves its local snapshot id. */
+async function restoreEntitySnapshotPayload(row: EntitySnapshotRow): Promise<void> {
+  const ctx = getActiveAgentToolContext();
+  if (!ctx) throw new Error('No writable project context is available. Restore inside an open project.');
+
+  const docId = snapshotDocId(row.entityKind, row.entityId);
+
+  // Safety net first: the pre-restore state becomes its own history row.
+  await captureCurrentState(docId);
+
+  const noteLinksBefore = row.entityKind === 'library_item' ? await readNoteTaskLinks(row.entityId) : null;
+  let contentJson = await applyProseState(row.projectId, docId, row.stateBlob);
+  if (noteLinksBefore) contentJson = await settleRestoredNoteTasks(ctx, row, noteLinksBefore, contentJson);
+  await restoreMetadata(ctx, row, contentJson);
+
+  // Pending agent-review markers referenced the replaced content — clear them
+  // (the restore supersedes that review), along with the activity "M" dot.
+  if (isProseEntityType(row.entityKind)) {
+    useAgentEditStore.getState().clear(row.entityKind, row.entityId);
+    useAgentActivityStore.getState().clearTouched(row.entityKind, row.entityId);
+  }
+}
+
+export type { ProseEntityType };

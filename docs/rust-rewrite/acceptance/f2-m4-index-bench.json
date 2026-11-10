@@ -1,0 +1,300 @@
+{
+  "schema": "dr-testkit/evidence/1",
+  "name": "index-bench",
+  "milestone": "f2-m4",
+  "generatedBy": "cargo run --release -p dr-testkit --bin bench -- index --milestone f2-m4",
+  "inputs": {
+    "crates/dr-index": "b04a4c1f33f3d6392f932c108bd9ab7405ff24b4f04464146733bf0b1a2620b9",
+    "crates/dr-store/src/index.rs": "769f05580cefdd5e1a03319adc121c87645e98a7877da1af7ea228202d8d2ec7",
+    "crates/dr-testkit/src/bench.rs": "4b942709d574501ecf7915c844268c528e9b0c4f5310f1ee08a641531e739ae1",
+    "crates/dr-testkit/src/bin/bench.rs": "4b197da40bd52f5bb7f64ab6b716967eae8598af6dd312cbff8b00208ba3b148",
+    "crates/dr-testkit/src/rng.rs": "eb878d8e485f01a901cb1742074c9de455d51871985ddf836e599e86baf353e3",
+    "crates/dr-testkit/src/seed": "a01def93a860c30e8b9ab3d7371b1766a53a14bf5c3e885821324d5c222caa6f",
+    "crates/dr-testkit/src/text.rs": "d639486e1178aadb3f7a41cdd4f563e74564f4f3d719de21cc4c183e5f6cb5b8",
+    "crates/dr-text": "9d6391cb3e7d0f3a38602e98ef4641844a83f1869b8939752109373992173504",
+    "crates/prose-metrics": "b09cc348b72c602ca3613800279113096ab969e794c6b72f6e38ff6f9db354ec"
+  },
+  "corpus": {
+    "corpusFingerprint": "5b319924c784252a98d35588c557a642ff4fb6b347f3a3603a9f1696a54bfb48",
+    "preset": "heavy",
+    "seed": "0x5eed0f08"
+  },
+  "machine": {
+    "arch": "aarch64",
+    "cores": 12,
+    "cpu": "Apple M3 Pro",
+    "loadAverage1m": 4.46,
+    "memoryBytes": 38654705664,
+    "os": "macos",
+    "osVersion": "27.0.1",
+    "profile": "release"
+  },
+  "results": {
+    "cases": {
+      "chapter": {
+        "ms": {
+          "derive": {
+            "max": 0.07,
+            "mean": 0.044,
+            "n": 1000,
+            "p50": 0.043,
+            "p95": 0.055
+          },
+          "deriveAndWriteAfterEnter": {
+            "max": 3.147,
+            "mean": 0.394,
+            "n": 50,
+            "p50": 0.355,
+            "p95": 0.526
+          },
+          "deriveAndWriteAfterTyping": {
+            "max": 15.853,
+            "mean": 0.369,
+            "n": 950,
+            "p50": 0.183,
+            "p95": 0.58
+          },
+          "fullDeriveInPlace": {
+            "max": 0.841,
+            "mean": 0.772,
+            "n": 50,
+            "p50": 0.765,
+            "p95": 0.819
+          },
+          "write": {
+            "max": 3.45,
+            "mean": 0.052,
+            "n": 1000,
+            "p50": 0.039,
+            "p95": 0.065
+          },
+          "writeEveryRow": {
+            "max": 10.853,
+            "mean": 6.925,
+            "n": 50,
+            "p50": 6.579,
+            "p95": 10.143
+          },
+          "writeOneRowPatch": {
+            "max": 2.462,
+            "mean": 0.181,
+            "n": 50,
+            "p50": 0.099,
+            "p95": 0.175
+          }
+        },
+        "shape": {
+          "chars": 22857,
+          "derivations": {
+            "fallbacks": 0,
+            "full": 0,
+            "incremental": 1000
+          },
+          "enters": 50,
+          "keystrokes": 1000,
+          "paragraphs": 174,
+          "paragraphsRead": 1050,
+          "rowsPatched": 1049
+        },
+        "what": "a keystroke written through the holder, then its derivation: read in place, a paragraph patch written"
+      },
+      "keystrokeWrite": {
+        "ms": {
+          "withDeriver": {
+            "max": 10.431,
+            "mean": 0.046,
+            "n": 2000,
+            "p50": 0.034,
+            "p95": 0.056
+          },
+          "withoutDeriver": {
+            "max": 4.459,
+            "mean": 0.045,
+            "n": 2000,
+            "p50": 0.035,
+            "p95": 0.058
+          }
+        },
+        "shape": {
+          "writes": 2000
+        },
+        "what": "DocHandle::write of a one-character insert into the longest chapter, with and without dr-index attached"
+      },
+      "outline": {
+        "ms": {
+          "bookStats": {
+            "max": 0.154,
+            "mean": 0.104,
+            "n": 200,
+            "p50": 0.103,
+            "p95": 0.11
+          },
+          "outline": {
+            "max": 0.067,
+            "mean": 0.036,
+            "n": 200,
+            "p50": 0.036,
+            "p95": 0.04
+          }
+        },
+        "shape": {
+          "each": 200,
+          "headings": 13
+        },
+        "what": "Library::outline of the longest chapter (checked against dr-text's outline), and the book's totals"
+      },
+      "rebuild": {
+        "ms": {
+          "derivePerDocument": {
+            "max": 13.114,
+            "mean": 0.492,
+            "n": 680,
+            "p50": 0.144,
+            "p95": 2.454
+          },
+          "rebuildAll": {
+            "max": 1512.813,
+            "mean": 1512.813,
+            "n": 1,
+            "p50": 1512.813,
+            "p95": 1512.813
+          }
+        },
+        "shape": {
+          "bookParagraphs": 23212,
+          "bookWords": 3576000,
+          "rebuilt": 680,
+          "staleDocs": 680,
+          "unreadable": 0,
+          "wordsByGroup": {
+            "categories": {
+              "docs": 16,
+              "words": 16000
+            },
+            "chapters": {
+              "docs": 100,
+              "words": 1500000
+            },
+            "elements": {
+              "docs": 300,
+              "words": 500000
+            },
+            "ideas": {
+              "docs": 200,
+              "words": 1000000
+            },
+            "materialNotes": {
+              "docs": 60,
+              "words": 500000
+            },
+            "storylines": {
+              "docs": 3,
+              "words": 60000
+            }
+          }
+        },
+        "what": "every stale index rebuilt from copies loaded from SQLite (Library::rebuild_stale_indexes)"
+      },
+      "search": {
+        "ms": {
+          "chars1": {
+            "max": 3.581,
+            "mean": 3.279,
+            "n": 50,
+            "p50": 3.252,
+            "p95": 3.545
+          },
+          "chars1Fetch10000": {
+            "max": 14.292,
+            "mean": 13.539,
+            "n": 50,
+            "p50": 13.469,
+            "p95": 14.008
+          },
+          "chars1InChapterOrder": {
+            "max": 0.487,
+            "mean": 0.411,
+            "n": 50,
+            "p50": 0.405,
+            "p95": 0.452
+          },
+          "chars2": {
+            "max": 4.074,
+            "mean": 3.704,
+            "n": 50,
+            "p50": 3.684,
+            "p95": 3.856
+          },
+          "chars2Fetch10000": {
+            "max": 12.017,
+            "mean": 11.438,
+            "n": 50,
+            "p50": 11.356,
+            "p95": 11.89
+          },
+          "chars2InChapterOrder": {
+            "max": 1.048,
+            "mean": 0.98,
+            "n": 50,
+            "p50": 0.974,
+            "p95": 1.031
+          },
+          "chars3": {
+            "max": 0.757,
+            "mean": 0.515,
+            "n": 50,
+            "p50": 0.499,
+            "p95": 0.618
+          },
+          "chars3Fetch10000": {
+            "max": 2.383,
+            "mean": 1.883,
+            "n": 50,
+            "p50": 1.85,
+            "p95": 2.119
+          },
+          "chars3InChapterOrder": {
+            "max": 0.864,
+            "mean": 0.612,
+            "n": 50,
+            "p50": 0.588,
+            "p95": 0.783
+          },
+          "chars8": {
+            "max": 0.139,
+            "mean": 0.093,
+            "n": 50,
+            "p50": 0.09,
+            "p95": 0.105
+          },
+          "chars8Fetch10000": {
+            "max": 0.11,
+            "mean": 0.092,
+            "n": 50,
+            "p50": 0.09,
+            "p95": 0.106
+          },
+          "chars8InChapterOrder": {
+            "max": 0.104,
+            "mean": 0.085,
+            "n": 50,
+            "p50": 0.083,
+            "p95": 0.094
+          }
+        },
+        "shape": {
+          "each": 50,
+          "hitsAtLimit50": {
+            "chars1": 50,
+            "chars2": 50,
+            "chars3": 50,
+            "chars8": 1
+          }
+        },
+        "what": "Library::search for 1, 2, 3 and 8 characters: limit 50, limit 10 000 (book.search today), limit 50 in chapter order"
+      }
+    },
+    "mode": "full",
+    "suite": "index"
+  }
+}

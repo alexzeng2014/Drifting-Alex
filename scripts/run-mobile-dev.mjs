@@ -1,0 +1,329 @@
+#!/usr/bin/env node
+
+import { spawn } from 'node:child_process';
+import { chmodSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { homedir, networkInterfaces } from 'node:os';
+import path from 'node:path';
+import { parseEnv } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { hostedEnvironment, normalizeHostedOrigin } from './hosted-environment.mjs';
+
+const scriptPath = fileURLToPath(import.meta.url);
+const coreDir = path.resolve(path.dirname(scriptPath), '..');
+const repoDir = coreDir;
+const supportedTargets = new Set(['ios', 'android']);
+const localEnvPath = path.join(repoDir, '.env.local');
+const iosLocalBuildConfigPath = path.join(
+  repoDir,
+  'src-tauri',
+  'gen',
+  'apple',
+  'LocalBuild.local.xcconfig',
+);
+
+function stringEnvironment(environment) {
+  return Object.fromEntries(
+    Object.entries(environment).filter((entry) => typeof entry[1] === 'string'),
+  );
+}
+
+function readLocalEnvironment(filePath) {
+  if (!existsSync(filePath)) return {};
+  try {
+    return parseEnv(readFileSync(filePath, 'utf8'));
+  } catch {
+    // Environment parse failures must not echo a source line that could
+    // contain native OAuth build material.
+    throw new Error('Unable to parse the repository .env.local file.');
+  }
+}
+
+function isPrivateIpv4(address) {
+  const octets = address.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) return false;
+
+  return (
+    octets[0] === 10 ||
+    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  );
+}
+
+function findLanIpv4() {
+  const candidates = Object.entries(networkInterfaces()).flatMap(([name, addresses]) =>
+    (addresses ?? [])
+      .filter(
+        (address) =>
+          (address.family === 'IPv4' || address.family === 4) &&
+          !address.internal &&
+          !address.address.startsWith('169.254.'),
+      )
+      .map((address) => ({ name, address: address.address })),
+  );
+
+  candidates.sort((left, right) => {
+    const score = (candidate) => {
+      if (/^(utun|awdl|llw|bridge|docker|vbox)/.test(candidate.name)) return -100;
+      if (candidate.name === 'en0' && isPrivateIpv4(candidate.address)) return 300;
+      if (/^en\d+$/.test(candidate.name) && isPrivateIpv4(candidate.address)) return 200;
+      return isPrivateIpv4(candidate.address) ? 100 : 0;
+    };
+    return score(right) - score(left);
+  });
+
+  return candidates[0]?.address;
+}
+
+function resolveApiBaseUrl(environment) {
+  const explicitApiBaseUrl = environment.VITE_API_BASE_URL ?? environment.API_BASE_URL;
+  if (explicitApiBaseUrl) return explicitApiBaseUrl.replace(/\/$/, '');
+
+  const lanAddress = findLanIpv4();
+  return lanAddress ? `http://${lanAddress}:3000` : 'http://localhost:3000';
+}
+
+function createDevConfigOverride(apiBaseUrl, vitePort) {
+  const configPath = path.join(coreDir, 'src-tauri', 'tauri.conf.json');
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  const devCsp = config.app?.security?.devCsp;
+  const apiOrigin = new URL(apiBaseUrl).origin;
+
+  if (typeof devCsp !== 'string') {
+    throw new Error('Expected app.security.devCsp in src-tauri/tauri.conf.json.');
+  }
+
+  const localDevCsp = devCsp.includes(apiOrigin)
+    ? devCsp
+    : devCsp.replace(/\bconnect-src\b[^;]*/, (directive) => `${directive} ${apiOrigin}`);
+
+  return JSON.stringify({
+    build: { devUrl: `http://localhost:${vitePort}` },
+    app: { security: { devCsp: localDevCsp } },
+  });
+}
+
+function isPortAvailable(port, host) {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.unref();
+    server.once('error', () => resolve(false));
+    server.listen({ host, port, exclusive: true }, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+async function findAvailableVitePort() {
+  const hosts = [...new Set(['127.0.0.1', '::1', findLanIpv4()].filter(Boolean))];
+  for (let port = 5173; port <= 5193; port += 1) {
+    const availability = await Promise.all(hosts.map((host) => isPortAvailable(port, host)));
+    if (availability.every(Boolean)) return port;
+  }
+  throw new Error('No free Vite port found in the 5173-5193 range.');
+}
+
+function findAndroidNdk(env) {
+  const explicitCandidates = [env.NDK_HOME, env.ANDROID_NDK_HOME].filter(Boolean);
+  for (const candidate of explicitCandidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  const sdkRoots = [
+    env.ANDROID_HOME,
+    env.ANDROID_SDK_ROOT,
+    path.join(homedir(), 'Library', 'Android', 'sdk'),
+  ].filter(Boolean);
+
+  for (const sdkRoot of sdkRoots) {
+    const ndkRoot = path.join(sdkRoot, 'ndk');
+    if (!existsSync(ndkRoot)) continue;
+
+    const versions = readdirSync(ndkRoot, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() && existsSync(path.join(ndkRoot, entry.name, 'source.properties')),
+      )
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
+
+    if (versions[0]) return path.join(ndkRoot, versions[0]);
+  }
+
+  return undefined;
+}
+
+export function createMobileEnvironment(
+  target,
+  { baseEnvironment = process.env, envFile = localEnvPath, mode = 'configured' } = {},
+) {
+  if (!supportedTargets.has(target)) {
+    throw new TypeError(`Unsupported mobile target: ${target}`);
+  }
+  if (!['configured', 'local', 'online'].includes(mode)) throw new TypeError(`Unsupported mobile mode: ${mode}`);
+  // Explicit shell and CI values take precedence over ignored local settings.
+  // The resulting object is passed directly to Tauri, Gradle/Xcode and Cargo.
+  const localEnvironment = readLocalEnvironment(envFile);
+  const shellEnvironment = stringEnvironment(baseEnvironment);
+  const merged = { ...localEnvironment, ...shellEnvironment };
+  const apiBaseUrl = resolveApiBaseUrl(merged);
+  const localOnly = mode === 'local' || (mode !== 'online' && (merged.VITE_LOCAL_ONLY_MODE ?? 'true') !== 'false');
+  const env = {
+    ...merged,
+    VITE_API_BASE_URL: merged.VITE_API_BASE_URL ?? apiBaseUrl,
+    API_BASE_URL: merged.API_BASE_URL ?? apiBaseUrl,
+    VITE_LOCAL_ONLY_MODE: String(localOnly),
+    VITE_REQUIRE_AUTH: 'false',
+    VITE_AI_TRANSPORT: 'direct',
+    VITE_CLOSED_BETA: merged.VITE_CLOSED_BETA ?? 'false',
+    ...(localOnly ? {} : hostedEnvironment(shellEnvironment, localEnvironment)),
+  };
+
+  if (target === 'android') {
+    const ndkHome = findAndroidNdk(env);
+    if (!ndkHome) {
+      throw new Error(
+        'Android NDK not found. Install it in Android Studio, or set NDK_HOME/ANDROID_NDK_HOME.',
+      );
+    }
+    env.NDK_HOME = ndkHome;
+  }
+
+  return env;
+}
+
+export function writeIosLocalBuildConfig(
+  environment,
+  destination = iosLocalBuildConfigPath,
+) {
+  // A malformed team id degrades to the empty fail-closed default rather than
+  // reaching xcodebuild; Apple team ids are ten alphanumerics.
+  const rawTeam = environment.DRIFTING_APPLE_DEVELOPMENT_TEAM?.trim() ?? '';
+  const developmentTeam = /^[A-Z0-9]{10}$/u.test(rawTeam) ? rawTeam : '';
+  const hostedOrigin = environment.VITE_LOCAL_ONLY_MODE === 'false'
+    ? normalizeHostedOrigin(environment.DRIFTING_HOSTED_ORIGIN)
+    : '';
+  // Xcode does not forward arbitrary parent environment variables to the Rust
+  // build phase. Export the same origin as a build setting; an empty expansion
+  // between slashes prevents xcconfig from interpreting HTTPS as a // comment.
+  if (hostedOrigin && !/^[a-z0-9._:[\]-]+$/iu.test(new URL(hostedOrigin).host)) {
+    throw new Error('DRIFTING_HOSTED_ORIGIN contains an unsupported Xcode build-setting character.');
+  }
+  const contents = [
+    '// Generated by scripts/run-mobile-dev.mjs; do not commit.',
+    `DEVELOPMENT_TEAM = ${developmentTeam}`,
+    `DRIFTING_HOSTED_ORIGIN = ${hostedOrigin.replace('://', ':/$()/')}`,
+    '',
+  ].join('\n');
+  writeFileSync(destination, contents, { encoding: 'utf8', mode: 0o600 });
+  chmodSync(destination, 0o600);
+  return { signingConfigured: Boolean(developmentTeam) };
+}
+
+async function assertServiceReachable(apiBaseUrl) {
+  let response;
+  try {
+    response = await fetch(new URL('/health', apiBaseUrl), {
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new Error(
+      `Cannot reach the configured service at ${apiBaseUrl}. Start it separately or use the default local-only mode.`,
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Configured service preflight failed at ${apiBaseUrl} with HTTP ${response.status}.`,
+    );
+  }
+}
+
+export async function runMobileDev() {
+  const target = process.argv[2];
+  if (!supportedTargets.has(target)) {
+    console.error('Usage: node scripts/run-mobile-dev.mjs <ios|android> [device/options]');
+    process.exitCode = 2;
+    return;
+  }
+
+  const rawArguments = process.argv.slice(3);
+  const online = rawArguments.includes('--online');
+  if (online && target !== 'ios') throw new Error('--online is currently supported by the iOS launcher only.');
+  let env;
+  try {
+    env = createMobileEnvironment(target, { mode: online ? 'online' : 'configured' });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (target === 'ios') writeIosLocalBuildConfig(env);
+
+  const rawForwardedArgs = rawArguments.filter(argument => argument !== '--online');
+  // pnpm 10 preserves the first `--` used to separate script arguments. It is
+  // not a Tauri runner separator, so remove only that leading marker.
+  const forwardedArgs = rawForwardedArgs[0] === '--' ? rawForwardedArgs.slice(1) : rawForwardedArgs;
+  const informationOnly = forwardedArgs.some((arg) =>
+    ['-h', '--help', '-V', '--version'].includes(arg),
+  );
+  if (!informationOnly && env.VITE_LOCAL_ONLY_MODE === 'false') {
+    try {
+      await assertServiceReachable(env.VITE_API_BASE_URL);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  let vitePort = 5173;
+  if (!informationOnly) {
+    try {
+      vitePort = await findAvailableVitePort();
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  env.DRIFTING_VITE_PORT = String(vitePort);
+
+  const pnpmExecutable = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+  const devConfig = createDevConfigOverride(env.VITE_API_BASE_URL, vitePort);
+  const args = ['--dir', coreDir, 'tauri', target, 'dev', '--config', devConfig, ...forwardedArgs];
+
+  console.log(
+    env.VITE_LOCAL_ONLY_MODE === 'true'
+      ? `Starting ${target} dev build in local-only mode`
+      : `Starting ${target} dev build with configured service ${env.VITE_API_BASE_URL}`,
+  );
+  console.log(`Using Vite dev port ${vitePort}`);
+  if (target === 'android') console.log(`Using Android NDK ${env.NDK_HOME}`);
+  if (forwardedArgs.length === 0) {
+    console.log('No target supplied; Tauri will use a connected device or prompt for a simulator.');
+  }
+
+  const child = spawn(pnpmExecutable, args, {
+    cwd: repoDir,
+    env,
+    stdio: 'inherit',
+  });
+
+  child.on('error', (error) => {
+    console.error(`Unable to start pnpm: ${error.message}`);
+    process.exitCode = 1;
+  });
+  child.on('exit', (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+    process.exitCode = code ?? 1;
+  });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  void runMobileDev();
+}

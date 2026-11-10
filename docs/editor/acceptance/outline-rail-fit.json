@@ -1,0 +1,123 @@
+{
+  "kind": "outline-rail-fit",
+  "status": "passed",
+  "generatedAt": "2026-11-03T20:00:04.927Z",
+  "sourceSha256": "6eba415b9ddedbcd9e6ddc8b54106face2eaabb2e7c13ba7a58e5694131f5488",
+  "inputs": [
+    "scripts/run-outline-rail-fit-acceptance.mjs",
+    "scripts/renderer-headless-browser.mjs",
+    "scripts/renderer-outline-rail-fit.tsx",
+    "scripts/renderer-outline-rail-fit.html",
+    "src/renderer/components/editor/EditorOutlineRail.tsx",
+    "src/renderer/components/editor/outline-viewport.ts",
+    "src/renderer/components/editor/outline-rail-model.ts",
+    "src/styles/index.css",
+    "src/styles/comments-review.css",
+    "src/styles/ui-controls.css"
+  ],
+  "browser": "Chrome/156.0.8078.80",
+  "thresholds": {
+    "hiddenBelowGutter": 196,
+    "labelsAtGutter": 212
+  },
+  "states": {
+    "wide": {
+      "fit": "labels",
+      "windowWidth": 1600,
+      "columnWidth": 1280,
+      "gutter": 328,
+      "labels": 16,
+      "labelsShown": 16,
+      "maxLabelRight": 188
+    },
+    "narrow": {
+      "fit": "hidden",
+      "windowWidth": 1600,
+      "columnWidth": 400,
+      "gutter": 48,
+      "labels": 16,
+      "labelsShown": 0
+    },
+    "hovered": {
+      "fit": "hidden",
+      "windowWidth": 1600,
+      "columnWidth": 400,
+      "gutter": 48,
+      "labels": 16,
+      "labelsShown": 0
+    },
+    "narrowInWideWindow": {
+      "fit": "hidden",
+      "windowWidth": 2400,
+      "columnWidth": 400,
+      "gutter": 48,
+      "labels": 16,
+      "labelsShown": 0
+    },
+    "restored": {
+      "fit": "labels",
+      "windowWidth": 1600,
+      "columnWidth": 1280,
+      "gutter": 328,
+      "labels": 16,
+      "labelsShown": 16,
+      "maxLabelRight": 188
+    }
+  },
+  "resizeSweep": [
+    {
+      "column": 1020,
+      "gutter": 198,
+      "fit": "labels"
+    },
+    {
+      "column": 1036,
+      "gutter": 206,
+      "fit": "labels"
+    },
+    {
+      "column": 1060,
+      "gutter": 218,
+      "fit": "labels"
+    },
+    {
+      "column": 1036,
+      "gutter": 206,
+      "fit": "labels"
+    },
+    {
+      "column": 1020,
+      "gutter": 198,
+      "fit": "labels"
+    },
+    {
+      "column": 1000,
+      "gutter": 188,
+      "fit": "hidden"
+    },
+    {
+      "column": 1036,
+      "gutter": 206,
+      "fit": "hidden"
+    }
+  ],
+  "labelJump": {
+    "scrollTop": 3423,
+    "headingOffset": 0.1875
+  },
+  "checks": {
+    "wideLabelsUnchangedAndClear": true,
+    "wideLabelTakesPointer": true,
+    "narrowColumnHidesRail": true,
+    "hiddenShowsNothing": true,
+    "hiddenTakesNoPointer": true,
+    "hiddenSkipsKeyboardFocus": true,
+    "decidedByColumnNotWindow": true,
+    "roomRestoresLabels": true,
+    "restoredLabelNavigates": true,
+    "resizeHysteresis": true,
+    "hiddenPreferenceStillUnmounts": true,
+    "noUncaughtExceptions": true
+  },
+  "boundary": "Chromium renderer with the real EditorOutlineRail, OutlineViewportController, outline model and the renderer entry's global sheets; a synthetic page of headings and prose in an editor column resized independently of the window; CDP mouse and keyboard input. No Tauri/WKWebView compositing, real ChapterEditor, Yjs content, side-panel components or physical pointer acceptance."
+}

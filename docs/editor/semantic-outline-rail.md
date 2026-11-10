@@ -1,0 +1,268 @@
+# Semantic outline rail
+
+Status: built on 2026-08-03; updated on 2026-10-20 for reliable whole-book
+navigation through lazy chapter layout, on 2026-10-23 for steady scrolling
+up from a landing, on 2026-11-02 for folding into dots when the editor
+column leaves no room beside the paper, and on 2026-11-04 for hiding instead of
+folding. The shared rail covers whole book, chapter/idea, element,
+category, and storyline.
+
+## Product contract
+
+The editor has two independent navigation surfaces plus one review overlay:
+
+- A semantic TOC rail remains at the editor area's left edge. It contains only
+  the existing plain-text TOC tags and distant-range omission handles. When the
+  column leaves no room beside the paper, the rail hides by itself and returns
+  once there is room (see Fit beside the paper).
+- The ordinary `.editor-scroll` scrollbar is restored at the editor area's
+  right edge. It appears when the manuscript overflows and is the only
+  scrollbar and scroll source of truth.
+- Comment and Agent-change overview markers sit directly over that native
+  scrollbar instead of occupying the Editor's left edge. Only the marker ticks
+  capture clicks: their existing jump-and-flash action remains available while
+  uncovered scrollbar regions keep their native interaction.
+
+The retired dual-layer implementation is absent. The left TOC rail has no
+custom track, viewport-range bar, draggable thumb, track-click behavior, or
+scrollbar keyboard handler. TOC tag clicks still use each editor's canonical
+jump handler; ordinary wheel, trackpad, keyboard, and thumb scrolling belong to
+the right native scrollbar.
+
+TOC tags remain anchored to the rendered positions of acts, chapters,
+framework sections, and TipTap `h1/h2/h3` blocks. Every sequential TOC range
+intersecting the current viewport receives the existing stronger text style.
+The scrollspy reading location remains the primary selection and its
+ancestors remain part of the active path. Since 2026-10-29 (sand and glass)
+neither uses the accent colour: the primary, the lowest level of the reading
+location, carries one short level swipe of dry sand across the lower half of
+its first characters, in its owner's colour (a chapter's storyline; the
+storyline or category being edited; ink otherwise), and every level above it
+on the active path is bold ink. A jump the author clicked draws the swipe
+along the label; arriving by scrolling fades it in. No selected item acquires
+a frame, chip, background wash, or decorative left spine.
+
+The outline's levels are act / chapter / H1 / H2 / H3 in every editor. H1–H3
+are the prose's heading levels; their meaning is the author's, so the rail
+names them by level only.
+All TOC labels use upright text, including the tags revealed by omission handles.
+Hierarchy remains expressed through font size, weight, family, and colour;
+act and H2 labels no longer use italics that can clip at the text boundary.
+Acts are set in the serif structure face with no leading dash, and no tag
+carries a trailing branch dot.
+
+The rail's `OutlineViewportController` now supplies both geometry and the
+single-entity scrollspy reading location. The views pass their existing reading
+order and canonical jump handlers; whole-book view retains its controlled active
+chapter. A clicked single-entity heading stays primary while its own bounds
+intersect the viewport, before the normal 80 px threshold / 24 px look-ahead
+scan resumes. Pinning and viewport-range styling share the same scoped anchor
+snapshot, including in split panes with duplicate block IDs.
+
+Ordinary scroll events share one pending frame and reuse content-relative
+anchor bounds. Content mutations and resize invalidate those bounds; full passes
+measure each resolved DOM anchor once. Hidden retained tabs detach observers and
+listeners, cancel pending measurement and keep scalar geometry/pin state. An
+incoming visible/preparing rail refreshes geometry in layout. Removed content
+children are unobserved. Hiding also discards any body-portal omission reveal and
+its close timer, so returning cannot reopen a stale reveal. These changes do not
+alter document content, scroll position or the native scrollbar.
+
+Whole-book TOC jumps resolve each heading's owning chapter from outline metadata,
+including chapters whose prose has not loaded. The destination chapter loads
+through the existing bounded loader and uses `content-visibility: visible` before
+the final offset is measured. That chapter, the focused live editor and every row
+within one screen of the reader keep normal layout/paint; farther rows retain
+`content-visibility: auto`. Each row observes its own `.editor-scroll` (a window
+root's margin cannot reach past the scroller's clip), so its prose loads and lays
+out above the reader before it scrolls into view. Native scroll anchoring then
+absorbs the real height. WebKit does not anchor `auto`'s own estimate-to-real
+swap, which made scrolling up after a jump leap by the estimate error. Navigation waits for
+the real prose commit and selects the visible copy of a heading during a live
+editor handoff. It scrolls only its own `.editor-scroll` instantly and reconciles
+nearby height changes until layout is quiet, rather than animating against
+intrinsic-size estimates. Act jumps also prepare the neighbouring chapter.
+
+The latest click cancels any older pending jump. Wheel, touch, pointer or keyboard
+input in the editor body returns control to the reader, and hiding/unmounting the
+surface cancels pending navigation. The whole-book scrollspy stays suppressed
+through loading and positioning. Saved reading anchors use the same path; a new
+TOC click supersedes a pending restore. Navigation does not promote a chapter to
+a live editor or write prose.
+
+Single-entity editors do not synthesize the entity name as a TOC root. Their
+rails contain only real outline entries inside the editor: prose headings for a
+chapter/idea, and framework sections plus prose headings for element,
+category, and storyline editors. Whole-book view keeps its existing
+act/chapter hierarchy.
+
+When a chapter/idea contains no prose headings, the TOC label lane stays
+blank. It does not place H1/H2/H3 construction instructions above the rail.
+Explicit non-prose empty states, such as a whole-book view with no chapters,
+may still provide their own short message.
+
+## Visibility control
+
+The ListTree control in the Editor Top Bar remains immediately beside the
+Entity Link highlight toggle. Clicking the button itself toggles the preference
+immediately; it does not open a dropdown or secondary menu. The two persisted
+states are:
+
+1. `visible`: show the left semantic TOC rail.
+2. `hidden`: unmount the left semantic TOC rail.
+
+This preference controls only the left TOC rail. It never hides, dims, or moves
+the right native scrollbar when the manuscript overflows. The preference is
+persisted on this device by `settings-store`. It is not sent through an account
+HTTP preference service. Persisted legacy `always` and `auto` values both
+normalize to `visible`; `hidden` remains hidden.
+
+## Dynamic density
+
+Density is derived from the rail's measured height at runtime:
+
+1. `all`: render every root and nested TOC tag while the minimum 17px label
+   pitch fits.
+2. `active-branch`: keep every root tag, but render descendants only for the
+   root containing the current reading location.
+3. `windowed`: if the roots still do not fit, keep a document-order window
+   around the current item. Contiguous distant ranges become upper/lower
+   omission handles.
+
+Hovering or focusing an omission handle replaces the shorthand with a small
+`body`-portal group of the nearest real TOC tags at their normal compact type
+size, on a compact menu surface (a lifted piece of desk) whose hovered row
+bleeds the menu row's ring of flowing glass. There is no magnification animation. Choosing one uses the same canonical
+TOC jump handler and recentres the density window around the destination; it
+does not restore the retired full-height panel.
+
+## Fit beside the paper
+
+The rail is laid over the editor area's left edge, so in a narrow editor column
+(two right panels open, a split pane, a narrow window) its labels used to print
+over the title and body. The rail now decides how to present itself from the
+column's own measured gutter, never by the window width or a media query:
+`OutlineViewportController` measures, in the same resize/mutation pass as the
+anchors, the distance from `.editor-body`'s left edge to the paper's text (the
+first `.page` in its scroll root, inside its padding). Opening or closing a side
+panel, the comment margin, a split or a window resize all change that distance
+and re-run the decision; scrolling does not re-read it.
+
+`outlineRailFit` in `outline-rail-model.ts` holds the thresholds. The label lane
+ends 188px from the editor edge (labels start at 12px and are at most 176px
+wide). Below a gutter of 196px (the lane plus 8px) the rail switches to
+`data-fit="hidden"`; it returns to labels only from 212px. The 16px band is
+wider than any re-centring that leaves the column unchanged (the 8px scrollbar
+appearing moves a centred paper by 4px), so the rail does not flicker at the
+boundary. Before a paper exists the previous decision stands. With the default
+720px paper the switch happens around a 1000px column.
+
+- `labels`: unchanged — the plain-text lane described above.
+- `hidden`: the rail shows nothing (2026-11-04; it used to fold to dots that
+  unfolded on hover). Its label layer is `display: none`, so it takes no
+  pointer, no keyboard focus and has no accessible rows; the prose under it is
+  the page as usual. The `visible` preference stays on: once the column has
+  room again the labels come back by themselves. An omission reveal that was
+  open closes with it.
+
+A fit change mounts a fresh label layer (it is keyed by the fit), so a rail that
+comes back places its labels at once instead of sliding them in from where they
+last stood.
+
+The fit adds no copy, tooltip, dot or accent bar. The `hidden` preference still
+unmounts the rail entirely; the automatic hiding only covers its labels, so the
+controller keeps measuring. The paused mobile shell keeps its in-paper overlay;
+the hiding rule applies outside `data-shell-mode='mobile'` only.
+
+## Geometry and lifecycle
+
+Anchor offsets are measured within the scoped `.editor-scroll`, never through a
+global document query. `ResizeObserver` and a coalesced `MutationObserver`
+refresh positions after editor hydration, typing, font/layout changes, and
+virtual chapter mounts. Ordinary scroll frames only update viewport metrics;
+they do not rescan every anchor.
+
+The manuscript scroll source remains vertical-only and singular:
+`.editor-scroll` clips horizontal overflow, consumes overscroll at both
+document boundaries, shows its right scrollbar only when content overflows,
+and wheel events over TOC labels forward only `deltaY`. This preserves the
+existing protection against horizontal page shake at a vertical scroll
+boundary.
+
+`EditorScrollMarkers.tsx` is a fixed sibling of `.editor-scroll`. Its 8px map is
+aligned with the 8px WebKit scrollbar at the right edge. The map does not take
+pointer events, but each Comment or Agent tick does, so tick clicks scroll to
+and flash their anchored prose blocks without disabling the rest of the native
+track. Each tick is a sand seal pressed once — its shape and turn fixed by its
+key — that deepens under the pointer, arrives as sand does and fades out when
+it goes.
+
+`EditorOutlineRail.tsx` owns DOM measurement and TOC interaction.
+`outline-rail-model.ts` owns deterministic tree flattening, density planning,
+collision layout, active ancestry, and visible-range calculation. Native
+scrolling is intentionally not reimplemented in either file.
+
+## Machine-checkable acceptance
+
+`acceptance/toc-upright.json` records the TOC font-style declarations, source
+SHA-256 hashes, and results from the existing outline regression tests. This
+source-level evidence does not claim native visual acceptance.
+
+`acceptance/all-chapters-navigation.json` is generated by the synthetic Chromium
+harness below. It uses the real chapter row, static serializer, rail, loader and
+navigation coordinator in two 60-chapter panes with inaccurate height estimates
+and delayed reads. It reproduces the previous cold-heading no-op, then checks
+chapter/act/heading landings, an actual rail button, rapid clicks, split isolation,
+and target visibility/hit testing after settling without a user scroll. From a
+landing it then wheels up through cold rows, requiring every step to move the
+page by the wheel delta alone, and requires the row above to be loaded and laid
+out beforehand. Chromium anchors `content-visibility`'s estimate swap itself, so
+that WebKit gap is covered only by the laid-out-ahead state. The harness does not
+establish Tauri/WKWebView compositing or physical-device acceptance.
+
+```bash
+node scripts/run-all-chapters-navigation-acceptance.mjs
+node scripts/run-all-chapters-navigation-acceptance.mjs --check
+pnpm exec vitest run src/renderer/components/editor/all-chapters-navigation.test.ts
+```
+
+`acceptance/outline-rail-fit.json` is generated by a second synthetic Chromium
+harness with the real rail, viewport controller, outline model and the renderer
+entry's global sheets around a page of headings and prose. It keeps the window
+at 1600px and resizes only the editor column: at 1280px the labels are
+unchanged, clear of the text and take the pointer; at 400px (two side panels)
+the rail shows nothing, the pointer where its labels stood reaches the page and
+opens nothing, Tab passes it by, and a 2400px window does not change that. Back
+at 1280px the labels return at their places and a click lands its heading at
+the top. A resize sweep across both thresholds records the measured gutters and checks the
+hysteresis, and the `hidden` preference still unmounts the rail. It does not
+establish Tauri/WKWebView compositing, the real chapter editor or physical
+pointer feel.
+
+```bash
+node scripts/run-outline-rail-fit-acceptance.mjs
+node scripts/run-outline-rail-fit-acceptance.mjs --check
+```
+
+Run:
+
+```bash
+pnpm exec vitest run \
+  src/renderer/components/editor/outline-rail-model.test.ts \
+  src/renderer/components/editor/outline-viewport.test.ts \
+  src/renderer/components/editor/semantic-outline-rail.acceptance.test.ts
+pnpm typecheck
+```
+
+The tests prove all five editor mounts, left-edge TOC placement, the gutter-based
+hidden fit with its hysteresis (`outline-rail-model.test.ts`,
+`outline-viewport.test.ts`), the three density stages, viewport-based multi-entry highlighting, omission behavior,
+absence of synthetic single-entity roots and empty-outline instructions, the
+two persisted TOC visibility choices, complete removal of the custom track and
+dual scrollbar model, and an ordinary scrollbar that appears on the right only
+when the manuscript overflows. It also proves that Comment and Agent review
+markers overlay that scrollbar and retain their click-to-jump wiring without
+making the whole overlay interactive.
+
+Native visual spacing, scrollbar feel, WKWebView compositing, and
+physical-device touch behavior remain manual acceptance boundaries.

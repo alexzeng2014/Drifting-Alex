@@ -1,0 +1,103 @@
+import { Editor } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
+import type { Transaction } from '@tiptap/pm/state';
+import * as Y from 'yjs';
+import { yDocToProsemirrorJSON } from 'y-prosemirror';
+import { BlockId } from '../lib/extensions/block-id';
+import { AgentDiffDecoration, AgentDiffPluginKey } from '../lib/extensions/agent-diff-decoration';
+import { attachAgentDecorationController } from '../features/editor/agent-decoration-controller';
+import { useAgentEditStore } from '../store/agent-edit-store';
+import { EntityLink } from '../lib/extensions/entity-link';
+
+export interface ImeSelectionProbeOptions {
+  /** Caret position; defaults to the end of the paragraph. */
+  caret?: number;
+  composeInsideLink?: boolean;
+  /** Link this range just before composing, as the auto-linker does. */
+  linkRange?: [number, number];
+  /** Make the first word bold and turn bold off at the caret (⌘B), so stored marks apply. */
+  boldOff?: boolean;
+}
+
+/** Driven by CDP Input.imeSetComposition, not hand-dispatched DOM events. */
+export function createImeSelectionProbe(linked = false, options: ImeSelectionProbeOptions = {}) {
+  const previous = useAgentEditStore.getState();
+  useAgentEditStore.getState().clearAll();
+  const host = document.createElement('div'); document.body.append(host);
+  const doc = new Y.Doc();
+  const editor = new Editor({ element: host, extensions: [StarterKit.configure({ undoRedo: false }), BlockId,
+    AgentDiffDecoration, EntityLink.configure({ autoDetectEnabled: false, composeInsideLink: options.composeInsideLink ?? false }), Collaboration.configure({ document: doc })] });
+  editor.commands.setContent({ type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'synthetic-ime-block' },
+    content: [{ type: 'text', text: '合成', ...(linked ? { marks: [{ type: 'entityLink', attrs: { targetKind: 'element', targetId: 'synthetic-target' } }] }
+      : options.boldOff ? { marks: [{ type: 'bold' }] } : {}) },
+      { type: 'text', text: '正文' }] }] });
+  if (options.linkRange) editor.view.dispatch(editor.state.tr.addMark(options.linkRange[0], options.linkRange[1],
+    editor.schema.marks.entityLink.create({ targetKind: 'element', targetId: 'synthetic-target' })).setMeta('addToHistory', false));
+  const controller = attachAgentDecorationController({ editor, entityType: 'node', entityId: 'synthetic-ime-selection',
+    store: useAgentEditStore, presentationNeeded: true, onReady: () => {}, onError: error => { throw error; } });
+  editor.commands.setTextSelection(options.caret ?? 5); editor.view.focus();
+  if (options.boldOff) editor.view.dispatch(editor.state.tr.setStoredMarks([]));
+  const transactions: { composing: boolean; docChanged: boolean; steps: string[]; decoration: boolean; sync: boolean }[] = [];
+  let decorationTransactions = 0, trustedCompositionStarts = 0;
+  const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+    if (transaction.getMeta(AgentDiffPluginKey)) decorationTransactions++;
+    transactions.push({ composing: editor.view.composing, docChanged: transaction.docChanged,
+      steps: transaction.steps.map(step => step.toJSON().stepType), decoration: Boolean(transaction.getMeta(AgentDiffPluginKey)), sync: isChangeOrigin(transaction) });
+  };
+  editor.on('transaction', onTransaction);
+  const onStart = (event: CompositionEvent) => { if (event.isTrusted) trustedCompositionStarts++; };
+  editor.view.dom.addEventListener('compositionstart', onStart);
+  // ProseMirror's cursor wrapper is an img.ProseMirror-separator widget.
+  // Removed text nodes count view rewrites around the composition.
+  let cursorWrapperInsertions = 0, textNodeRemovals = 0, nodeRemovals = 0;
+  const separators = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node instanceof HTMLElement && node.classList.contains('ProseMirror-separator')) cursorWrapperInsertions++;
+      }
+      for (const node of record.removedNodes) {
+        nodeRemovals++;
+        if (node.nodeType === Node.TEXT_NODE) textNodeRemovals++;
+      }
+    }
+  });
+  separators.observe(editor.view.dom, { childList: true, subtree: true });
+  const markedText = (name: string) => {
+    let text = '';
+    editor.state.doc.descendants(node => { if (node.isText && node.marks.some(mark => mark.type.name === name)) text += node.text; });
+    return text;
+  };
+  const linkedText = () => {
+    let text = '';
+    editor.state.doc.descendants(node => { if (node.isText && node.marks.some(mark => mark.type.name === 'entityLink')) text += node.text; });
+    return text;
+  };
+  const snapshot = () => {
+    const selection = document.getSelection();
+    return { linked, composing: editor.view.composing, trustedCompositionStarts, decorationTransactions, transactions: transactions.slice(),
+      focused: document.activeElement === editor.view.dom,
+      domCollapsed: selection?.isCollapsed, domSelectedText: selection?.toString(),
+      pmAnchor: editor.state.selection.anchor, pmHead: editor.state.selection.head,
+      text: editor.state.doc.textContent,
+      linkedText: linkedText(), boldText: markedText('bold'), cursorWrapperInsertions, textNodeRemovals, nodeRemovals,
+      yjsMatches: editor.schema.nodeFromJSON(yDocToProsemirrorJSON(doc, 'default')).eq(editor.state.doc) };
+  };
+  return { snapshot,
+    arm() { decorationTransactions = 0; cursorWrapperInsertions = 0; textNodeRemovals = 0; nodeRemovals = 0; transactions.length = 0; return snapshot(); }, dispose() {
+    separators.disconnect();
+    controller.dispose(); editor.off('transaction', onTransaction); editor.view.dom.removeEventListener('compositionstart', onStart);
+    editor.destroy(); doc.destroy(); host.remove();
+    useAgentEditStore.setState({ pending: previous.pending, additions: previous.additions, autoRevealGuards: previous.autoRevealGuards });
+  } };
+}
+
+let probe: ReturnType<typeof createImeSelectionProbe> | null = null;
+export const imeSelectionProbe = {
+  start(linked = false, options: ImeSelectionProbeOptions = {}) {
+    probe?.dispose(); probe = createImeSelectionProbe(linked, options); return probe.snapshot();
+  },
+  snapshot() { if (!probe) throw new Error('IME probe is not active'); return probe.snapshot(); },
+  arm() { if (!probe) throw new Error('IME probe is not active'); return probe.arm(); },
+  stop() { probe?.dispose(); probe = null; },
+};

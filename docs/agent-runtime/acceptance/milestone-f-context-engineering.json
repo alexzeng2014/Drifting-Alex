@@ -1,0 +1,442 @@
+{
+  "suite": "milestone-f-literary-context-engineering",
+  "schemaVersion": 1,
+  "nodeVersion": "v22.23.1",
+  "platform": "darwin",
+  "gitHead": "aafecab3abc717df8eecf31cca3daaf7562a5e4d",
+  "sourceSetSha256": "sha256:7bef92bd0c599fb0c6ad4702d92c527544171df600bfb175b6af8d66ed6d3c8a",
+  "corpusPolicy": {
+    "committedTruth": "distilled fog-harbor golden fixture",
+    "syntheticProse": "generated at test runtime only; machine report stores counts and bytes, never prose",
+    "providerNetworkRequired": false
+  },
+  "metrics": {
+    "fixture": {
+      "oracleCases": 42,
+      "syntheticCorpusGenerated": true,
+      "syntheticCorpusDocuments": 18,
+      "syntheticCorpusBytes": 390126
+    },
+    "providerContext": {
+      "profileId": "milestone-f-200k-v1",
+      "contextWindowTokens": 200000,
+      "slices": 3,
+      "compactedSlices": 2,
+      "compactorCalls": 28,
+      "medianTokenReduction": 0.6226000441317558,
+      "maxContextWindowRatio": 0.73675,
+      "finalEstimatedInputTokens": 127767
+    },
+    "retrieval": {
+      "canon_fact": {
+        "hits": 22,
+        "total": 22,
+        "recallAt5": 1
+      },
+      "character_voice": {
+        "hits": 3,
+        "total": 3,
+        "recallAt5": 1
+      },
+      "alias": {
+        "hits": 9,
+        "total": 9,
+        "recallAt5": 1
+      },
+      "writing_rule": {
+        "hits": 4,
+        "total": 4,
+        "recallAt5": 1
+      },
+      "chapter_evidence": {
+        "hits": 4,
+        "total": 4,
+        "recallAt5": 1
+      }
+    },
+    "compactionFidelity": {
+      "evidenceHits": 42,
+      "evidenceTotal": 42,
+      "evidenceRecall": 1,
+      "voiceHits": 3,
+      "voiceTotal": 3,
+      "characterVoiceRecall": 1,
+      "constraintHits": 5,
+      "constraintTotal": 5,
+      "constraintRecall": 1,
+      "retentionWitness": "exact",
+      "sourceCoverage": 1
+    },
+    "restart": {
+      "reusedVerifiedSummaries": true,
+      "evidenceRecall": 1
+    },
+    "faultInjection": {
+      "compactorCallsBeforeCircuitOpened": 1,
+      "retriesAfterCircuitOpened": 0
+    },
+    "completionQuality": {
+      "providerIndependentContextScore": 1,
+      "generatedProseJudgment": "deferred_to_milestone_h"
+    }
+  },
+  "metricGates": {
+    "providerContextWindow": true,
+    "syntheticLongBook": true,
+    "retrieval": true,
+    "compaction": true,
+    "fidelity": true,
+    "restart": true,
+    "faultCircuit": true,
+    "providerIndependentCompletion": true
+  },
+  "vitest": {
+    "files": {
+      "required": 22,
+      "discovered": 22
+    },
+    "tests": {
+      "total": 293,
+      "passed": 293,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    },
+    "groups": {
+      "modelDirectedToolDiscovery": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 21,
+          "passed": 21,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "syntheticBookAndLongContext": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 3,
+          "passed": 3,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "providerBudgetAndPlanning": {
+        "requiredFiles": 5,
+        "discoveredFiles": 5,
+        "tests": {
+          "total": 86,
+          "passed": 86,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "literaryCompactionAndRetrieval": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 21,
+          "passed": 21,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "durablePagingAndRestart": {
+        "requiredFiles": 5,
+        "discoveredFiles": 5,
+        "tests": {
+          "total": 69,
+          "passed": 69,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "longTaskNoDuplicateWrites": {
+        "requiredFiles": 6,
+        "discoveredFiles": 6,
+        "tests": {
+          "total": 93,
+          "passed": 93,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      }
+    },
+    "requiredAssertions": {
+      "steeringWholeBookWorkingSet": {
+        "requiredName": "compacts settled writes after steering and preserves a complete 15-chapter mixed read batch above 64k",
+        "matches": 1,
+        "passed": true
+      },
+      "steeringRestartOwnership": {
+        "requiredName": "recovers execution ownership after same-turn steering without changing checkpoint source hashes",
+        "matches": 1,
+        "passed": true
+      },
+      "settledMixedBatchCompaction": {
+        "requiredName": "compacts an older mixed read and settled task-write batch atomically after steering",
+        "matches": 1,
+        "passed": true
+      },
+      "steeringReceiptScope": {
+        "requiredName": "scopes reused call IDs to a verified execution turn after steering (verified)",
+        "matches": 1,
+        "passed": true
+      },
+      "steeringForeignReceipt": {
+        "requiredName": "scopes reused call IDs to a verified execution turn after steering (foreign-owner)",
+        "matches": 1,
+        "passed": true
+      },
+      "steeringMissingOwner": {
+        "requiredName": "scopes reused call IDs to a verified execution turn after steering (missing-ownership)",
+        "matches": 1,
+        "passed": true
+      },
+      "steeringWrongTool": {
+        "requiredName": "scopes reused call IDs to a verified execution turn after steering (wrong-tool)",
+        "matches": 1,
+        "passed": true
+      },
+      "singleToolArgumentBudget": {
+        "requiredName": "charges large tool arguments once while preserving canonical bytes and hashes",
+        "matches": 1,
+        "passed": true
+      },
+      "compactionNoGainDiagnostics": {
+        "requiredName": "opens the circuit when a compactor returns no token gain",
+        "matches": 1,
+        "passed": true
+      },
+      "compactionFallbackDiagnostics": {
+        "requiredName": "times out one stalled paid chunk and continues with the deterministic fallback",
+        "matches": 1,
+        "passed": true
+      },
+      "discoveryCompositeDispatch": {
+        "requiredName": "executes named and empty-query discovery locally through the composite runtime read scheduler",
+        "matches": 1,
+        "passed": true
+      },
+      "discoveryRetryAfterFailure": {
+        "requiredName": "reuses discovered schemas after a write and explicit retry across restart (failed)",
+        "matches": 1,
+        "passed": true
+      },
+      "discoveryRetryAfterAbort": {
+        "requiredName": "reuses discovered schemas after a write and explicit retry across restart (aborted)",
+        "matches": 1,
+        "passed": true
+      },
+      "discoveryRetryAfterInterruption": {
+        "requiredName": "reuses discovered schemas after a write and explicit retry across restart (interrupted)",
+        "matches": 1,
+        "passed": true
+      },
+      "fixedToolPrefix": {
+        "requiredName": "keeps a complete directory and fixed tools while schemas arrive only in tool results",
+        "matches": 1,
+        "passed": true
+      },
+      "discoveryPermissions": {
+        "requiredName": "authorizes the real write and never grants authority through the read-only dispatcher",
+        "matches": 1,
+        "passed": true
+      },
+      "discoveryRecovery": {
+        "requiredName": "can switch to full schemas and back without invalidating discovered history",
+        "matches": 1,
+        "passed": true
+      },
+      "discoveryProviderWire": {
+        "requiredName": "preserves openai-codex schemas, call IDs and encrypted reasoning through search/read/write/synthesis",
+        "matches": 1,
+        "passed": true
+      },
+      "longBookContext": {
+        "requiredName": "preserves literary evidence and author constraints across 200k multi-slice compaction, restart, and compactor faults",
+        "matches": 1,
+        "passed": true
+      },
+      "syntheticBookRetrieval": {
+        "requiredName": "recalls canon, voice, aliases, writing rules, and chapter evidence from the synthetic fixture",
+        "matches": 1,
+        "passed": true
+      },
+      "providerTarget": {
+        "requiredName": "installs the default model declaration without a separate product target",
+        "matches": 1,
+        "passed": true
+      },
+      "providerCannotBeEnlarged": {
+        "requiredName": "never enlarges a smaller provider declaration with a DEV override",
+        "matches": 1,
+        "passed": true
+      },
+      "undeclaredProviderFallback": {
+        "requiredName": "uses a conservative window for an undeclared custom driver",
+        "matches": 1,
+        "passed": true
+      },
+      "safeCompactorFallback": {
+        "requiredName": "leaves committed-write proof to durable receipts and rejects forged provider evidence",
+        "matches": 1,
+        "passed": true
+      },
+      "sameTurnOversize": {
+        "requiredName": "compacts older tool batches inside one oversized current turn",
+        "matches": 1,
+        "passed": true
+      },
+      "sameTurnChunking": {
+        "requiredName": "chunks inside one turn at tool-topology boundaries without splitting a pair",
+        "matches": 1,
+        "passed": true
+      },
+      "boundedCompactorCalls": {
+        "requiredName": "stops after enough chunk gain instead of compacting all history",
+        "matches": 1,
+        "passed": true
+      },
+      "declaredModelWindows": {
+        "requiredName": "uses discovered model windows without standard or Max caps",
+        "matches": 1,
+        "passed": true
+      },
+      "retiredContextPreference": {
+        "requiredName": "retires a persisted Max preference of false",
+        "matches": 1,
+        "passed": true
+      },
+      "mixedChunkGain": {
+        "requiredName": "keeps a no-gain short chunk exact while applying profitable full-compactor chunks",
+        "matches": 1,
+        "passed": true
+      },
+      "activeTurnWriteDelta": {
+        "requiredName": "drops same-turn pre-write prose after recovery while retaining the successful delta",
+        "matches": 1,
+        "passed": true
+      },
+      "focusedWorkingCopy": {
+        "requiredName": "keeps one complete same-turn working copy across focused authored edits",
+        "matches": 1,
+        "passed": true
+      },
+      "supersededRead": {
+        "requiredName": "drops an older complete read when a newer complete read covers the same authored object",
+        "matches": 1,
+        "passed": true
+      },
+      "obsoleteSummaryRetirement": {
+        "requiredName": "retires a cached summary when a later read makes one covered source discardable",
+        "matches": 1,
+        "passed": true
+      },
+      "multiChapterWorkingSet": {
+        "requiredName": "keeps a bounded multi-chapter authored working set exact when it fits the window",
+        "matches": 1,
+        "passed": true
+      },
+      "noopContextRetirement": {
+        "requiredName": "drops a successful side-effect-free write while retaining an unresolved write",
+        "matches": 1,
+        "passed": true
+      },
+      "noopWriteSettlement": {
+        "requiredName": "settles a workspace no-op as success without claiming a durable effect",
+        "matches": 1,
+        "passed": true
+      },
+      "durableReadProgress": {
+        "requiredName": "keeps complete authored reading as current domain state after body and summary writes",
+        "matches": 1,
+        "passed": true
+      },
+      "domainReadProgressPresentation": {
+        "requiredName": "retains full-read and current-summary state without transport vocabulary",
+        "matches": 1,
+        "passed": true
+      },
+      "wholeChapterSummaryReview": {
+        "requiredName": "commits whole-chapter prose and summary together as one authored change",
+        "matches": 1,
+        "passed": true
+      },
+      "wholeChapterSummaryRollback": {
+        "requiredName": "rolls back prose, summary, Yjs receipt, and sync journal when their shared transaction fails",
+        "matches": 1,
+        "passed": true
+      },
+      "artifactRestart": {
+        "requiredName": "pages exact Unicode content after closing and reopening the repository",
+        "matches": 1,
+        "passed": true
+      },
+      "checkpointRestart": {
+        "requiredName": "commits the final assistant atomically, restarts, verifies nested integrity, and resumes canonical history",
+        "matches": 1,
+        "passed": true
+      },
+      "interruptedContinuation": {
+        "requiredName": "preserves interrupted author intent and completed reads through repeated restart and a completed continuation (writes: false)",
+        "matches": 1,
+        "passed": true
+      },
+      "interruptedWriteSafety": {
+        "requiredName": "preserves interrupted author intent and completed reads through repeated restart and a completed continuation (writes: true)",
+        "matches": 1,
+        "passed": true
+      },
+      "atomicContinuation": {
+        "requiredName": "atomically accepts continuation context and rejects altered or partial acceptance replays",
+        "matches": 1,
+        "passed": true
+      },
+      "duplicateWriteReplay": {
+        "requiredName": "persists one authorized effect and replays duplicates without mutation or post-write review",
+        "matches": 1,
+        "passed": true
+      },
+      "longTaskIdempotency": {
+        "requiredName": "uses one crash-safe command transaction with exact replay and CAS",
+        "matches": 1,
+        "passed": true
+      }
+    },
+    "process": {
+      "exitCode": 0,
+      "signal": null
+    },
+    "passed": true
+  },
+  "typecheck": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "lint": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "capabilities": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "boundaries": {
+    "generatedProseQuality": "This gate proves context availability and fidelity, not that every provider writes excellent prose; semantic writing judgment is milestone H.",
+    "providerNetwork": "Provider contracts are bounded and deterministic here; live multi-provider conformance is milestone I.",
+    "nativeDevices": "SQLite process restart is covered headlessly; desktop/iOS/Android lifecycle and endurance are milestone J."
+  },
+  "passed": true
+}

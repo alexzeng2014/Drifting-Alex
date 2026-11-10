@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Drifting-Alex</title>
+    <!-- This placeholder has no dependency on renderer modules or native IPC.
+         It is the sea of characters at rest (docs/design-system/components.md,
+         "全屏加载与字海"): the desk with a faint dot in every 10px cell, one
+         cell centred on the window, so the sea React mounts over it lines up. -->
+    <style>
+      #app-startup-loading {
+        position: fixed;
+        inset: 0;
+        background-color: hsl(40 9% 94.5%);
+        background-image: radial-gradient(circle at center, hsl(30 4% 26% / 0.075) 0.35px, transparent 0.95px);
+        background-position: center;
+        background-size: 10px 10px;
+      }
+      .dark #app-startup-loading {
+        background-color: hsl(220 6% 11.5%);
+        background-image: radial-gradient(circle at center, hsl(220 6% 82% / 0.09) 0.35px, transparent 0.95px);
+      }
+    </style>
+
+    <!-- Drifting design-system fonts are bundled locally via
+         @fontsource-variable and imported in src/renderer/main.tsx (Inter Tight
+         for UI; Newsreader and Noto Serif SC for optional prose). This replaces the former
+         Google Fonts CDN <link>; packaged native builds now match dev and
+         work offline. -->
+  </head>
+  <body>
+    <div id="root">
+      <!-- React replaces this node on its first commit; no timer or overlay teardown. -->
+      <div id="app-startup-loading" role="status" aria-label="正在启动 Drifting-Alex" data-tauri-drag-region></div>
+    </div>
+    <script src="/startup.js"></script>
+    <script type="module" src="/src/renderer/main.tsx"></script>
+  </body>
+</html>

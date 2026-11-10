@@ -1,0 +1,105 @@
+export type SidebarSide = 'left' | 'right';
+
+export const SIDEBAR_DIVIDER_WIDTH = 1;
+
+export function sidebarTabMinimumWidth(labelWidths: number[], gap: number, outerPadding: number): number {
+  return Math.ceil(labelWidths.reduce((sum, width) => sum + width, 0)
+    + Math.max(0, labelWidths.length - 1) * gap + outerPadding);
+}
+
+export function sidebarSplitMinWidth(minimumWidth: number): number {
+  return minimumWidth * 2 + SIDEBAR_DIVIDER_WIDTH;
+}
+
+const SIDEBAR_MAX_VIEWPORT_RATIO: Record<SidebarSide, number> = {
+  left: 0.6,
+  right: 0.6,
+};
+
+// Keep the prose column usable when both persisted sidebars are restored on a
+// narrower desktop window. The mobile shell has its own navigation model and
+// does not render these sidebars.
+export const MIN_DESKTOP_CONTENT_WIDTH = 420;
+
+export interface DimensionBounds {
+  min: number;
+  max: number;
+}
+
+export function clampDimension(value: number, { min, max }: DimensionBounds): number {
+  const safeMin = Number.isFinite(min) ? min : 0;
+  const safeMax = Number.isFinite(max) ? Math.max(safeMin, max) : safeMin;
+  if (!Number.isFinite(value)) return safeMin;
+  return Math.min(safeMax, Math.max(safeMin, value));
+}
+
+export function parsePersistedDimension(raw: string | null): number | null {
+  if (raw === null || raw.trim() === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function sidebarWidthBounds(
+  side: SidebarSide,
+  viewportWidth: number,
+  oppositeOpenWidth: number,
+  minimumWidth: number,
+): DimensionBounds {
+  const min = minimumWidth;
+  const safeViewport = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+  const safeOpposite = Number.isFinite(oppositeOpenWidth)
+    ? Math.max(0, oppositeOpenWidth)
+    : 0;
+  const ratioMax = safeViewport * SIDEBAR_MAX_VIEWPORT_RATIO[side];
+  const contentPreservingMax = safeViewport - safeOpposite - MIN_DESKTOP_CONTENT_WIDTH;
+  return { min, max: Math.max(min, Math.min(ratioMax, contentPreservingMax)) };
+}
+
+// The narrowest sidebar worth opening on the author's behalf (the default
+// sidebar width); below it an automatic reveal would only squeeze the page.
+export const MIN_REVEALED_SIDEBAR_WIDTH = 280;
+
+/** Whether a closed sidebar can open beside the content without squeezing it. */
+export function sidebarFitsBeside(
+  viewportWidth: number,
+  oppositeOpenWidth: number,
+  minimumWidth: number,
+): boolean {
+  if (!Number.isFinite(viewportWidth)) return true;
+  const room = viewportWidth - Math.max(0, oppositeOpenWidth) - MIN_DESKTOP_CONTENT_WIDTH;
+  return room >= Math.max(minimumWidth, MIN_REVEALED_SIDEBAR_WIDTH);
+}
+
+export function clampSidebarWidth(
+  width: number,
+  side: SidebarSide,
+  viewportWidth: number,
+  oppositeOpenWidth: number,
+  minimumWidth: number,
+): number {
+  return clampDimension(width, sidebarWidthBounds(side, viewportWidth, oppositeOpenWidth, minimumWidth));
+}
+
+/** Apply the same pixel minimum to each pane, including restored split ratios. */
+export function sidebarSplitRatioBounds(minimumWidth: number, width: number): DimensionBounds {
+  const available = Number.isFinite(width) ? width - SIDEBAR_DIVIDER_WIDTH : 0;
+  const min = available > 0
+    ? Math.min(0.5, Math.max(0.2, minimumWidth / available))
+    : 0.5;
+  return { min, max: 1 - min };
+}
+
+export function clampSidebarSplitRatio(ratio: number, minimumWidth: number, width: number): number {
+  return clampDimension(Number.isFinite(ratio) ? ratio : 0.5, sidebarSplitRatioBounds(minimumWidth, width));
+}
+
+export function verticalDockBounds(
+  containerHeight: number,
+  minDockHeight: number,
+  minContentHeight: number,
+): DimensionBounds {
+  const min = Math.max(0, minDockHeight);
+  const safeContainer = Number.isFinite(containerHeight) ? Math.max(0, containerHeight) : 0;
+  const safeContent = Number.isFinite(minContentHeight) ? Math.max(0, minContentHeight) : 0;
+  return { min, max: Math.max(min, safeContainer - safeContent) };
+}

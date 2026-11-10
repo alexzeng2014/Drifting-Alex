@@ -1,0 +1,78 @@
+{
+  "kind": "animated-tab-reorder",
+  "generatedAt": "2026-10-30T13:15:48.712Z",
+  "fingerprint": "9f0987114aff3c4c5e517d97c1640c0b1506fb8cf7704c1868192bc72c401c86",
+  "profiles": [
+    {
+      "reducedMotion": false,
+      "checks": {
+        "unequal-width-fixture": true,
+        "split-drag-payload-preserved": true,
+        "live-neighbours-move-before-drop": true,
+        "no-store-writes-during-preview": true,
+        "neighbour-animation-policy": true,
+        "drop-commits-once": true,
+        "landing-animation-policy": true,
+        "drop-cleans-transforms": true,
+        "active-tab-preserved": true,
+        "reverse-preview": true,
+        "cancel-restores-order-and-styles": true,
+        "fast-dragenter-accepts-and-previews": true,
+        "wide-split-can-reach-last-slot": true,
+        "escape-does-not-commit": true,
+        "wobbling-off-the-strip-keeps-every-slot": true,
+        "leaving-strip-closes-its-slot": true,
+        "returning-to-strip-reopens-a-slot": true,
+        "spurious-window-leave-keeps-the-slot": true,
+        "external-drop-retains-editor-payload": true,
+        "create-cannot-start-drag": true,
+        "close-button-cannot-start-drag": true,
+        "create-stays-last": true,
+        "stationary-pointer-scrolls-overflow": true,
+        "outside-pointer-stops-scroll": true,
+        "tab-change-cancels-stale-drag": true,
+        "blur-cleans-up": true,
+        "unmount-disposes-drag-and-animations": true
+      }
+    },
+    {
+      "reducedMotion": true,
+      "checks": {
+        "unequal-width-fixture": true,
+        "split-drag-payload-preserved": true,
+        "live-neighbours-move-before-drop": true,
+        "no-store-writes-during-preview": true,
+        "neighbour-animation-policy": true,
+        "drop-commits-once": true,
+        "landing-animation-policy": true,
+        "drop-cleans-transforms": true,
+        "active-tab-preserved": true,
+        "reverse-preview": true,
+        "cancel-restores-order-and-styles": true,
+        "fast-dragenter-accepts-and-previews": true,
+        "wide-split-can-reach-last-slot": true,
+        "escape-does-not-commit": true,
+        "wobbling-off-the-strip-keeps-every-slot": true,
+        "leaving-strip-closes-its-slot": true,
+        "returning-to-strip-reopens-a-slot": true,
+        "spurious-window-leave-keeps-the-slot": true,
+        "external-drop-retains-editor-payload": true,
+        "create-cannot-start-drag": true,
+        "close-button-cannot-start-drag": true,
+        "create-stays-last": true,
+        "stationary-pointer-scrolls-overflow": true,
+        "outside-pointer-stops-scroll": true,
+        "tab-change-cancels-stale-drag": true,
+        "blur-cleans-up": true,
+        "unmount-disposes-drag-and-animations": true
+      }
+    }
+  ],
+  "uncaughtErrors": [],
+  "native": "not-run",
+  "nativeDragDropEnabled": {
+    "base": false,
+    "macos": false
+  },
+  "boundary": "Production React TopTimeline and UI-store, synthetic HTML drag events in Chromium. Actual animation frames, overflow scrolling and reduced motion. No physical native drag or complete editor acceptance."
+}

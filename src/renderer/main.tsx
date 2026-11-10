@@ -1,0 +1,102 @@
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { HashRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Buffer } from 'buffer';
+
+// Retained for the mobile UI; desktop fonts follow semantic roles below.
+import '@fontsource-variable/inter-tight';
+import '../styles/index.css';
+import '../styles/materials.css';
+import '../styles/comments-review.css';
+import '../styles/entity-editors.css';
+import '../styles/material-workbench.css';
+import '../styles/desktop-shell.css';
+import '../styles/immersive-writing.css';
+import '../styles/ui-controls.css';
+import '../styles/settings.css';
+import '../styles/agent-activity.css';
+import '../styles/desktop-typography.css';
+import '../styles/interface-fonts.css';
+import '../styles/guide.css';
+// After the app's own sheets, where Tiptap used to append its own.
+import '../styles/tiptap-base.css';
+import { i18next } from './lib/i18n';
+import { uiTranslator } from './lib/locale-resources';
+import { applyPlatformCopy } from './lib/platform-copy';
+import { hydratePlatformRuntime } from './platform/runtime';
+import { applyInitialThemeBeforeRender } from './lib/initial-theme';
+import { installCrashReporting } from './services/diagnostics/crash-reporter';
+import { installGlassAwake } from './lib/glass-awake';
+import App from './App';
+
+installCrashReporting();
+installGlassAwake(document);
+
+// Kept behind both a compile-time branch (DEV, or a local release-performance
+// measurement bundle) and an explicit opt-in. The dynamic module and its global
+// debug registry are absent from release builds.
+if ((import.meta.env.DEV || import.meta.env.VITE_DRIFTING_PERF_BUILD === '1')
+  && import.meta.env.VITE_DRIFTING_FRONTEND_DEBUG === '1') {
+  void import('./lib/frontend-debug/bridge').then(({ installFrontendDebugBridge }) => {
+    installFrontendDebugBridge();
+  });
+}
+
+if (!(globalThis as { Buffer?: typeof Buffer }).Buffer) {
+  (globalThis as { Buffer?: typeof Buffer }).Buffer = Buffer;
+}
+
+// A debug broker should not need UI automation merely to select its project.
+// HashRouter reads this route on first render after auth/session hydration.
+if (import.meta.env.DEV) {
+  const debugProjectId = import.meta.env.VITE_DRIFTING_AGENT_DEBUG_PROJECT_ID?.trim();
+  if (debugProjectId) {
+    window.location.hash = `/project/${encodeURIComponent(debugProjectId)}`;
+  }
+}
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+async function bootstrap() {
+  applyInitialThemeBeforeRender();
+  const runtime = await hydratePlatformRuntime();
+  applyPlatformCopy([i18next, uiTranslator], runtime.nativePlatform);
+  // Development-only: the native side logs renderer stalls over one second.
+  if (import.meta.env.DEV && runtime.target === 'desktop') {
+    void import('./lib/dev-watchdog').then(({ installDevWatchdog }) => {
+      installDevWatchdog();
+    });
+    // Development-only: logs IME compositions left selected in WebKit.
+    void import('./lib/dev-ime-probe').then(
+      ({ installDevImeProbe }) => {
+        installDevImeProbe();
+      },
+      (error: unknown) => {
+        void import('@tauri-apps/api/core').then(({ invoke }) =>
+          invoke('dev_ime_selection_report', {
+            report: { kind: 'probe-error', detail: { stage: 'import', error: String(error) } },
+          }),
+        );
+      },
+    );
+  }
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

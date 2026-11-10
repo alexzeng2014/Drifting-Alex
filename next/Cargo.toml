@@ -1,0 +1,360 @@
+# The Rust + GPUI + Loro rewrite of the Drifting desktop client.
+# Plan: docs/rust-rewrite/README.md. The old Tauri client keeps its own
+# manifests under src-tauri/ and crates/ until the switch-over.
+[workspace]
+resolver = "3"
+# One member per line, kept sorted, so parallel branches merge cleanly.
+members = [
+    "app/drifting",
+    "crates/dr-agent",
+    "crates/dr-agent-providers",
+    "crates/dr-agent-tools",
+    "crates/dr-cli",
+    "crates/dr-corpus",
+    "crates/dr-debug-bridge",
+    "crates/dr-debug-protocol",
+    "crates/dr-doc",
+    "crates/dr-editor",
+    "crates/dr-export",
+    "crates/dr-i18n",
+    "crates/dr-import-v1",
+    "crates/dr-index",
+    "crates/dr-mirror",
+    "crates/dr-model",
+    "crates/dr-platform",
+    "crates/dr-samples",
+    "crates/dr-shell",
+    "crates/dr-store",
+    "crates/dr-testkit",
+    "crates/dr-text",
+    "crates/dr-ui",
+    "crates/dr-view-agent",
+    "crates/dr-view-elements",
+    "crates/dr-view-export",
+    "crates/dr-view-feedback",
+    "crates/dr-view-history",
+    "crates/dr-view-home",
+    "crates/dr-view-ideas",
+    "crates/dr-view-import",
+    "crates/dr-view-material",
+    "crates/dr-view-page",
+    "crates/dr-view-plot",
+    "crates/dr-view-relations",
+    "crates/dr-view-review",
+    "crates/dr-view-sea",
+    "crates/dr-view-search",
+    "crates/dr-view-shelf",
+    "crates/dr-view-shelf-art",
+    "crates/dr-view-stats",
+    "crates/dr-view-timeline",
+    "crates/dr-view-transfer",
+    "crates/dr-view-update",
+    "crates/dr-workspace",
+    "crates/gpui-ime",
+    "crates/gpui-prose",
+    "crates/prose-linebreak",
+    "crates/prose-metrics",
+    "spikes/import-v1",
+    "spikes/loro-model",
+    "spikes/loro-undo-quadratic",
+    "spikes/prose-spike",
+    "spikes/visual",
+    "xtask",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+# M27: provider-neutral, in-process Agent runtime (no GPUI).
+dr-agent = { path = "crates/dr-agent" }
+dr-agent-providers = { path = "crates/dr-agent-providers" }
+dr-agent-tools = { path = "crates/dr-agent-tools" }
+dr-view-agent = { path = "crates/dr-view-agent" }
+url = "2.5"
+# GPUI is pinned to a Zed stable release tag (decision D1). Upgrade on a
+# schedule: bump both entries together, then rerun the spike benchmarks.
+gpui = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0" }
+# `font-kit` rasterizes glyphs on macOS; without it GPUI lays text out but
+# draws none (Windows uses DirectWrite either way). `runtime_shaders` compiles
+# the Metal shaders when the app starts instead of at build time, so a build
+# needs no Metal Toolchain (a separate Xcode download). Release bundles should
+# precompile them; see docs/rust-rewrite/progress.md.
+gpui_platform = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0", features = ["font-kit", "runtime_shaders"] }
+
+# Loro is pinned exactly; its Rust API still has breaking changes.
+loro = "=1.17.1"
+# Pinned with loro: `.driftingbook` recomputes mergeable-child markers.
+loro-common = "=1.17.0"
+
+anyhow = "1"
+# gpui-prose (F4) and its two small crates, all MIT OR Apache-2.0.
+gpui-prose = { path = "crates/gpui-prose" }
+gpui-ime = { path = "crates/gpui-ime" }
+prose-linebreak = { path = "crates/prose-linebreak", default-features = false }
+# GPUI's own B-tree (Apache-2.0), for gpui-prose's paragraph index.
+sum_tree = { git = "https://github.com/zed-industries/zed", tag = "v1.27.0" }
+# gpui-prose (F4): word and grapheme-cluster boundaries, Chinese words from the
+# dictionary. Same 2.4 line as the icu_* crates GPUI already pulls in; no LSTM.
+icu_segmenter = { version = "2.4", default-features = false, features = ["compiled_data"] }
+log = "0.4"
+
+# F1 data crates. Workspace members are listed here so dependants write
+# `dr-model.workspace = true`.
+dr-doc = { path = "crates/dr-doc" }
+# F4e: Drifting's editor on gpui-prose (AGPL).
+dr-editor = { path = "crates/dr-editor" }
+dr-model = { path = "crates/dr-model" }
+# F2 storage, for the 0.1 library import (M10, dr-import-v1).
+dr-store = { path = "crates/dr-store" }
+
+# F2 storage and F3 commands (docs/rust-rewrite/foundations/f3-workspace.md).
+dr-workspace = { path = "crates/dr-workspace" }
+# F3: JSON Schemas of every command and query input and output (the
+# capability list), reviewed as insta snapshots.
+schemars = "1.2"
+insta = { version = "1.49", default-features = false }
+
+# Text tools (plain text, outline, auto-link matcher) and the word-count rule
+# (Apache-2.0, no dr-* dependency). docs/rust-rewrite/foundations/dr-text-index.md
+dr-text = { path = "crates/dr-text" }
+# The derived-index implementation (dr-store's Deriver), and M10 for its
+# end-to-end check.
+dr-import-v1 = { path = "crates/dr-import-v1" }
+dr-index = { path = "crates/dr-index" }
+prose-metrics = { path = "crates/prose-metrics" }
+# dr-text: entity auto-link names, leftmost-longest (the version the lockfile
+# already carries).
+aho-corasick = "1.1"
+
+# The built-in sample books a new library receives once (services, no GPUI);
+# dr-testkit lays its seed out with the same writer.
+dr-samples = { path = "crates/dr-samples" }
+# F8 test kit: the seed, sample books, evidence, crash harness, benchmarks.
+dr-testkit = { path = "crates/dr-testkit" }
+# F8 debug bridge: the server (development builds with the app's
+# `debug-bridge` feature only) and its protocol and client (no GPUI).
+dr-corpus = { path = "crates/dr-corpus" }
+dr-debug-bridge = { path = "crates/dr-debug-bridge" }
+dr-debug-protocol = { path = "crates/dr-debug-protocol" }
+# xtask's text gates (the version GPUI's dependencies already lock).
+regex = "1.13"
+# uuidv7 for new domain ids (the old data uses uuidv7 too); v4 for F7's
+# installation and crash ids. The version the lockfile already carries for GPUI.
+uuid = { version = "1.29", default-features = false, features = ["std", "v4", "v7"] }
+
+# AppKit calls GPUI does not wrap, such as the app's own appearance. The same
+# versions GPUI's macOS backend already builds, so they add nothing new.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow", "objc2-core-foundation"] }
+
+proptest = "1.12"
+# SQLite for the Loro update log and snapshots (P0-C); bundled so every
+# platform builds the same SQLite.
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+# M40's diffs (paragraphs, characters); already in the tree through insta.
+similar = "2.7"
+# M40 watches the Markdown folder.
+notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
+# dr-store: typed errors, temporary directories in tests, OS randomness for
+# peer and installation ids, and text ZIPs (zip pinned exactly as in the 0.1
+# client, which audited this version).
+getrandom = "0.4"
+tempfile = "3.27"
+thiserror = "2.0"
+zip = { version = "=9.4.1", default-features = false, features = ["deflate-flate2"] }
+# zip's deflate-flate2 needs a flate2 backend; the 0.1 client ends up on the
+# pure-Rust one (miniz_oxide), so dr-store selects it explicitly.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+# Spike P0-D (visual): bitmaps for covers, heat maps and baked glass, and
+# the PNG masks of the existing sand and glass assets. `image` must stay on
+# the version GPUI's RenderImage is built from.
+base64 = "0.22.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+smallvec = "1.16"
+tiny-skia = "0.11.4"
+# M25 (dr-view-shelf-art): glyph outlines for the cover of characters, the
+# version usvg already builds.
+ttf-parser = "0.25.1"
+
+# Spike P0-B shell (process metrics, AppKit event posting).
+libc = "0.2.191"
+raw-window-handle = "0.6.2"
+
+# F4c (gpui-prose tests): AccessKit's reading of an accessibility tree, the
+# same version GPUI's macOS and Windows adapters already build.
+accesskit_consumer = "0.38"
+
+# F7 dr-platform: logs, crash reports, keychain, deep links and single
+# instance, the updater. docs/rust-rewrite/foundations/f7-platform.md.
+dr-platform = { path = "crates/dr-platform" }
+dirs = "6.0"
+# Development only: proves the legacy Tauri layout (keyring 3.6, as the 0.1
+# client) reads back, and signs updater test artifacts with a throwaway key.
+keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native"] }
+minisign = "0.10"
+minisign-verify = "0.3"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFBase", "CFData", "CFDictionary", "CFNumber", "CFString"] }
+objc2-security = { version = "0.3", default-features = false, features = ["std", "SecBase", "SecItem"] }
+# reqwest 0.13 is the HTTP client Sentry's transport already brings; the
+# updater uses the same blocking client. TLS is rustls with ring, as the 0.1
+# client (it builds on the Windows ARM runner; aws-lc is not proven there).
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "form", "json", "query", "stream", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+semver = "1.0"
+# Without `reqwest` and `rustls-no-provider` (dr-platform's `network` feature
+# adds them) a client builds but sends nothing.
+sentry = { version = "0.49", default-features = false, features = ["backtrace", "contexts", "debug-images", "minidump"] }
+tar = "0.4"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "fmt", "registry", "std"] }
+# The version GPUI's Windows backend builds; the features add Win32 modules,
+# not crates.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_Input_Ime",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# F5 (dr-ui): grapheme boundaries for the single-line input's caret moves,
+# and the fonts mapped into memory (the version GPUI already builds).
+memmap2 = "0.9"
+unicode-segmentation = "1.13"
+
+# F6 (dr-shell, dr-i18n): the interface strings and their plural rules
+# (CLDR, compiled in, the same 2.4 line as icu_segmenter), the system's
+# preferred languages, and a channel that brings deep links to the main
+# thread (the versions GPUI already builds).
+dr-i18n = { path = "crates/dr-i18n" }
+dr-shell = { path = "crates/dr-shell" }
+dr-ui = { path = "crates/dr-ui" }
+# M06 and M07: the search panel and the Stats tab with the writing-day
+# recorder (interface crates over F3).
+dr-view-review = { path = "crates/dr-view-review" }
+dr-view-history = { path = "crates/dr-view-history" }
+dr-view-search = { path = "crates/dr-view-search" }
+dr-view-stats = { path = "crates/dr-view-stats" }
+# M41: the manuscript export and Markdown share dialogs (over dr-export).
+dr-view-export = { path = "crates/dr-view-export" }
+# M41: .driftingbook, importing documents, backup and restore (over the shell).
+dr-view-transfer = { path = "crates/dr-view-transfer" }
+# M39: the feedback dialog and the crash follow-up.
+dr-view-feedback = { path = "crates/dr-view-feedback" }
+# M42: automatic updates (over F7's dr_platform::update).
+dr-view-update = { path = "crates/dr-view-update" }
+futures = "0.3"
+httpdate = "1.0"
+# M28: one shared async transport executor, also used by catalog and OAuth.
+tokio = { version = "1.48", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+
+icu_plurals = { version = "2.4", default-features = false, features = ["compiled_data"] }
+# M40 names files as 0.1 did (NFKC first); already in the tree through url.
+icu_normalizer = { version = "2.4", default-features = false, features = ["compiled_data"] }
+icu_locale_core = { version = "2.4", default-features = false }
+# F4e: the @ picker sorts names the way Chinese readers expect (pinyin, the
+# zh collation), same 2.4 line as the other icu_* crates.
+icu_collator = { version = "2.4", default-features = false, features = ["compiled_data"] }
+sys-locale = "0.3"
+# Stage 2 views: the bookshelf (M01) and Project Home (M02), docs/rust-rewrite/
+# modules/m01-shelf.md and m02-home.md. chrono gives the local calendar day
+# (the writing day) and is the version the lockfile already carries.
+dr-view-home = { path = "crates/dr-view-home" }
+dr-view-shelf = { path = "crates/dr-view-shelf" }
+# M11: the element and category pages (docs/rust-rewrite/modules/m11-elements.md).
+dr-view-elements = { path = "crates/dr-view-elements" }
+# M14: the bottom timeline (docs/rust-rewrite/modules/m14-timeline.md).
+dr-view-timeline = { path = "crates/dr-view-timeline" }
+# M10's interface: the 0.1 library import over the bookshelf
+# (docs/rust-rewrite/modules/m10-import.md).
+dr-view-import = { path = "crates/dr-view-import" }
+# M03: the chapter page's head and end around the editor (dr-editor's PageChrome).
+dr-view-page = { path = "crates/dr-view-page" }
+# M19: the image and PDF viewer and its region comments
+# (docs/rust-rewrite/modules/m19-materials.md). hayro renders PDF pages in
+# pure Rust (Apache-2.0 OR MIT): nothing to download or install beside the
+# app, unlike pdfium-render's separate PDFium library.
+dr-view-material = { path = "crates/dr-view-material" }
+hayro = "0.9.0"
+# M15: the plot planner, a chapter's grid of slips under the paper
+# (docs/rust-rewrite/modules/m15-plot.md).
+dr-view-plot = { path = "crates/dr-view-plot" }
+# M17: relations and relation types (the element page's 「关联」, the types).
+dr-view-relations = { path = "crates/dr-view-relations" }
+# M16: the 构想 panel, ideas in nested groups (docs/rust-rewrite/modules/m16-ideas.md).
+dr-view-ideas = { path = "crates/dr-view-ideas" }
+# M25: the bookshelf's covers, heat map and strips.
+dr-view-shelf-art = { path = "crates/dr-view-shelf-art" }
+# M24: the sea of characters, the first run and the tour.
+dr-view-sea = { path = "crates/dr-view-sea" }
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+# M41: manuscript export (EPUB, Word, PDF), Markdown share and covers, the
+# 0.1 client's writers ported as they were (docs/rust-rewrite/
+# simplifications.md). The PDF writer, its shaping and the system font
+# database are the versions the 0.1 client audited; roxmltree reads the
+# EPUB and Word files back in the format checks.
+dr-export = { path = "crates/dr-export" }
+dr-mirror = { path = "crates/dr-mirror" }
+fontdb = "0.23"
+krilla = "0.8.2"
+roxmltree = "0.20"
+rustybuzz = "0.20.1"
+# dr-shell's capture example writes its screenshots as 256-colour PNGs
+# (the versions GPUI's image stack already builds).
+color_quant = "1.1"
+png = "0.18"
+# F4e: the @ picker matches pinyin initials (约格 by `yg`). MIT; its table
+# is mozillazg's pinyin-data (MIT, from Unihan). Only the plain spellings
+# and every reading of a polyphone.
+pinyin = { version = "0.11.0", default-features = false, features = ["plain", "heteronym"] }
+
+# Zed patches these crates.io crates in its own workspace; a git dependency
+# does not inherit [patch], so GPUI's consumers repeat the ones it needs.
+[patch.crates-io]
+async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
+async-task = { git = "https://github.com/zed-industries/async-task.git", rev = "015845a19fc31752c02367567d3b8900a406f9da" }
+calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
+windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+
+[profile.dev]
+# GPUI is slow unoptimized; keep our own crates debuggable.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Spike P0-D draws glass, the sea and covers on the CPU; unoptimized, a dev
+# build would show costs ten times their real size.
+[profile.dev.package.visual-spike]
+opt-level = 2
+
+# dr-ui rasterises sand frames and builds glass on the CPU; keep its
+# timings honest in the gallery.
+[profile.dev.package.dr-ui]
+opt-level = 2
+
+# The shipped build: release plus line tables in a separate symbol file (a
+# .dSYM beside the executable on macOS, a .pdb on Windows), so Sentry can name
+# a crash's frames once the release workflow uploads it. `script/bundle-mac
+# --dist` strips the bundled executable and keeps the .dSYM beside the .app;
+# `release` itself stays as it is for benchmarks. f7-platform.md, 「符号文件」.
+[profile.dist]
+inherits = "release"
+debug = "line-tables-only"
+split-debuginfo = "packed"

@@ -1,0 +1,82 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { SuperViewShell } from '../../../components/SuperViewShell';
+import { LoadingStatus } from '../../../components/ui/LoadingStatus';
+import { useSuperViewNavigation } from '../../../hooks/useSuperViewNavigation';
+import { useSuperViewEscapeStack } from '../../../hooks/useSuperViewEscapeStack';
+import { useDriftPanelAnim } from '../../../hooks/useDriftPanelAnim';
+import { DesktopSuperViewHeader } from '../components/DesktopSuperViewHeader';
+import { SuperViewRelationLegend } from '../components/SuperViewRelationLegend';
+import { memoMaterialModule, superViewModules } from '../../../features/graph/deferred-graph-modules';
+import type { createDeferredModule } from '../../../lib/deferred-module';
+// These shells/styles are immediate, including while feature code is loading.
+// The view bodies arrive through deferred entries (`vite-plugins/deferred-entry.ts`),
+// whose ignored import() never injects a chunk's CSS in a production build, so
+// every stylesheet a body imports is owned here as well.
+import '../../../../styles/graph-view.css';
+import '../../../../styles/super-element.css';
+import '../../../../styles/super-memo-material.css';
+import '../../../../styles/drift-panel.css';
+import '../../../../styles/relation-edge-popover.css';
+
+function PendingSuperView({ failed, retry }: { failed: boolean; retry: () => void }) {
+  const { t } = useTranslation();
+  const { setActive } = useSuperViewNavigation();
+  const close = useCallback(() => setActive('none'), [setActive]);
+  useSuperViewEscapeStack([], close);
+  return (
+    <SuperViewShell>
+      <DesktopSuperViewHeader onBack={close} />
+      <div className="set-panel" role={failed ? 'alert' : undefined}>
+        {failed ? <p className="set-panel__sub">{t('appShell.viewLoadFailed')}</p>
+          : <LoadingStatus label={t('common.loading')} />}
+        {failed && <button type="button" className="set-btn" onClick={retry}>{t('appShell.retry')}</button>}
+      </div>
+    </SuperViewShell>
+  );
+}
+
+function DeferredSuperView<T>({ resource, render }: {
+  resource: ReturnType<typeof createDeferredModule<T>>;
+  render: (value: T) => ReactNode;
+}) {
+  const state = useSyncExternalStore(resource.subscribe, resource.getSnapshot);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (state.status === 'idle') void resource.load();
+  }, [resource, state.status]);
+  useLayoutEffect(() => {
+    if (state.status === 'ready' && restoreFocus.current && document.activeElement === document.body) {
+      hostRef.current?.querySelector<HTMLElement>('.super-view-head__back')?.focus({ preventScroll: true });
+    }
+  }, [state.status]);
+  const ready = state.status === 'ready' ? state.value : null;
+  return (
+    <div ref={hostRef} style={{ display: 'contents' }}
+      onFocusCapture={() => { restoreFocus.current = true; }}
+      onBlurCapture={(event) => {
+        // Removing Retry while loading can report body as the blur target.
+        // Preserve that focus intent, but respect focus moved to another control.
+        if (event.relatedTarget && event.relatedTarget !== document.body && !event.currentTarget.contains(event.relatedTarget)) {
+          restoreFocus.current = false;
+        }
+      }}
+    >
+      {ready ? render(ready)
+        : <PendingSuperView failed={state.status === 'error'} retry={resource.load} />}
+    </div>
+  );
+}
+
+function DeferredGraphView({ view }: { view: keyof typeof superViewModules }) {
+  const driftPanel = useDriftPanelAnim();
+  return <DeferredSuperView resource={superViewModules[view]}
+    render={({ View, graphUi }) => <View graphUi={graphUi} driftPanel={driftPanel} SuperViewRelationLegend={SuperViewRelationLegend} />} />;
+}
+
+export function DeferredStoryGraphView() { return <DeferredGraphView view="graph" />; }
+export function DeferredElementGraphView() { return <DeferredGraphView view="element" />; }
+export function DeferredMemoMaterialView() {
+  return <DeferredSuperView resource={memoMaterialModule} render={(View) => <View />} />;
+}

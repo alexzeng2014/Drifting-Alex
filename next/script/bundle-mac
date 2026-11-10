@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# Builds "Drifting Next.app", an unsigned macOS bundle for local testing,
+# and optionally the two files a release ships for it.
+#
+#   script/bundle-mac [--debug|--dist] [--open] [--dmg] [--archive] [--output <dir>]
+#
+#   --debug    bundle the dev profile instead of release
+#   --dist     bundle the shipped build: the `dist` profile (release with line
+#              tables), the executable stripped, its symbols in
+#              <name>.app.dSYM beside the bundle (for Sentry, never shipped)
+#   --open     open the bundle when it is built
+#   --dmg      also make <name>_<version>_macos_<arch>.dmg (first installs)
+#   --archive  also make <name>_<version>_<arch>.app.tar.gz (the updater's
+#              artifact; sign it with `cargo run -p dr-platform --example
+#              update-tool -- sign`)
+#   --output   where the files go (default: next/target/bundle)
+#
+# It carries the development identity below, never the release client's, so
+# it runs beside an installed Drifting without sharing its Launch Services
+# entry, `drifting:` links, keychain items, updater or data. The release
+# identity, Developer ID signing and notarization belong to the hand-over
+# (docs/rust-rewrite/foundations/f7-platform.md); this script does none of it.
+#
+# "Unsigned" means no Developer ID: the bundle is sealed with an ad-hoc
+# signature, which Apple silicon needs before a modified executable may run.
+# A copy downloaded from elsewhere is quarantined and Gatekeeper refuses it;
+# a bundle built on this Mac opens with a double click.
+#
+# Before a public release: precompile the Metal shaders. The workspace builds
+# GPUI with `runtime_shaders`, which compiles them at every window's first
+# frame, because Xcode no longer ships the Metal Toolchain by default
+# (`xcodebuild -downloadComponent MetalToolchain`; the author installs it).
+# A release bundle drops that feature; see the F7 doc's release checklist.
+set -euo pipefail
+
+APP_NAME="Drifting Next"
+BUNDLE_ID="cc.drifting.next.dev"
+EXECUTABLE="drifting"
+# Never `drifting`: that scheme belongs to the installed release client.
+URL_SCHEME="drifting-next-dev"
+MINIMUM_SYSTEM_VERSION="13.0"
+
+die() {
+  echo "bundle-mac: $*" >&2
+  exit 1
+}
+
+next_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+repo_dir=$(cd "$next_dir/.." && pwd)
+
+profile=release
+open_after=0
+make_dmg=0
+make_archive=0
+output="$next_dir/target/bundle"
+while (($#)); do
+  case "$1" in
+    --debug) profile=debug ;;
+    --dist) profile=dist ;;
+    --open) open_after=1 ;;
+    --dmg) make_dmg=1 ;;
+    --archive) make_archive=1 ;;
+    --output)
+      [[ $# -ge 2 ]] || die "--output needs a directory"
+      output=$2
+      shift
+      ;;
+    -h | --help)
+      sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) die "unknown option $1 (see --help)" ;;
+  esac
+  shift
+done
+
+[[ $(uname -s) == Darwin ]] || die "macOS only"
+
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$next_dir/app/drifting/Cargo.toml" | head -n 1)
+[[ -n $version ]] || die "no version in app/drifting/Cargo.toml"
+# CFBundleShortVersionString takes digits and dots only: 0.2.0-dev -> 0.2.0.
+short_version=${version%%-*}
+commit=$(git -C "$repo_dir" rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
+if ! git -C "$repo_dir" diff --quiet HEAD -- "$next_dir" 2>/dev/null; then
+  commit="$commit-dirty"
+fi
+build_number=$(git -C "$repo_dir" rev-list --count HEAD 2>/dev/null || echo 1)
+
+cargo_args=(build --locked -p drifting)
+[[ $profile == release ]] && cargo_args+=(--release)
+[[ $profile == dist ]] && cargo_args+=(--profile dist)
+echo "bundle-mac: cargo ${cargo_args[*]}"
+# The executable's minimum macOS matches LSMinimumSystemVersion (Rust's
+# default would be 11.0).
+(cd "$next_dir" && DRIFTING_BUILD_COMMIT=$commit MACOSX_DEPLOYMENT_TARGET=$MINIMUM_SYSTEM_VERSION \
+  cargo "${cargo_args[@]}")
+binary="$next_dir/target/$profile/$EXECUTABLE"
+[[ -x $binary ]] || die "cargo did not produce $binary"
+
+app="$output/$APP_NAME.app"
+contents="$app/Contents"
+rm -rf "$app"
+mkdir -p "$contents/MacOS" "$contents/Resources"
+cp "$binary" "$contents/MacOS/$EXECUTABLE"
+if [[ $profile == dist ]]; then
+  # The symbols stay here, keyed by the executable's build UUID, which
+  # stripping keeps; the release workflow uploads them to Sentry.
+  [[ -d $binary.dSYM ]] || die "cargo did not produce $binary.dSYM"
+  symbols="$output/$APP_NAME.app.dSYM"
+  rm -rf "$symbols"
+  ditto "$binary.dSYM" "$symbols"
+  strip -S -x "$contents/MacOS/$EXECUTABLE"
+  [[ $(dwarfdump --uuid "$contents/MacOS/$EXECUTABLE" | cut -d ' ' -f 2) == \
+    $(dwarfdump --uuid "$symbols" | cut -d ' ' -f 2) ]] ||
+    die "the stripped executable and $symbols name different builds"
+fi
+
+# The bundled fonts (dr-ui looks in Contents/Resources/fonts first). They
+# are built, not committed; install-fonts says how to build them if missing.
+"$next_dir/crates/dr-ui/script/install-fonts" "$contents/Resources" >/dev/null ||
+  die "the fonts are missing; build them first (see the message above)"
+
+# The icon: the checked-in .icns for every macOS, plus the layered Icon
+# Composer catalog that macOS 26 and later draw (needs Xcode 26's actool).
+cp "$repo_dir/src/assets/icon.icns" "$contents/Resources/icon.icns"
+icon_name_entry=""
+if xcrun --find actool >/dev/null 2>&1; then
+  icon_build=$(mktemp -d)
+  trap 'rm -rf "$icon_build"' EXIT
+  # IBToolNeverDeque: Xcode 27's pooled ibtoold can keep broken file
+  # descriptors between runs; scripts/compile-macos-icon.mjs does the same.
+  if IBToolNeverDeque=YES xcrun actool "$repo_dir/src/assets/icon.icon" \
+    --compile "$icon_build" \
+    --output-format human-readable-text \
+    --output-partial-info-plist "$icon_build/partial.plist" \
+    --app-icon icon \
+    --target-device mac \
+    --minimum-deployment-target "$MINIMUM_SYSTEM_VERSION" \
+    --platform macosx >/dev/null && [[ -f $icon_build/Assets.car ]]; then
+    cp "$icon_build/Assets.car" "$contents/Resources/Assets.car"
+    icon_name_entry="<key>CFBundleIconName</key><string>icon</string>"
+  else
+    echo "bundle-mac: actool could not compile the layered icon; shipping the .icns only" >&2
+  fi
+else
+  echo "bundle-mac: no actool (Xcode 26 or later); shipping the .icns only" >&2
+fi
+
+cat >"$contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>$APP_NAME</string>
+  <key>CFBundleExecutable</key><string>$EXECUTABLE</string>
+  <key>CFBundleIconFile</key><string>icon.icns</string>
+  $icon_name_entry
+  <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>$APP_NAME</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$short_version</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>$BUNDLE_ID $URL_SCHEME</string>
+      <key>CFBundleURLSchemes</key><array><string>$URL_SCHEME</string></array>
+    </dict>
+  </array>
+  <key>CFBundleVersion</key><string>$build_number</string>
+  <key>DriftingBuildCommit</key><string>$commit</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>LSMinimumSystemVersion</key><string>$MINIMUM_SYSTEM_VERSION</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>AGPL-3.0-or-later</string>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+</dict>
+</plist>
+PLIST
+plutil -lint -s "$contents/Info.plist"
+
+codesign --force --sign - --timestamp=none "$app"
+codesign --verify --strict "$app"
+
+size_kb=$(du -sk "$app" | cut -f 1)
+binary_kb=$(du -sk "$contents/MacOS/$EXECUTABLE" | cut -f 1)
+echo "bundle-mac: $app"
+echo "bundle-mac: $APP_NAME $version ($commit), $BUNDLE_ID, $profile"
+echo "bundle-mac: bundle ${size_kb} KiB, executable ${binary_kb} KiB"
+if [[ -n ${symbols:-} ]]; then
+  echo "bundle-mac: symbols $symbols ($(du -sk "$symbols" | cut -f 1) KiB)"
+fi
+
+# The disk image follows the released files' naming (`macos_arm64`); the
+# update archive uses the updater's target name (`aarch64`).
+arch=$(uname -m)
+[[ $arch == arm64 ]] && arch_name=aarch64 || arch_name=$arch
+
+if ((make_archive)); then
+  # The updater's artifact: one top-level .app folder, no AppleDouble or
+  # extended attributes (Tauri's updater and ours both drop the folder name
+  # and unpack its contents over the installed bundle).
+  archive="$output/${APP_NAME// /_}_${version}_${arch_name}.app.tar.gz"
+  rm -f "$archive"
+  COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --no-acls \
+    -C "$output" -czf "$archive" "$APP_NAME.app"
+  echo "bundle-mac: updater archive $archive ($(du -k "$archive" | cut -f 1) KiB)"
+fi
+
+if ((make_dmg)); then
+  # A plain, unsigned disk image: the app and a link to /Applications.
+  dmg="$output/${APP_NAME// /_}_${version}_macos_${arch}.dmg"
+  staging=$(mktemp -d)
+  trap 'rm -rf "${icon_build:-}" "$staging"' EXIT
+  ditto "$app" "$staging/$APP_NAME.app"
+  ln -s /Applications "$staging/Applications"
+  rm -f "$dmg"
+  hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$staging" \
+    -fs HFS+ -format UDZO -imagekey zlib-level=9 -ov "$dmg"
+  hdiutil verify -quiet "$dmg"
+  echo "bundle-mac: disk image $dmg ($(du -k "$dmg" | cut -f 1) KiB)"
+fi
+
+if ((open_after)); then
+  open "$app"
+fi

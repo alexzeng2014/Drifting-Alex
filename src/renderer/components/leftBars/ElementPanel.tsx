@@ -1,0 +1,905 @@
+import { useAgentUnreadMarks } from '../../hooks/useAgentUnreadMarks';
+import { AgentChangeIndicator } from './AgentChangeIndicator';
+import { useSidebarPreference, useSidebarPanelState, useSidebarSelection, useSidebarPanelScroll } from '../../hooks/useSidebarPanelState';
+import { useSidebarPaneId } from '../../lib/sidebar-pane-context';
+import { useLeftSidebarPanelWidth } from '../../hooks/useLeftSidebarPanelWidth';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import type { CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
+import loglevel from 'loglevel';
+
+import type { BookElement } from '../../domain/book-element';
+import { useDataStoreFields } from '../../store/use-data-store-fields';
+import { useAgentActivityStore } from '../../store/agent-activity-store';
+import { useAgentEditStore } from '../../store/agent-edit-store';
+import { useUiStore, usePromoteCurrentTab } from '../../store/ui-store';
+import { useAuthStore } from '../../store/auth';
+import { useBookElement } from '../../usecase/useBookElement';
+import { useElementCategory } from '../../usecase/useElementCategory';
+import { useSidebarPanelNavigation as useProjectNavigation } from '../../hooks/useSidebarPanelNavigation';
+import { subscribeSidebarCollapse } from '../../lib/sidebar-pane-events';
+import { entityHoverActions } from './entity-hover-actions';
+import { withElementCategoryChoices, withElementGroupChoices } from '../../features/entities/hover/hover-choices';
+import { ElementCategoryCreateMenu } from './ElementCategoryCreateMenu';
+import { GroupHeaderCell } from './GroupHeaderCell';
+import { ElementGroupPicker } from './ElementGroupPicker';
+import { EntityHoverCard } from '../../features/entities/hover/EntityHoverCard';
+import { ElementIdentityTile } from '../ui/ElementIdentityTile';
+import { KindMark } from '../ui/KindMark';
+import { CELL_PAD_LEFT, SandCell } from '../ui/SandCell';
+import {
+  useHoverPreview,
+  type EntityHoverTarget,
+} from '../../features/entities/hover/entity-hover-card-model';
+import { aggregateActivity } from './agentActivityBubble';
+import { useEntityCellAction } from '../../hooks/useEntityCellAction';
+import { entityKey } from '../../lib/agent/tool-entity-ref';
+import type { WorkspaceTarget } from '../../features/workspace/navigation/workspace-target';
+import { BrushIcon } from '../ui/BrushIcon';
+import { EmptyState } from '../ui/EmptyState';
+
+const log = loglevel.getLogger('ElementPanel');
+log.setLevel(loglevel.levels.ERROR);
+
+// 宽度低于此值时隐藏 cell 上的日期，优先保证 title 显示。
+const DATE_HIDE_WIDTH = 200;
+
+// Sentinel categoryId for elements whose categoryId is NULL — i.e. they
+// belong to no category. Surfaced as a virtual "未分类" group rendered at
+// the tail of the list. Used inside the panel only; never persisted.
+const UNCATEGORIZED_ID = '__uncategorized__';
+const UNCATEGORIZED_COLOR = 'hsl(var(--ink-4))';
+
+const formatShortDate = (input: string | number | Date) => {
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const month = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return sameYear ? `${month}/${day}` : `${d.getFullYear() % 100}/${month}/${day}`;
+};
+
+interface ElementPanelProps {
+  presentation?: 'desktop' | 'mobile';
+  activeTarget?: WorkspaceTarget | null;
+  onPreviewTarget?: (target: WorkspaceTarget) => void;
+}
+
+export function ElementPanel({
+  presentation = 'desktop',
+  activeTarget = null,
+  onPreviewTarget,
+}: ElementPanelProps = {}) {
+  const { t } = useTranslation();
+  const { bookElements, bookElementCategories } = useDataStoreFields('bookElements', 'bookElementCategories');
+  const elementUi = useUiStore((s) => s.elementUi);
+  const sidebarWidth = useLeftSidebarPanelWidth();
+  const paneId = useSidebarPaneId();
+  const showDate = presentation === 'desktop' && sidebarWidth >= DATE_HIDE_WIDTH;
+  const [sortMode] = useSidebarPreference('elementSortMode');
+  const [categorySortMode] = useSidebarPreference('elementCategorySortMode');
+  const [viewMode] = useSidebarPreference('elementPanelViewMode');
+  const userId = useAuthStore((state) => state.user?.id);
+  const { projectId, openEntity } = useProjectNavigation();
+  const promoteCurrentTab = usePromoteCurrentTab(projectId);
+  const fallbackSelectedId = presentation === 'mobile' && activeTarget?.entityType === 'element'
+      ? activeTarget.id
+      : elementUi.selectedId;
+  const [selection] = useSidebarSelection(fallbackSelectedId ? { entityType: 'element', id: fallbackSelectedId } : null);
+  const selectedBookElementId = selection?.entityType === 'element' ? selection.id : null;
+  const scroll = useSidebarPanelScroll();
+  const activateTarget = useCallback(
+    (target: WorkspaceTarget, options?: { preview?: boolean }) => {
+      if (onPreviewTarget) onPreviewTarget(target);
+      else openEntity(target, options);
+    },
+    [onPreviewTarget, openEntity],
+  );
+  const agentActive = useAgentActivityStore((s) => s.active);
+  const agentTouched = useAgentUnreadMarks();
+  const agentAdditions = useAgentEditStore((s) => s.additions);
+
+  const activeProjectId = useMemo(() => {
+    if (!projectId) {
+      throw new Error('ElementPanel requires a non-empty projectId');
+    }
+    return projectId;
+  }, [projectId]);
+
+  const { createElement, updateElement } = useBookElement({
+    projectId: activeProjectId,
+    userId: userId ?? '',
+  });
+
+  const { getCategoryColor } = useElementCategory({
+    projectId: activeProjectId,
+    userId: userId ?? '',
+  });
+
+  const [collapsedCategoryIds, setCollapsedCategoryIds] = useSidebarPanelState<Set<string>>('collapsed', () => new Set());
+  // Hover card actions — the editor's ⋯ menu items for elements and
+  // categories (entityHoverActions); there are no right-click menus.
+  const dispatchEntityAction = useEntityCellAction();
+  // In-place "change group" picker (replaces the old jump-to-editor modal).
+  const [groupPicker, setGroupPicker] = useState<{
+    x: number;
+    y: number;
+    elementId: string;
+  } | null>(null);
+  const categoryCreateAnchorRef = useRef<HTMLButtonElement>(null);
+  const [categoryCreateCategoryId, setCategoryCreateCategoryId] = useState<string | null>(null);
+  const {
+    preview: hoverPreview,
+    onEnter: hoverEnter,
+    onLeave: hoverLeave,
+    dismiss: hoverDismiss,
+    card: hoverCard,
+  } = useHoverPreview<EntityHoverTarget>();
+  const hoverActionsFor = (target: EntityHoverTarget, anchor: HTMLElement) => {
+    if (target.kind !== 'element' && target.kind !== 'category') return undefined;
+    const groups = entityHoverActions({
+      editorType: target.kind,
+      onAction: (action) => void dispatchEntityAction({ entityType: target.kind === 'element' ? 'element' : 'category', id: target.id, action }),
+      t,
+    });
+    const element = target.kind === 'element' ? bookElements.find((candidate) => candidate.id === target.id) : undefined;
+    if (!element) return groups;
+    // 改类目 and 改分组 unfold their choices in the card; a new group's name is
+    // typed in the in-place picker beside the row.
+    const withCategories = withElementCategoryChoices(groups, {
+      categoryId: element.categoryId ?? null,
+      categories: bookElementCategories,
+      onMove: (categoryId) => void updateElement(element.id, { categoryId }),
+    });
+    return withElementGroupChoices(withCategories, {
+      groupName: element.groupName,
+      groupNames: [...new Set(bookElements
+        .filter((candidate) => (candidate.categoryId ?? null) === (element.categoryId ?? null))
+        .map((candidate) => candidate.groupName?.trim())
+        .filter((name): name is string => Boolean(name)))],
+      onMove: (groupName) => void updateElement(element.id, { groupName }),
+      onNewGroup: () => {
+        const rect = anchor.getBoundingClientRect();
+        setGroupPicker({ x: rect.right + 8, y: rect.top, elementId: element.id });
+      },
+      t,
+    });
+  };
+
+  const toggleCategoryCollapsed = useCallback((id: string) => {
+    setCollapsedCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, [setCollapsedCategoryIds]);
+
+  // Sub-header collapse-all toggles between "expand all" and "collapse all".
+  useEffect(() => {
+    const handler = () => {
+      setCollapsedCategoryIds((prev) => {
+        if (prev.size === 0) return new Set(bookElementCategories.map((c) => c.id));
+        return new Set();
+      });
+    };
+    return subscribeSidebarCollapse('elements', paneId, handler);
+  }, [bookElementCategories, paneId, setCollapsedCategoryIds]);
+
+  const categoryById = useMemo(
+    () => new Map(bookElementCategories.map((category) => [category.id, category])),
+    [bookElementCategories],
+  );
+
+  const getCategoryLabel = useCallback(
+    (categoryId: string) => {
+      if (categoryId === UNCATEGORIZED_ID) return t('leftSidebar.uncategorized');
+      return categoryById.get(categoryId)?.name ?? categoryId;
+    },
+    [categoryById, t],
+  );
+
+  // Are there any elements with no category? Drives whether we render the
+  // virtual "未分类" group at the tail.
+  const hasUncategorized = useMemo(() => bookElements.some((el) => !el.categoryId), [bookElements]);
+
+  // Outer category order is independent from the element order inside each
+  // category. Synthetic "未分类" remains pinned after every real category.
+  const categoryIds = useMemo(() => {
+    const ids = new Set<string>();
+    bookElementCategories.forEach((category) => {
+      if (category.id?.trim()) {
+        ids.add(category.id.trim());
+      }
+    });
+    bookElements.forEach((element) => {
+      if (element.categoryId?.trim()) {
+        ids.add(element.categoryId.trim());
+      }
+    });
+
+    const result = Array.from(ids);
+    result.sort((a, b) => {
+      // 'others' is a legacy convention sink — keep it adjacent to 未分类 at
+      // the tail regardless of the active sort mode.
+      const labelA = getCategoryLabel(a);
+      const labelB = getCategoryLabel(b);
+      if (labelA === 'others') return 1;
+      if (labelB === 'others') return -1;
+
+      if (categorySortMode === 'createdAt') {
+        const ca = categoryById.get(a)?.createdAt;
+        const cb = categoryById.get(b)?.createdAt;
+        // Categories synthesised purely from element rows (no real category
+        // record) have no createdAt — sink them to the bottom of the real
+        // categories so the list head stays stable.
+        if (!ca && !cb) return labelA.localeCompare(labelB);
+        if (!ca) return 1;
+        if (!cb) return -1;
+        if (ca === cb) return 0;
+        return cb > ca ? 1 : -1; // desc — newest first
+      }
+      return labelA.localeCompare(labelB);
+    });
+
+    // "未分类" always renders last so real categories stay on top.
+    if (hasUncategorized) result.push(UNCATEGORIZED_ID);
+
+    return result;
+  }, [
+    bookElementCategories,
+    bookElements,
+    getCategoryLabel,
+    hasUncategorized,
+    categorySortMode,
+    categoryById,
+  ]);
+
+  const elementsByCategory = useMemo(() => {
+    const grouped: Record<string, BookElement[]> = {};
+    categoryIds.forEach((categoryId) => {
+      grouped[categoryId] = [];
+    });
+
+    bookElements.forEach((element) => {
+      // Null categoryId (post-trash refactor: detached from a deleted
+      // category) goes into the virtual UNCATEGORIZED_ID bucket. Any
+      // remaining string id that isn't in categoryIds (orphan from a stale
+      // row, very rare) gets its own bucket so it's at least visible.
+      const categoryId = element.categoryId ? element.categoryId : UNCATEGORIZED_ID;
+      if (!grouped[categoryId]) {
+        grouped[categoryId] = [];
+      }
+      grouped[categoryId].push(element);
+    });
+
+    return grouped;
+  }, [bookElements, categoryIds]);
+
+  // Secondary grouping inside a category. Elements with the same groupName
+  // are clumped together; null groupName goes into the "ungrouped" bucket and
+  // is rendered last with no header. Named groups are always sorted
+  // alphabetically by groupName — groupName has no createdAt, so the active
+  // sort mode only controls element-level order *within* each group.
+  const groupedByCategory = useMemo(() => {
+    const out: Record<string, { groupName: string | null; items: BookElement[] }[]> = {};
+    const elementCmp = (a: BookElement, b: BookElement) => {
+      if (sortMode === 'createdAt') {
+        if (a.createdAt === b.createdAt) return 0;
+        return b.createdAt > a.createdAt ? 1 : -1; // desc
+      }
+      return (a.name || '').localeCompare(b.name || '', undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    };
+    categoryIds.forEach((categoryId) => {
+      const items = elementsByCategory[categoryId] ?? [];
+      const buckets = new Map<string | null, BookElement[]>();
+      items.forEach((el) => {
+        const key = el.groupName?.trim() || null;
+        const arr = buckets.get(key) ?? [];
+        arr.push(el);
+        buckets.set(key, arr);
+      });
+      buckets.forEach((arr) => arr.sort(elementCmp));
+      const named: { groupName: string; items: BookElement[] }[] = [];
+      let ungrouped: BookElement[] = [];
+      buckets.forEach((arr, key) => {
+        if (key === null) {
+          ungrouped = arr;
+        } else {
+          named.push({ groupName: key, items: arr });
+        }
+      });
+      named.sort((a, b) => a.groupName.localeCompare(b.groupName));
+      out[categoryId] = [
+        ...named.map((g) => ({ groupName: g.groupName as string | null, items: g.items })),
+        ...(ungrouped.length > 0 ? [{ groupName: null as string | null, items: ungrouped }] : []),
+      ];
+    });
+    return out;
+  }, [categoryIds, elementsByCategory, sortMode]);
+
+  const handleCreateElement = useCallback(
+    async (categoryId: string) => {
+      try {
+        const created = await createElement({ categoryId });
+        activateTarget({ entityType: 'element', id: created.id }, { preview: false });
+      } catch (error) {
+        log.error('Failed to create element', error);
+      }
+    },
+    [activateTarget, createElement],
+  );
+
+  // "+ element in this group" on a group header. The uncategorized bucket has
+  // no real category to create under, so the group header skips the + there.
+  const handleCreateElementInGroup = useCallback(
+    async (categoryId: string, groupName: string) => {
+      if (categoryId === UNCATEGORIZED_ID) return;
+      try {
+        const created = await createElement({ categoryId, groupName });
+        activateTarget({ entityType: 'element', id: created.id }, { preview: false });
+      } catch (error) {
+        log.error('Failed to create element in group', error);
+      }
+    },
+    [activateTarget, createElement],
+  );
+
+  // Rename a secondary group: rewrite groupName on every element currently in
+  // it. Empty name is treated as cancel (use the picker's "无分组" to ungroup).
+  const handleRenameElementGroup = useCallback(
+    async (items: BookElement[], nextName: string) => {
+      const trimmed = nextName.trim();
+      if (!trimmed) return;
+      for (const el of items) {
+        if (el.groupName === trimmed) continue;
+        try {
+          await updateElement(el.id, { groupName: trimmed });
+        } catch (error) {
+          log.error('Failed to rename element group', error);
+        }
+      }
+    },
+    [updateElement],
+  );
+
+  // Existing group names within a category — feeds the change-group combobox.
+  const groupNamesByCategory = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const categoryId of Object.keys(groupedByCategory)) {
+      out[categoryId] = (groupedByCategory[categoryId] ?? [])
+        .map((g) => g.groupName)
+        .filter((n): n is string => n != null);
+    }
+    return out;
+  }, [groupedByCategory]);
+
+  const renderElementCard = (element: BookElement, categoryId: string) => {
+    const selected = element.id === selectedBookElementId;
+    const agentBusy = `element:${element.id}` in agentActive;
+    const agentAdded = !agentBusy && `element:${element.id}` in agentAdditions;
+    // "M" on either an activity touch (summary/kv writes) OR a pending edit-store
+    // change (e.g. an unreviewed patch create/soft-delete, which leaves no
+    // activity dot) — mirrors how storyline/category cells flag both.
+    const agentChanged =
+      !agentBusy &&
+      !agentAdded &&
+      (`element:${element.id}` in agentTouched);
+    // The virtual "未分类" bucket isn't a real category — getCategoryColor
+    // would log a not-found warning and return a flickering random color.
+    const categoryColor =
+      categoryId === UNCATEGORIZED_ID ? UNCATEGORIZED_COLOR : getCategoryColor(categoryId);
+
+    return (
+      <SandCell
+        key={element.id}
+        selected={selected}
+        color={categoryColor}
+        style={{
+          // Aligned with ChapterPanel renderNodeCard so all three left-bar
+          // entity cells share the same row metrics — only the kind mark
+          // (round seal / square seal / eddy) differs.
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          margin: '0 6px',
+          padding: `5px 10px 5px ${CELL_PAD_LEFT}px`,
+          borderRadius: 3,
+          cursor: 'pointer',
+          color: selected ? 'hsl(var(--ink-1))' : 'hsl(var(--ink-2))',
+          fontSize: 'var(--ui-font-body, 12.5px)',
+          lineHeight: 'var(--ui-line-body, 1.35)',
+          minHeight: 'var(--ui-row-height, 0px)',
+        }}
+        onMouseEnter={(event) => {
+          hoverEnter({ kind: 'element', id: element.id }, event.currentTarget);
+        }}
+        onMouseLeave={() => {
+          hoverLeave();
+        }}
+        onClick={() => {
+          hoverDismiss();
+          if (agentChanged) useAgentActivityStore.getState().clearTouched('element', element.id);
+          activateTarget({ entityType: 'element', id: element.id });
+        }}
+        onDoubleClick={presentation === 'desktop' ? () => promoteCurrentTab() : undefined}
+      >
+        {/* Element mark — a square seal in its category's colour. Done
+            swaps it for a plain Agent file marker; working keeps the seal,
+            lit in accent. */}
+        {agentAdded || agentChanged ? (
+          <AgentChangeIndicator
+            onClick={() => useAgentActivityStore.getState().markSeen([entityKey('element', element.id)])}
+            title={t(agentAdded ? 'agentActivity.addedHere' : 'agentActivity.changedHere')}
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10,
+              fontWeight: 600,
+              color: 'hsl(var(--ink-2))',
+              flexShrink: 0,
+              lineHeight: 1,
+              width: 14,
+              textAlign: 'center',
+            }}
+          >
+            {agentAdded ? 'A' : 'M'}
+          </AgentChangeIndicator>
+        ) : (
+          <KindMark
+            kind="element"
+            color={categoryColor}
+            busy={agentBusy}
+            title={agentBusy ? t('agentActivity.working') : undefined}
+          />
+        )}
+
+        {/* Name */}
+        <div
+          className={`element-panel-item-label${selected ? ' is-selected' : ''}`}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            color: 'inherit',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span>{element.name}</span>
+        </div>
+
+        {/* Date */}
+        {showDate && (
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--ui-font-caption, 9.5px)',
+              color: 'var(--ui-text-muted, hsl(var(--ink-4)))',
+              flexShrink: 0,
+              letterSpacing: '0.04em',
+            }}
+          >
+            {formatShortDate(element.updatedAt)}
+          </span>
+        )}
+      </SandCell>
+    );
+  };
+
+  const renderCompactElement = (element: BookElement, categoryColor: string) => {
+    const selected = element.id === selectedBookElementId;
+    const agentBusy = `element:${element.id}` in agentActive;
+    const agentAdded = !agentBusy && `element:${element.id}` in agentAdditions;
+    const agentChanged =
+      !agentBusy &&
+      !agentAdded &&
+      (`element:${element.id}` in agentTouched);
+    const agentState = agentBusy
+      ? ('busy' as const)
+      : agentAdded
+        ? ('added' as const)
+        : agentChanged
+          ? ('changed' as const)
+          : null;
+    const agentStateLabel = agentBusy
+      ? t('agentActivity.working')
+      : agentAdded || agentChanged
+        ? t(agentAdded ? 'agentActivity.addedHere' : 'agentActivity.changedHere')
+        : undefined;
+    return (
+      <ElementIdentityTile
+        key={element.id}
+        element={element}
+        selected={selected}
+        color={categoryColor}
+        agentState={agentState}
+        agentStateLabel={agentStateLabel}
+        onAgentSeen={() => useAgentActivityStore.getState().markSeen([entityKey('element', element.id)])}
+        onActivate={() => {
+          hoverDismiss();
+          if (agentChanged) useAgentActivityStore.getState().clearTouched('element', element.id);
+          activateTarget({ entityType: 'element', id: element.id });
+        }}
+        onPromote={presentation === 'desktop' ? promoteCurrentTab : () => undefined}
+        onPreviewEnter={(anchor) => hoverEnter({ kind: 'element', id: element.id }, anchor)}
+        onPreviewLeave={hoverLeave}
+      />
+    );
+  };
+
+  const hasElements = bookElements.length > 0;
+
+  return (
+    <div style={{ height: '100%', position: 'relative' }}>
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: 0,
+        }}
+      >
+        <div {...scroll}
+          className="left-panel-scroll"
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            paddingRight: 6,
+          }}
+        >
+          {categoryIds.map((categoryId) => {
+            const isUncategorized = categoryId === UNCATEGORIZED_ID;
+            const categoryElements = elementsByCategory[categoryId] ?? [];
+            const categoryHasElements = categoryElements.length > 0;
+            const categoryCollapsed = !categoryHasElements || collapsedCategoryIds.has(categoryId);
+            const categoryColor = isUncategorized
+              ? UNCATEGORIZED_COLOR
+              : getCategoryColor(categoryId);
+            const compactIndex = viewMode === 'compact';
+            // Bubble agent activity from this category's elements up to its
+            // group header (#17).
+            const activity = aggregateActivity(
+              agentActive,
+              agentTouched,
+              categoryElements.map((el) => entityKey('element', el.id)),
+            );
+            const selfKey = entityKey('category', categoryId);
+            const agentSelfBusy = !isUncategorized && selfKey in agentActive;
+            const agentSelfChanged =
+              !isUncategorized && (selfKey in agentTouched);
+            return (
+              <div
+                key={categoryId}
+                className={`left-sb-group${
+                  compactIndex
+                    ? ` element-category-section--compact ${
+                        categoryCollapsed ? 'is-collapsed' : 'is-expanded'
+                      }`
+                    : ''
+                }`}
+                style={
+                  compactIndex
+                    ? ({ '--element-category-color': categoryColor } as CSSProperties)
+                    : { marginBottom: 8 }
+                }
+              >
+                <GroupHeaderCell
+                  name={getCategoryLabel(categoryId)}
+                  count={categoryElements.length}
+                  showTotalCount={!compactIndex}
+                  color={categoryColor}
+                  mark={isUncategorized ? undefined : <KindMark kind="category" color={categoryColor} />}
+                  collapsed={categoryCollapsed}
+                  onToggleCollapsed={() => {
+                    if (categoryHasElements) toggleCategoryCollapsed(categoryId);
+                  }}
+                  collapseDisabled={compactIndex && !categoryHasElements}
+                  collapseChrome={compactIndex ? 'frame' : 'chevron'}
+                  onClick={
+                    // The "未分类" bucket isn't a real category — there's no
+                    // editor page to open. Real category labels always open
+                    // their editor; the leading minus/square owns disclosure.
+                    isUncategorized
+                      ? undefined
+                      : () => {
+                          hoverDismiss();
+                          if (agentSelfChanged) {
+                            useAgentActivityStore.getState().clearTouched('category', categoryId);
+                          }
+                          activateTarget({ entityType: 'category', id: categoryId });
+                        }
+                  }
+                  onDoubleClick={
+                    isUncategorized || presentation === 'mobile'
+                      ? undefined
+                      : () => {
+                          if (compactIndex) {
+                            activateTarget({ entityType: 'category', id: categoryId });
+                          }
+                          promoteCurrentTab();
+                        }
+                  }
+                  addButtonTitle={
+                    isUncategorized ? undefined : t('elementCategoryCreateMenu.openCreateMenu')
+                  }
+                  onPreviewEnter={isUncategorized ? undefined : (anchor) => hoverEnter({ kind: 'category', id: categoryId }, anchor)}
+                  onPreviewLeave={hoverLeave}
+                  // "未分类" has no real category, so it cannot own a creation
+                  // menu. A real category's single + branches to element/group
+                  // creation without adding a second permanent icon.
+                  onAdd={
+                    isUncategorized
+                      ? undefined
+                      : (event) => {
+                          categoryCreateAnchorRef.current = event.currentTarget;
+                          setCategoryCreateCategoryId((current) =>
+                            current === categoryId ? null : categoryId,
+                          );
+                        }
+                  }
+                  addButtonHasPopup={isUncategorized ? undefined : 'menu'}
+                  addButtonExpanded={categoryCreateCategoryId === categoryId}
+                  addButtonVisibility={compactIndex ? 'always' : 'hover'}
+                  // The compact frame's heading is set into the frame's top
+                  // edge, so it scrolls with its section instead of sticking.
+                  sticky={!compactIndex}
+                  agentIndicatorPlacement="count"
+                  agentBusy={activity.busy || agentSelfBusy}
+                  agentDoneCount={activity.doneCount}
+                  agentSelfChanged={agentSelfChanged}
+                  agentSelfAdded={!isUncategorized && `category:${categoryId}` in agentAdditions}
+                  onAgentSelfSeen={() => useAgentActivityStore.getState().markSeen([selfKey])}
+                  onAgentChildrenSeen={() => useAgentActivityStore.getState().markSeen(categoryElements.map((element) => entityKey('element', element.id)))}
+                />
+
+                {!categoryCollapsed &&
+                  (() => {
+                    const groups = groupedByCategory[categoryId] ?? [];
+                    const lastNamedGroupIndex = groups.reduce(
+                      (lastIndex, group, groupIndex) =>
+                        group.groupName !== null ? groupIndex : lastIndex,
+                      -1,
+                    );
+                    return groups.map((group, groupIndex) => {
+                      const groupName = group.groupName;
+                      const isNamedGroup = groupName !== null;
+                      const cards = group.items.map((element) =>
+                        compactIndex
+                          ? renderCompactElement(element, categoryColor)
+                          : renderElementCard(element, categoryId),
+                      );
+                      return (
+                        <div
+                          key={`${categoryId}::${groupName ?? '__ungrouped__'}`}
+                          className={`element-category-group${
+                            groupIndex === lastNamedGroupIndex
+                              ? ' element-category-group--last-named'
+                              : ''
+                          }${isNamedGroup ? '' : ' element-category-group--ungrouped'}`}
+                        >
+                          {groupName !== null && (
+                            <ElementGroupHeader
+                              name={groupName}
+                              count={group.items.length}
+                              compact={compactIndex}
+                              canAdd={categoryId !== UNCATEGORIZED_ID}
+                              onRename={(next) => void handleRenameElementGroup(group.items, next)}
+                              onAddElement={() =>
+                                void handleCreateElementInGroup(categoryId, groupName)
+                              }
+                            />
+                          )}
+                          {compactIndex ? (
+                            <div
+                              className={`element-identity-flow${
+                                isNamedGroup ? ' element-identity-flow--grouped' : ''
+                              }`}
+                            >
+                              {cards}
+                            </div>
+                          ) : (
+                            cards
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+              </div>
+            );
+          })}
+
+          {!hasElements && (
+            <EmptyState
+              mark={presentation === 'desktop' ? 'element' : undefined}
+              message={t('leftSidebar.empty.noElements')}
+            />
+          )}
+        </div>
+      </div>
+
+      {hoverPreview && (
+        <EntityHoverCard
+          target={hoverPreview.data}
+          anchor={hoverPreview.anchor}
+          placement="right-start"
+          pointer={hoverCard}
+          onDismiss={hoverDismiss}
+          actions={hoverActionsFor(hoverPreview.data, hoverPreview.anchor)}
+        />
+      )}
+
+      {groupPicker &&
+        (() => {
+          const element = bookElements.find((e) => e.id === groupPicker.elementId);
+          if (!element) return null;
+          const catKey = element.categoryId ?? UNCATEGORIZED_ID;
+          return (
+            <ElementGroupPicker
+              x={groupPicker.x}
+              y={groupPicker.y}
+              current={element.groupName}
+              existing={groupNamesByCategory[catKey] ?? []}
+              onPick={(groupName) => {
+                void updateElement(groupPicker.elementId, { groupName });
+              }}
+              onClose={() => setGroupPicker(null)}
+            />
+          );
+        })()}
+
+      {categoryCreateCategoryId && (
+        <ElementCategoryCreateMenu
+          key={categoryCreateCategoryId}
+          anchorRef={categoryCreateAnchorRef}
+          categoryName={getCategoryLabel(categoryCreateCategoryId)}
+          existingGroupNames={groupNamesByCategory[categoryCreateCategoryId] ?? []}
+          onCreateElement={() => void handleCreateElement(categoryCreateCategoryId)}
+          onCreateGroup={(groupName) =>
+            void handleCreateElementInGroup(categoryCreateCategoryId, groupName)
+          }
+          onClose={() => setCategoryCreateCategoryId(null)}
+        />
+      )}
+    </div>
+  );
+}
+// Concise secondary-group (groupName) header inside a category. Keeps the
+// minimal label style (rule tick + name + count) but adds: double-click to
+// rename the whole group, and a hover-revealed "+" to create an element
+// directly inside it. The shared inline-header hover selector scopes reveal to
+// this label row, so a category hover cannot reveal every nested group action.
+function ElementGroupHeader({
+  name,
+  count,
+  compact,
+  canAdd,
+  onRename,
+  onAddElement,
+}: {
+  name: string;
+  count: number;
+  compact: boolean;
+  canAdd: boolean;
+  onRename: (next: string) => void;
+  onAddElement: () => void;
+}) {
+  const { t } = useTranslation();
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(name);
+  // Guards against onBlur double-committing after Enter, or committing on
+  // Escape (cancel) if the unmount happens to fire a blur.
+  const handledRef = useRef(false);
+
+  if (renaming) {
+    return (
+      <div style={{ padding: compact ? '4px 8px 2px' : '2px 10px 0 26px' }}>
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handledRef.current = true;
+              onRename(draft);
+              setRenaming(false);
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              handledRef.current = true;
+              setRenaming(false);
+            }
+          }}
+          onBlur={() => {
+            if (!handledRef.current) onRename(draft);
+            setRenaming(false);
+          }}
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            padding: '1px 5px',
+            border: '1px solid hsl(var(--accent))',
+            borderRadius: 3,
+            background: 'hsl(var(--paper))',
+            color: 'hsl(var(--ink-1))',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--ui-font-caption, 9px)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            outline: 'none',
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="left-sb-inline-group-header"
+      onDoubleClick={() => {
+        setDraft(name);
+        handledRef.current = false;
+        setRenaming(true);
+      }}
+      title={t('leftSidebar.groups.renameElementGroupTitle')}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: compact ? '5px 8px 1px' : '2px 10px 0 26px',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--ui-font-caption, 9px)',
+        lineHeight: 1.2,
+        textTransform: 'uppercase',
+        letterSpacing: '0.1em',
+        color: 'var(--ui-text-muted, hsl(var(--ink-4)))',
+        cursor: 'default',
+      }}
+    >
+      <span
+        aria-hidden
+        style={{ width: 8, height: 1, background: 'hsl(var(--rule))', flexShrink: 0 }}
+      />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {name}
+      </span>
+      <span style={{ color: 'var(--ui-text-muted, hsl(var(--ink-4)))' }}>· {count}</span>
+      {canAdd && (
+        <button
+          type="button"
+          className="left-sb-group-add left-sb-inline-add-button"
+          title={t('leftSidebar.groups.addElementToGroup')}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddElement();
+          }}
+          // Always rendered so the row height stays constant; the shared CSS
+          // only reveals it while this exact label row is hovered/focused.
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 15,
+            height: 15,
+            borderRadius: 3,
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            flexShrink: 0,
+          }}
+        >
+          <BrushIcon name="plus" size={11} />
+        </button>
+      )}
+    </div>
+  );
+}

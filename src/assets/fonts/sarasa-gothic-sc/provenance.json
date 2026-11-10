@@ -1,0 +1,34 @@
+{
+  "version": "1.0.43",
+  "source": "https://github.com/be5invis/Sarasa-Gothic/releases/download/v1.0.43/SarasaGothicSC-TTF-Unhinted-1.0.43.7z",
+  "members": [
+    "SarasaGothicSC-Regular.ttf",
+    "SarasaGothicSC-Italic.ttf",
+    "SarasaGothicSC-Bold.ttf",
+    "SarasaGothicSC-BoldItalic.ttf"
+  ],
+  "faces": {
+    "SarasaGothicSC-Regular.woff2": {
+      "sourceTtf": "SarasaGothicSC-Regular.ttf",
+      "sourceTtfSha256": "4ba7932c490b2d47f4a55d03cb6168a2a2e3056137d45f584c2354f960376eb2",
+      "bundledWoff2Sha256": "44ec259860b09067a362615904212861932a09debfd7aede2c41915c8f4997cc"
+    },
+    "SarasaGothicSC-Italic.woff2": {
+      "sourceTtf": "SarasaGothicSC-Italic.ttf",
+      "sourceTtfSha256": "5affdca6d35792f919e649c72cb1d765d305e4172b36047c4a9ce73be01eb537",
+      "bundledWoff2Sha256": "0ccb35a41923474cb8a430d6bfd4554608da631fa15b8092e7ac48ffdd732824"
+    },
+    "SarasaGothicSC-Bold.woff2": {
+      "sourceTtf": "SarasaGothicSC-Bold.ttf",
+      "sourceTtfSha256": "b89fb64c940b5f97a00c352b166abbf7176123e38e5ca3b0ae95569801ff3662",
+      "bundledWoff2Sha256": "a8e75ce9e01abf0bb4e41075947fb0189d019c0b29fe403ed995d334d7cb3e91"
+    },
+    "SarasaGothicSC-BoldItalic.woff2": {
+      "sourceTtf": "SarasaGothicSC-BoldItalic.ttf",
+      "sourceTtfSha256": "717c0a6c8f7a61d29b077a670a7eaad706138db9e65ffa4a3455e0b39cb56daf",
+      "bundledWoff2Sha256": "2af5666d80b58e763030aa6cafa115bf9fa20ef070488bae34367cdc9663b60f"
+    }
+  },
+  "conversion": "wawoff2 (Google WOFF2, wasm) compress; full font, no subsetting or glyph edits",
+  "license": "OFL-1.1"
+}

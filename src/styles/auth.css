@@ -1,0 +1,605 @@
+/* Account sign-in. One compact flow serves the desktop dialog (inside the
+   shared .modal-card shell) and the mobile page (mobile-auth.css). The base
+   rules below are the paused mobile page's; the desktop dialog is built from
+   the shared controls and restyled under `.auth-flow--dialog` at the end. */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+.auth-flow {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+}
+
+.auth-flow__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 60px;
+  padding: 14px 14px 4px 24px;
+}
+
+.auth-flow__back {
+  margin-left: -10px;
+}
+
+.auth-flow__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: hsl(var(--ink-1));
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.auth-flow__body {
+  display: grid;
+  min-height: 0;
+  gap: 14px;
+  padding: 6px 24px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.auth-flow__lead {
+  margin: 0;
+  color: hsl(var(--ink-3));
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.auth-flow__error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: hsl(var(--destructive) / 0.07);
+  color: hsl(var(--destructive));
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.auth-flow__field {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-flow__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-flow__field-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.auth-flow__label {
+  color: hsl(var(--ink-2));
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.auth-flow__input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+  font: 400 13px/1.4 var(--font-sans);
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+
+.auth-flow__input::placeholder {
+  color: hsl(var(--ink-4));
+}
+
+.auth-flow__input:hover:not(:disabled):not(:focus) {
+  border-color: hsl(var(--ink-4));
+}
+
+.auth-flow__input:focus {
+  border-color: hsl(var(--accent));
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.12);
+}
+
+.auth-flow__input:disabled {
+  opacity: 0.6;
+}
+
+.auth-flow__input--code {
+  font-family: var(--font-mono);
+  letter-spacing: 0.3em;
+}
+
+.auth-flow__input--code::placeholder {
+  font-family: var(--font-sans);
+  letter-spacing: normal;
+}
+
+.auth-flow__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: var(--radius-sm);
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-2));
+  font: 500 13px/1 var(--font-sans);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    opacity 0.12s;
+}
+
+.auth-flow__button:hover:not(:disabled) {
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-1));
+}
+
+.auth-flow__button--primary {
+  border-color: hsl(var(--accent));
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.auth-flow__button--primary:hover:not(:disabled) {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  opacity: 0.88;
+}
+
+.auth-flow__button--block {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.auth-flow__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.auth-flow__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: hsl(var(--accent));
+  font: 400 12px/1.4 var(--font-sans);
+  cursor: pointer;
+}
+
+.auth-flow__link:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-flow__link:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.auth-flow__link--center {
+  justify-self: center;
+  color: hsl(var(--ink-3));
+}
+
+.auth-flow__link--center:hover:not(:disabled) {
+  color: hsl(var(--ink-1));
+}
+
+.auth-flow__legal {
+  margin: 0;
+  color: hsl(var(--ink-4));
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.auth-flow__legal a {
+  color: hsl(var(--ink-3));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.auth-flow__legal a[aria-disabled='true'] {
+  cursor: default;
+  text-decoration: none;
+}
+
+.auth-flow__social {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-flow__provider {
+  gap: 8px;
+}
+
+/* Hairlines either side of a quiet "or" between social and email sign-in. */
+.auth-flow__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+  color: hsl(var(--ink-4));
+  font-size: 11px;
+}
+
+.auth-flow__divider::before,
+.auth-flow__divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--menu-separator, hsl(var(--ink-1) / 0.14));
+}
+
+.auth-flow__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.auth-flow__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 26px;
+}
+
+.auth-flow__progress .control-spinner {
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
+  color: hsl(var(--accent));
+}
+
+.auth-flow__foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 12px 24px;
+  border-top: 1px solid hsl(var(--rule));
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-3));
+  font-size: 12px;
+}
+
+.auth-flow button:focus-visible,
+.auth-flow a:focus-visible {
+  outline: 2px solid hsl(var(--accent));
+  outline-offset: 2px;
+}
+
+/* ─── Desktop dialog: the control layer ───────────────────────────────
+   Single-line fields (`.ui-field` glass), a full-width primary button, text
+   buttons for the other ways in, and a footer of one line with no rule or
+   band. Errors are the danger ink with its brush icon; the connection waits
+   on the brush loader. */
+.auth-flow--dialog .auth-flow__head {
+  min-height: 0;
+  padding: 18px 16px 6px 20px;
+}
+
+.auth-flow--dialog .auth-flow__head:has(.auth-flow__back) {
+  padding-left: 12px;
+}
+
+.auth-flow--dialog .auth-flow__back {
+  margin-left: 0;
+}
+
+.auth-flow--dialog .auth-flow__title {
+  font-size: var(--ui-font-heading, 16px);
+  line-height: 22px;
+}
+
+.auth-flow--dialog .auth-flow__body {
+  gap: 12px;
+  padding: 8px 20px 14px;
+}
+
+.auth-flow--dialog .auth-flow__lead {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 13px);
+}
+
+.auth-flow--dialog .auth-flow__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--ui-font-secondary, 13px);
+}
+
+.auth-flow--dialog .auth-flow__error > .brush-icon {
+  margin-top: 3px;
+}
+
+.auth-flow--dialog .auth-flow__label {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 var(--ui-font-caption, 12px) / 16px var(--font-mono);
+}
+
+.auth-flow--dialog .ui-field > .auth-flow__input {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--ui-font-body, 14px);
+  line-height: var(--ui-line-body, 20px);
+  transition: none;
+}
+
+.auth-flow--dialog .ui-field > .auth-flow__input--code {
+  font: 400 16px/20px var(--font-mono);
+  letter-spacing: 0.32em;
+}
+
+.auth-flow--dialog .ui-field > .auth-flow__input--code::placeholder {
+  font: 400 var(--ui-font-body, 14px) / 20px var(--font-sans);
+  letter-spacing: normal;
+}
+
+html[data-shell-mode] .auth-flow--dialog .auth-flow__glass-button--block.ui-button {
+  width: 100%;
+  height: var(--ui-row-height, 32px);
+  min-height: var(--ui-row-height, 32px);
+  margin-top: 2px;
+}
+
+.auth-flow--dialog .auth-flow__glass-button--text {
+  justify-self: center;
+}
+
+html[data-shell-mode] .auth-flow--dialog .auth-flow__glass-button--link.ui-button {
+  height: 16px;
+  min-height: 16px;
+  margin-right: -6px;
+  font: 400 var(--ui-font-caption, 12px) / 16px var(--font-sans);
+}
+
+html[data-shell-mode] .auth-flow--dialog .auth-flow__glass-button--foot.ui-button {
+  color: hsl(var(--ink-1));
+  font-weight: 600;
+}
+
+.auth-flow--dialog .auth-flow__legal {
+  font-size: var(--ui-font-caption, 12px);
+}
+
+.auth-flow--dialog .auth-flow__actions {
+  align-items: center;
+}
+
+.auth-flow--dialog .auth-flow__progress {
+  display: grid;
+  padding-bottom: 22px;
+}
+
+.auth-flow--dialog .auth-flow__foot {
+  gap: 2px;
+  padding: 2px 20px 18px;
+  border-top: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 13px);
+}
+
+/* Desktop first run: before the shelf mounts the choice is a card laid in the
+   window, not a dialog over it. Like the shelf's books it is a resting glass
+   line on the desk with nothing under it; head, body and actions keep the
+   dialog's type and spacing. On the sea of characters (CharSea) the desk is
+   the sea's, the rain falls round the card, and the card's line is drawn
+   there too (`--sea` drops the CSS rim). Its steps are panes in one place:
+   the card takes the size of the pane in front and follows it on the page-turn
+   timing while the next pane dissolves in over the last. */
+.first-run-gate {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 48px 24px;
+  overflow-y: auto;
+  background: var(--workspace-ui-bg);
+  color: hsl(var(--ink-1));
+}
+
+.first-run-gate--sea {
+  background: transparent;
+}
+
+/* Leaving, the shelf is already coming up underneath. */
+.first-run-gate--leaving {
+  background: transparent;
+  pointer-events: none;
+}
+
+.first-run-gate__card {
+  box-sizing: border-box;
+  position: relative;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 2px;
+  transition:
+    width var(--motion-page-blend) var(--motion-page-blend-ease),
+    height var(--motion-page-blend) var(--motion-page-blend-ease);
+  animation: first-run-card-in var(--motion-glass-bleed) ease-out 120ms both;
+}
+
+.first-run-gate__card--leaving {
+  animation: first-run-card-out var(--motion-glass-bleed) ease-out both;
+}
+
+.first-run-gate__card--sea.glass::before {
+  display: none;
+}
+
+.first-run-gate__pane {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 48px));
+  transform: translate(-50%, -50%);
+  animation: first-run-pane-in var(--motion-page-blend) var(--motion-page-blend-ease) both;
+}
+
+.first-run-gate__pane--welcome {
+  width: min(360px, calc(100vw - 48px));
+}
+
+.first-run-gate__pane--account {
+  width: min(400px, calc(100vw - 48px));
+}
+
+.first-run-gate__pane--leaving {
+  pointer-events: none;
+  animation: first-run-pane-out var(--motion-page-blend) var(--motion-page-blend-ease) both;
+}
+
+/* The interface language, out of the way in the window's corner; it comes
+   and goes with the card. */
+.first-run-gate__language {
+  position: fixed;
+  right: 20px;
+  bottom: 16px;
+  animation: first-run-card-in var(--motion-glass-bleed) ease-out 120ms both;
+}
+
+.first-run-gate__language--leaving {
+  animation: first-run-card-out var(--motion-glass-bleed) ease-out both;
+}
+
+/* The welcome: the ways on and the crash-report note, nothing else. */
+.first-run-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+}
+
+.first-run-welcome__way.ui-button {
+  width: 100%;
+  gap: 8px;
+}
+
+.first-run-welcome__local.ui-button {
+  align-self: center;
+  margin-top: 4px;
+}
+
+.first-run-welcome__note {
+  margin: 6px 0 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-caption, 12px);
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* The shelf comes up from the first run as a whole. */
+.first-run-arrival {
+  animation: first-run-arrive var(--motion-structural) var(--motion-structural-ease) both;
+}
+
+@keyframes first-run-card-in {
+  from { opacity: 0; }
+}
+
+@keyframes first-run-card-out {
+  to { opacity: 0; }
+}
+
+@keyframes first-run-pane-in {
+  from { opacity: 0; }
+}
+
+@keyframes first-run-pane-out {
+  to { opacity: 0; }
+}
+
+@keyframes first-run-arrive {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .first-run-gate__card,
+  .first-run-gate__pane,
+  .first-run-gate__language,
+  .first-run-arrival {
+    transition: none;
+    animation: none;
+  }
+
+  .first-run-gate__card--leaving,
+  .first-run-gate__pane--leaving,
+  .first-run-gate__language--leaving {
+    animation: none;
+    visibility: hidden;
+  }
+}
+
+.first-run-gate__drag {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: calc(var(--z-modal) + 1);
+  height: 36px;
+}
+
+/* Sign-out dialog (SignOutDialog.tsx): the disconnect switch sits under the
+   message like the feedback dialog's attach switch; errors in the danger ink. */
+.sign-out-dialog__switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-secondary, 13px);
+  cursor: pointer;
+}
+
+.sign-out-dialog__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 12px 0 0;
+  color: hsl(var(--destructive));
+  font-size: var(--ui-font-secondary, 13px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.sign-out-dialog__error > .brush-icon {
+  margin-top: 3px;
+}

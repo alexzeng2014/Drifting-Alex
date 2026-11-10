@@ -1,0 +1,166 @@
+import { getDb, type DbExecutor } from '../lib/db';
+import { ProjectTable } from '../schema/drizzle';
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import type { Project } from '../domain/project';
+import LogLevel from 'loglevel';
+const log = LogLevel.getLogger('ProjectRepositorySQLite');
+log.setLevel(LogLevel.levels.WARN);
+
+export type ProjectUpdateData = Partial<Omit<Project, 'id' | 'createdAt'>> & { updatedAt: string };
+
+export interface ProjectRepository {
+  findById(id: string): Promise<Project | null>;
+  /** Projects on the bookshelf; trashed projects are excluded. */
+  findAll(): Promise<Project[]>;
+  /** Projects in Recently Deleted, most recently trashed first. */
+  findTrashed(): Promise<Project[]>;
+  /** Move a project to or out of the trash without touching its content. */
+  setDeletedAt(id: string, deletedAt: string | null, updatedAt: string): Promise<Project | null>;
+  create(input: Project): Promise<Project>;
+  update(id: string, data: ProjectUpdateData): Promise<Project | null>;
+  delete(id: string): Promise<boolean>;
+
+  // Element category management for projects
+}
+
+// Helper to map DB record to Domain entity
+// Drizzle returns the inferred type from schema, which matches our domain mostly
+// but we might need explicit mapping if there are null vs undefined differences or date objects vs strings
+function recordToDomain(record: typeof ProjectTable.$inferSelect): Project {
+  return {
+    id: record.id,
+    userId: record.userId,
+    name: record.name,
+    summary: record.summary,
+    kvJson: record.kvJson ?? '[]',
+    storylineTemplateKvJson: record.storylineTemplateKvJson ?? '[]',
+    deletedAt: record.deletedAt ?? null,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+export function createProjectRepository(
+  currentUserId?: string,
+  dbOverride?: DbExecutor,
+): ProjectRepository {
+  const userId = currentUserId ?? 'anonymous';
+  const dbProvider = () => dbOverride ?? getDb();
+
+  const findById = async (id: string): Promise<Project | null> => {
+    const rows = await dbProvider()
+      .select()
+      .from(ProjectTable)
+      .where(eq(ProjectTable.id, id))
+      .limit(1);
+    if (rows.length === 0) {
+      log.warn(`Project with id ${id} not found`);
+      return null;
+    }
+    return rows[0] ? recordToDomain(rows[0]) : null;
+  };
+
+  const findAll = async (): Promise<Project[]> => {
+    if (!currentUserId) {
+      log.warn('No authenticated user found, loading anonymous projects');
+    }
+
+    const rows = await dbProvider()
+      .select()
+      .from(ProjectTable)
+      .where(and(eq(ProjectTable.userId, userId), isNull(ProjectTable.deletedAt)))
+      .orderBy(desc(ProjectTable.createdAt));
+    return rows.map(recordToDomain);
+  };
+
+  const findTrashed = async (): Promise<Project[]> => {
+    const rows = await dbProvider()
+      .select()
+      .from(ProjectTable)
+      .where(and(eq(ProjectTable.userId, userId), isNotNull(ProjectTable.deletedAt)))
+      .orderBy(desc(ProjectTable.deletedAt));
+    return rows.map(recordToDomain);
+  };
+
+  const setDeletedAt = async (
+    id: string,
+    deletedAt: string | null,
+    updatedAt: string,
+  ): Promise<Project | null> => {
+    const res = await dbProvider()
+      .update(ProjectTable)
+      .set({ deletedAt, updatedAt })
+      .where(eq(ProjectTable.id, id))
+      .returning();
+    return res[0] ? recordToDomain(res[0]) : null;
+  };
+
+  const create = async (input: Project): Promise<Project> => {
+    if (input.userId !== userId) {
+      throw new Error(
+        `Cannot create project: userId mismatch. Expected ${userId}, got ${input.userId}`,
+      );
+    }
+
+    const newProject: typeof ProjectTable.$inferInsert = {
+      id: input.id,
+      userId: input.userId,
+      name: input.name,
+      summary: input.summary,
+      kvJson: input.kvJson,
+      storylineTemplateKvJson: input.storylineTemplateKvJson,
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+    };
+
+    await dbProvider().insert(ProjectTable).values(newProject);
+
+    return recordToDomain(newProject as typeof ProjectTable.$inferSelect);
+  };
+
+  const update = async (id: string, data: ProjectUpdateData): Promise<Project | null> => {
+    const existing = await findById(id);
+    if (!existing) {
+      log.warn(`Cannot update project: Project with ID ${id} does not exist.`);
+      return null;
+    }
+    if (data.userId !== undefined && data.userId !== userId) {
+      throw new Error(
+        `Cannot update project: userId mismatch. Expected ${userId}, got ${data.userId}`,
+      );
+    }
+
+    const updateValues: Partial<typeof ProjectTable.$inferInsert> = {
+      updatedAt: data.updatedAt,
+    };
+
+    if (data.name !== undefined) updateValues.name = data.name;
+    if (data.summary !== undefined) updateValues.summary = data.summary;
+    if (data.kvJson !== undefined) updateValues.kvJson = data.kvJson;
+    if (data.storylineTemplateKvJson !== undefined)
+      updateValues.storylineTemplateKvJson = data.storylineTemplateKvJson;
+    if (data.userId !== undefined) updateValues.userId = data.userId;
+    const res = await dbProvider()
+      .update(ProjectTable)
+      .set(updateValues)
+      .where(eq(ProjectTable.id, id))
+      .returning();
+
+    return res[0] ? recordToDomain(res[0]) : null;
+  };
+
+  const deleteProject = async (id: string): Promise<boolean> => {
+    const result = await dbProvider().delete(ProjectTable).where(eq(ProjectTable.id, id));
+    return (result as any).rowsAffected > 0;
+  };
+
+  return {
+    findById,
+    findAll,
+    findTrashed,
+    setDeletedAt,
+    create,
+    update,
+    delete: deleteProject,
+  };
+}

@@ -1,0 +1,76 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  applyEditorPreferences,
+  editorFontFamilyValue,
+  type EditorPreferences,
+} from './editor-preferences';
+
+const BASE_PREFERENCES: EditorPreferences = {
+  editorFontSource: 'system-serif',
+  editorSystemFontFamily: '',
+  bodyFontSize: 17,
+  lineHeight: 1.5,
+  maxLineWidth: 720,
+  editorTextWrap: 'stable',
+  paragraphIndent: 'none',
+  editorIndentStep: 2,
+  paragraphSpacing: 1,
+  caretColor: '#6b7fa6',
+  entityLinkInteractive: true,
+  entityLinkColorMode: 'contextual',
+  entityLinkHighlightMode: 'both',
+  entityLinkBandStyle: 'wash',
+};
+
+describe('editor preferences', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    ['system-serif', '', 'var(--font-prose-system-serif)'],
+    ['system-sans', '', 'var(--font-prose-system-sans)'],
+    ['system-mono', '', 'var(--font-prose-mono)'],
+    ['system-custom', 'Charter', '"Charter", var(--font-prose-system-serif)'],
+    ['imported', '', '"Drifting Imported Prose", var(--font-prose-system-serif)'],
+  ] as const)(
+    'maps %s to the editor-only font stack',
+    (editorFontSource, editorSystemFontFamily, expected) => {
+      const setProperty = vi.fn();
+      const setAttribute = vi.fn();
+      vi.stubGlobal('document', {
+        documentElement: { style: { setProperty }, setAttribute },
+      });
+
+      applyEditorPreferences({
+        ...BASE_PREFERENCES,
+        editorFontSource,
+        editorSystemFontFamily,
+      });
+
+      expect(setProperty).toHaveBeenCalledWith('--editor-font-family', expected);
+      expect(setProperty).toHaveBeenCalledWith('--editor-caret-color', '#6b7fa6');
+      expect(setAttribute).toHaveBeenCalledWith('data-entity-link-interactive', 'on');
+      expect(setAttribute).toHaveBeenCalledWith('data-entity-link-style', 'contextual');
+    },
+  );
+
+  it('quotes a custom family as one CSS family instead of accepting a font stack', () => {
+    expect(editorFontFamilyValue('system-custom', 'A "Quoted", serif')).toBe(
+      '"A \\"Quoted\\", serif", var(--font-prose-system-serif)',
+    );
+  });
+
+  it('updates the shared wrapping variable when switching either way', () => {
+    const properties = new Map<string, string>();
+    vi.stubGlobal('document', {
+      documentElement: {
+        style: { setProperty: (name: string, value: string) => properties.set(name, value) },
+        setAttribute: vi.fn(),
+      },
+    });
+    for (const editorTextWrap of ['stable', 'pretty', 'stable'] as const) {
+      applyEditorPreferences({ ...BASE_PREFERENCES, editorTextWrap });
+      expect(properties.get('--editor-text-wrap')).toBe(editorTextWrap);
+      expect(properties.get('--editor-max-width')).toBe('720px');
+    }
+  });
+});

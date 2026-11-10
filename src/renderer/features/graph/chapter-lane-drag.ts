@@ -1,0 +1,494 @@
+import { SPRING_K, SPRING_W } from '../../lib/motion';
+import {
+  MOBILE_PLANNING_CONTEXT_MENU_MS,
+  mobilePlanningEdgeAutoscrollDelta,
+  resolveMobilePlanningGesture,
+} from './mobile-planning-gesture';
+
+export const DEFAULT_STORYLINE_LANE_ID = '__default__';
+export const UNAFFILIATED_STORYLINE_LANE_ID = '__unaffiliated__';
+
+export type ChapterOrderField = 'bookOrder' | 'narrativeOrder';
+
+interface CanDropChapterOnLaneInput {
+  targetLaneId: string | null;
+  fromDrawer: boolean;
+  primaryStorylineId: string | null;
+}
+
+/**
+ * Shared drop-target policy for Bottom Timeline and Storyline Graph.
+ * Keeping this pure prevents the two desktop projections from drifting into
+ * different membership rules as their visual layouts evolve independently.
+ */
+export function canDropChapterOnLane({
+  targetLaneId,
+  fromDrawer: _fromDrawer,
+  primaryStorylineId: _primaryStorylineId,
+}: CanDropChapterOnLaneInput): boolean {
+  return targetLaneId !== null;
+}
+
+export interface ChapterLanePointerTarget {
+  storylineId: string;
+  order: number;
+}
+
+interface ChapterLaneSourceRect {
+  left: number;
+  width: number;
+}
+
+/** Preserve the exact horizontal pixel grabbed inside either card shape. */
+export function chapterLaneGrabOffsetX(
+  clientX: number,
+  sourceRect: ChapterLaneSourceRect,
+): number {
+  return Math.min(sourceRect.width, Math.max(0, clientX - sourceRect.left));
+}
+
+interface ResolveChapterLanePointerTargetInput {
+  clientX: number;
+  clientY: number;
+  grabOffsetX: number;
+  positionToOrder: (position: number) => number;
+}
+
+/** Shared DOM hit-test and coordinate conversion for both chapter projections. */
+export function resolveChapterLanePointerTarget({
+  clientX,
+  clientY,
+  grabOffsetX,
+  positionToOrder,
+}: ResolveChapterLanePointerTargetInput): ChapterLanePointerTarget | null {
+  const row = document
+    .elementFromPoint(clientX, clientY)
+    ?.closest<HTMLElement>('[data-storyline-row]');
+  const storylineId = row?.dataset.storylineRow;
+  const track = row?.querySelector<HTMLElement>('[data-node-container]');
+  if (!row || !storylineId || !track) return null;
+  const rect = track.getBoundingClientRect();
+  const x = Math.max(0, clientX - rect.left - grabOffsetX);
+  return { storylineId, order: positionToOrder(x) };
+}
+
+interface StartChapterLanePointerDragInput {
+  pointerId: number;
+  pointerType: string;
+  startClientX: number;
+  startClientY: number;
+  sourceElement: HTMLElement;
+  grabOffsetX: number;
+  resolveTarget: (clientX: number, clientY: number) => ChapterLanePointerTarget | null;
+  onDragStart: () => void;
+  onDrop: (target: ChapterLanePointerTarget) => void | Promise<void>;
+  onDragEnd: () => void;
+  /**
+   * A weighted slab: the ghost follows the hand on springs instead of being
+   * glued to it. Sideways it is heavy (critically damped, a little behind the
+   * hand, no bounce). Across rows it stays in its row until the pointer is
+   * past the middle of the next one, then goes over in one quick snap that
+   * settles with a barely visible give; the drop lands on the row the slab
+   * is in. `rows` returns the row boxes in window coordinates, top to bottom.
+   */
+  weighted?: { rows: () => DOMRect[] };
+  /**
+   * The colour a lane gives the chapters in it. While dragged, the ghost wears
+   * the colour of the lane it would drop on (`--glass-cc` and `--clip-color`)
+   * from the moment it is over that lane, and its own again off every lane;
+   * the source is never touched, so a cancel shows the original. Written on
+   * the ghost only, once per change of lane, never per frame.
+   */
+  laneColor?: (storylineId: string) => string;
+  mobileTouch?: {
+    onMenu: () => void;
+    scrollContainer: HTMLElement | null;
+    /**
+     * Which scroll axis the edge autoscroll follows: the desktop track pans
+     * horizontally, the mobile vertical timeline scrolls downwards.
+     */
+    axis?: 'x' | 'y';
+    /**
+     * What a still hold does after MOBILE_PLANNING_CONTEXT_MENU_MS: open the
+     * host menu (desktop's mobile presentation) or LIFT the source so the
+     * following movement drags it (the vertical timeline, where a tap already
+     * opens the menu). A lifted pointer released without moving simply
+     * cancels; `onLift` lets the host show the lifted state.
+     */
+    holdBehavior?: 'menu' | 'lift';
+    onLift?: () => void;
+    /** A lifted pointer released or cancelled without ever dragging. */
+    onLiftCancel?: () => void;
+  };
+}
+
+export interface ChapterLanePointerDragHandle {
+  cancel: () => void;
+}
+
+export function createExactlyOnceChapterDrop(
+  onDrop: (target: ChapterLanePointerTarget) => void | Promise<void>,
+): (target: ChapterLanePointerTarget | null) => Promise<void> {
+  let committed = false;
+  return async (target) => {
+    if (committed || !target) return;
+    committed = true;
+    await onDrop(target);
+  };
+}
+
+/**
+ * Shared window-level pointer lifecycle for placed tiles and holding-popover
+ * chips. Native HTML drag is deliberately absent: WebKit selection and drop
+ * delivery no longer decide whether a chapter move commits.
+ */
+export function startChapterLanePointerDrag({
+  pointerId,
+  pointerType,
+  startClientX,
+  startClientY,
+  sourceElement,
+  grabOffsetX,
+  resolveTarget,
+  onDragStart,
+  onDrop,
+  onDragEnd,
+  weighted,
+  laneColor,
+  mobileTouch,
+}: StartChapterLanePointerDragInput): ChapterLanePointerDragHandle {
+  const threshold = pointerType === 'touch' ? 6 : 3;
+  const mobileTouchEnabled = pointerType === 'touch' && Boolean(mobileTouch);
+  const startedAt = Date.now();
+  let dragging = false;
+  let settled = false;
+  let target: ChapterLanePointerTarget | null = null;
+  let ghost: HTMLElement | null = null;
+  let frame = 0;
+  let pendingClientX = startClientX;
+  let pendingClientY = startClientY;
+  const sourceRect = sourceElement.getBoundingClientRect();
+  const grabOffsetY = startClientY - sourceRect.top;
+  const previousVisibility = sourceElement.style.visibility;
+  const commitDrop = createExactlyOnceChapterDrop(onDrop);
+  const autoscrollAxis = mobileTouch?.axis ?? 'x';
+  let lifted = false;
+  let menuTimer = mobileTouchEnabled
+    ? window.setTimeout(() => {
+        if (settled || dragging) return;
+        if (mobileTouch?.holdBehavior === 'lift') {
+          lifted = true;
+          menuTimer = 0;
+          mobileTouch.onLift?.();
+          return;
+        }
+        settled = true;
+        stopListening();
+        cleanupVisuals();
+        mobileTouch?.onMenu();
+      }, MOBILE_PLANNING_CONTEXT_MENU_MS)
+    : 0;
+
+  const clearMenuTimer = () => {
+    if (!menuTimer) return;
+    window.clearTimeout(menuTimer);
+    menuTimer = 0;
+  };
+
+  // The lane whose colour the ghost wears (undefined: not tinted yet).
+  let tintedLane: string | null | undefined;
+  const ownColor = laneColor
+    ? {
+        glass: sourceElement.style.getPropertyValue('--glass-cc'),
+        clip: sourceElement.style.getPropertyValue('--clip-color'),
+      }
+    : null;
+  /** Where the drag would drop now; the ghost takes that lane's colour. */
+  const aim = (next: ChapterLanePointerTarget | null) => {
+    target = next;
+    if (!ghost || !laneColor || !ownColor) return;
+    const lane = next?.storylineId ?? null;
+    if (lane === tintedLane) return;
+    tintedLane = lane;
+    const color = lane === null ? null : laneColor(lane);
+    ghost.style.setProperty('--glass-cc', color ?? ownColor.glass);
+    ghost.style.setProperty('--clip-color', color ?? ownColor.clip);
+  };
+
+  // Weighted slab state: the row it is in, and a spring body per axis.
+  const body = { x: sourceRect.left, y: sourceRect.top, vx: 0, vy: 0, tx: sourceRect.left, ty: sourceRect.top };
+  let row = -1;
+  let rowOffsetY = 0;
+  let snapUntil = 0;
+  let springFrame = 0;
+  let lastStep = 0;
+  const stepSpring = (now: number) => {
+    springFrame = 0;
+    if (!ghost) return;
+    const dt = Math.min(1 / 30, (now - (lastStep || now)) / 1000) || 1 / 60;
+    lastStep = now;
+    // Sideways the weighted spring (lib/motion.ts); across rows a stiffer one
+    // that snaps over with a barely visible give.
+    const snapping = now < snapUntil;
+    const ky = snapping ? 1100 : 700;
+    const dampY = 2 * Math.sqrt(ky) * (snapping ? 0.6 : 1);
+    for (let substep = 0; substep < 4; substep += 1) {
+      const h = dt / 4;
+      body.vx += (SPRING_K * (body.tx - body.x) - 2 * SPRING_W * body.vx) * h;
+      body.x += body.vx * h;
+      body.vy += (ky * (body.ty - body.y) - dampY * body.vy) * h;
+      body.y += body.vy * h;
+    }
+    const resting = Math.abs(body.tx - body.x) < 0.05 && Math.abs(body.vx) < 0.5
+      && Math.abs(body.ty - body.y) < 0.05 && Math.abs(body.vy) < 0.5;
+    if (resting) {
+      body.x = body.tx;
+      body.y = body.ty;
+      body.vx = 0;
+      body.vy = 0;
+      lastStep = 0;
+    }
+    ghost.style.transform = `translate3d(${body.x}px, ${body.y}px, 0)`;
+    if (!resting) springFrame = window.requestAnimationFrame(stepSpring);
+  };
+  // Where the weighted slab rests for a pointer position, and what it drops on.
+  const weightedTargetAt = (clientX: number, clientY: number) => {
+    const rows = weighted?.rows() ?? [];
+    if (rows.length === 0) return resolveTarget(clientX, clientY);
+    if (row < 0) {
+      row = Math.max(0, rows.findIndex((box) => startClientY >= box.top && startClientY < box.bottom));
+      rowOffsetY = sourceRect.top - rows[row].top;
+    }
+    const now = performance.now();
+    while (row < rows.length - 1 && clientY > rows[row + 1].top + rows[row + 1].height / 2) {
+      row += 1;
+      snapUntil = now + 260;
+    }
+    while (row > 0 && clientY < rows[row - 1].top + rows[row - 1].height / 2) {
+      row -= 1;
+      snapUntil = now + 260;
+    }
+    const box = rows[row];
+    body.tx = clientX - grabOffsetX;
+    // Carried well clear of the lanes (to the holding popover, say) the slab
+    // simply follows the hand.
+    if (clientY < rows[0].top - box.height / 2 || clientY > rows[rows.length - 1].bottom + box.height / 2) {
+      body.ty = clientY - grabOffsetY;
+      return resolveTarget(clientX, clientY);
+    }
+    const restTop = box.top + rowOffsetY;
+    body.ty = restTop + Math.max(-6, Math.min(6, (clientY - grabOffsetY - restTop) * 0.12));
+    return resolveTarget(clientX, box.top + box.height / 2);
+  };
+  const targetAt = (clientX: number, clientY: number) =>
+    weighted ? weightedTargetAt(clientX, clientY) : resolveTarget(clientX, clientY);
+
+  const paintDrag = () => {
+    frame = 0;
+    if (!ghost) return;
+    if (weighted) {
+      aim(targetAt(pendingClientX, pendingClientY));
+      if (!springFrame) springFrame = window.requestAnimationFrame(stepSpring);
+      return;
+    }
+    ghost.style.transform = `translate3d(${pendingClientX - grabOffsetX}px, ${
+      pendingClientY - grabOffsetY
+    }px, 0)`;
+    const scrollContainer = mobileTouch?.scrollContainer;
+    if (scrollContainer) {
+      const rect = scrollContainer.getBoundingClientRect();
+      const delta =
+        autoscrollAxis === 'y'
+          ? mobilePlanningEdgeAutoscrollDelta({
+              clientX: pendingClientY,
+              left: rect.top,
+              right: rect.bottom,
+              scrollLeft: scrollContainer.scrollTop,
+              maxScrollLeft: scrollContainer.scrollHeight - scrollContainer.clientHeight,
+            })
+          : mobilePlanningEdgeAutoscrollDelta({
+              clientX: pendingClientX,
+              left: rect.left,
+              right: rect.right,
+              scrollLeft: scrollContainer.scrollLeft,
+              maxScrollLeft: scrollContainer.scrollWidth - scrollContainer.clientWidth,
+            });
+      if (delta !== 0) {
+        if (autoscrollAxis === 'y') scrollContainer.scrollTop += delta;
+        else scrollContainer.scrollLeft += delta;
+      }
+      aim(resolveTarget(pendingClientX, pendingClientY));
+      if (delta !== 0) frame = window.requestAnimationFrame(paintDrag);
+      return;
+    }
+    aim(resolveTarget(pendingClientX, pendingClientY));
+  };
+  const schedulePaint = (clientX: number, clientY: number) => {
+    pendingClientX = clientX;
+    pendingClientY = clientY;
+    if (!frame) frame = window.requestAnimationFrame(paintDrag);
+  };
+  const createGhost = (clientX: number, clientY: number) => {
+    ghost = sourceElement.cloneNode(true) as HTMLElement;
+    ghost.removeAttribute('draggable');
+    ghost.setAttribute('aria-hidden', 'true');
+    ghost.classList.add('chapter-lane-pointer-ghost', 'is-dragging');
+    ghost.style.width = `${sourceRect.width}px`;
+    ghost.style.height = `${sourceRect.height}px`;
+    ghost.style.transform = `translate3d(${sourceRect.left}px, ${sourceRect.top}px, 0)`;
+    document.body.appendChild(ghost);
+    sourceElement.style.visibility = 'hidden';
+    schedulePaint(clientX, clientY);
+  };
+  const unlockSelection = () => {
+    document.documentElement.classList.remove('chapter-lane-pointer-dragging');
+  };
+  const stopListening = () => {
+    window.removeEventListener('pointermove', handleMove);
+    window.removeEventListener('pointerup', handleUp);
+    window.removeEventListener('pointercancel', handleCancel);
+    window.removeEventListener('pointerdown', handleAdditionalPointer, true);
+    clearMenuTimer();
+    unlockSelection();
+  };
+  const cleanupVisuals = () => {
+    if (frame) window.cancelAnimationFrame(frame);
+    frame = 0;
+    if (springFrame) window.cancelAnimationFrame(springFrame);
+    springFrame = 0;
+    ghost?.remove();
+    ghost = null;
+    sourceElement.style.visibility = previousVisibility;
+  };
+  const handleMove = (event: PointerEvent) => {
+    if (settled || event.pointerId !== pointerId) return;
+    const distance = Math.hypot(event.clientX - startClientX, event.clientY - startClientY);
+    if (mobileTouchEnabled && !dragging && !lifted) {
+      const intent = resolveMobilePlanningGesture({
+        surface: 'card',
+        elapsedMs: Date.now() - startedAt,
+        distancePx: distance,
+        pointerCount: 1,
+      });
+      if (intent === 'pan') {
+        settled = true;
+        stopListening();
+        cleanupVisuals();
+        return;
+      }
+      if (intent !== 'drag') return;
+    }
+    if (!dragging && distance < threshold) return;
+    if (!dragging) {
+      dragging = true;
+      clearMenuTimer();
+      document.documentElement.classList.add('chapter-lane-pointer-dragging');
+      onDragStart();
+      createGhost(event.clientX, event.clientY);
+    }
+    if (event.cancelable) event.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    schedulePaint(event.clientX, event.clientY);
+  };
+  const handleUp = (event: PointerEvent) => {
+    if (settled || event.pointerId !== pointerId) return;
+    settled = true;
+    if (dragging) {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      aim(targetAt(event.clientX, event.clientY));
+    }
+    stopListening();
+    if (!dragging) {
+      cleanupVisuals();
+      if (lifted) mobileTouch?.onLiftCancel?.();
+      return;
+    }
+    const finalTarget = target;
+    void Promise.resolve()
+      .then(() => commitDrop(finalTarget))
+      .finally(() => {
+        cleanupVisuals();
+        onDragEnd();
+      });
+  };
+  const handleCancel = (event: PointerEvent) => {
+    if (settled || event.pointerId !== pointerId) return;
+    settled = true;
+    stopListening();
+    cleanupVisuals();
+    if (dragging) onDragEnd();
+    else if (lifted) mobileTouch?.onLiftCancel?.();
+  };
+  const handleAdditionalPointer = (event: PointerEvent) => {
+    if (
+      settled ||
+      !mobileTouchEnabled ||
+      event.pointerType !== 'touch' ||
+      event.pointerId === pointerId
+    ) {
+      return;
+    }
+    settled = true;
+    stopListening();
+    cleanupVisuals();
+    if (dragging) onDragEnd();
+    else if (lifted) mobileTouch?.onLiftCancel?.();
+  };
+
+  window.addEventListener('pointermove', handleMove, { passive: false });
+  window.addEventListener('pointerup', handleUp);
+  window.addEventListener('pointercancel', handleCancel);
+  if (mobileTouchEnabled) window.addEventListener('pointerdown', handleAdditionalPointer, true);
+
+  return {
+    cancel: () => {
+      if (settled) return;
+      settled = true;
+      stopListening();
+      cleanupVisuals();
+      if (dragging) onDragEnd();
+    },
+  };
+}
+
+interface CommitChapterLaneDropInput {
+  nodeId: string;
+  targetLaneId: string;
+  targetOrder: number;
+  orderField: ChapterOrderField;
+  moveChapterOnTimeline: (
+    nodeId: string,
+    input: {
+      orderField: ChapterOrderField;
+      order: number;
+      targetStorylineId?: string | null;
+    },
+  ) => Promise<unknown>;
+}
+
+/**
+ * Persist one chapter drop using the same write ordering in both projections.
+ * Primary/membership changes are applied before the final order patch so a
+ * reroute cannot briefly snap back to the source lane.
+ */
+export async function commitChapterLaneDrop({
+  nodeId,
+  targetLaneId,
+  targetOrder,
+  orderField,
+  moveChapterOnTimeline,
+}: CommitChapterLaneDropInput): Promise<void> {
+  if (!Number.isFinite(targetOrder)) throw new TypeError('chapter drop order must be finite');
+  const targetStorylineId =
+    targetLaneId === DEFAULT_STORYLINE_LANE_ID
+      ? undefined
+      : targetLaneId === UNAFFILIATED_STORYLINE_LANE_ID
+        ? null
+        : targetLaneId;
+  await moveChapterOnTimeline(nodeId, {
+    orderField,
+    order: targetOrder,
+    targetStorylineId,
+  });
+}

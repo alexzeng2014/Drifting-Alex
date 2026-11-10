@@ -1,0 +1,428 @@
+{
+  "kind": "agent_send_preparation_acceptance",
+  "status": "passed",
+  "generatedAt": "2026-09-30T04:14:21.966Z",
+  "source": {
+    "commit": "d8da5d08ccb673bcd26e1941389fdc01a529ff57",
+    "fingerprint": "95d25de6be1b97377946f014aac37b2b9c21585dd055b31560a2ce2002801722",
+    "build": "vitest-production-store-with-synthetic-ports"
+  },
+  "suites": [
+    "src/renderer/store/agent-chat-preparation.integration.test.ts",
+    "src/renderer/lib/agent/runtime/chat-start-owner.test.ts",
+    "src/renderer/store/agent-chat-store.test.ts",
+    "src/renderer/store/agent-chat-events.integration.test.ts"
+  ],
+  "tests": [
+    {
+      "name": "chat journal ingress and private deduplication rejects a foreign project route before changing the conversation or persistence",
+      "title": "rejects a foreign project route before changing the conversation or persistence",
+      "status": "passed",
+      "durationMs": 1.7469580000000633
+    },
+    {
+      "name": "chat journal ingress and private deduplication flushes the actual terminal tail before its finalized transcript is persisted",
+      "title": "flushes the actual terminal tail before its finalized transcript is persisted",
+      "status": "passed",
+      "durationMs": 2.2384160000000293
+    },
+    {
+      "name": "chat journal ingress and private deduplication matches the reference projection with transient thinking, tools and a duplicated terminal",
+      "title": "matches the reference projection with transient thinking, tools and a duplicated terminal",
+      "status": "passed",
+      "durationMs": 0.7730419999999185
+    },
+    {
+      "name": "chat journal ingress and private deduplication publishes permission and cancellation immediately without accepting duplicate controls",
+      "title": "publishes permission and cancellation immediately without accepting duplicate controls",
+      "status": "passed",
+      "durationMs": 0.17720799999995052
+    },
+    {
+      "name": "chat journal ingress and private deduplication preserves membership across transport rebinding and isolates sibling conversations",
+      "title": "preserves membership across transport rebinding and isolates sibling conversations",
+      "status": "passed",
+      "durationMs": 0.19824999999991633
+    },
+    {
+      "name": "chat journal ingress and private deduplication seeds a fresh recovery generation and drops deleted conversation routing",
+      "title": "seeds a fresh recovery generation and drops deleted conversation routing",
+      "status": "passed",
+      "durationMs": 0.9978340000000117
+    },
+    {
+      "name": "chat journal ingress and private deduplication does not remember an event when its projection fails",
+      "title": "does not remember an event when its projection fails",
+      "status": "passed",
+      "durationMs": 0.40895899999998164
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after new during memories",
+      "title": "does not consume review context or start after new during memories",
+      "status": "passed",
+      "durationMs": 55.462625
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after load during memories",
+      "title": "does not consume review context or start after load during memories",
+      "status": "passed",
+      "durationMs": 50.76691699999992
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after project during memories",
+      "title": "does not consume review context or start after project during memories",
+      "status": "passed",
+      "durationMs": 52.809416000000056
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after delete during memories",
+      "title": "does not consume review context or start after delete during memories",
+      "status": "passed",
+      "durationMs": 50.97704199999998
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after abort during memories",
+      "title": "does not consume review context or start after abort during memories",
+      "status": "passed",
+      "durationMs": 50.901666999999975
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after new during working",
+      "title": "does not consume review context or start after new during working",
+      "status": "passed",
+      "durationMs": 51.78995800000007
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after load during working",
+      "title": "does not consume review context or start after load during working",
+      "status": "passed",
+      "durationMs": 52.50291600000003
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after project during working",
+      "title": "does not consume review context or start after project during working",
+      "status": "passed",
+      "durationMs": 50.812625000000025
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after delete during working",
+      "title": "does not consume review context or start after delete during working",
+      "status": "passed",
+      "durationMs": 53.0117919999999
+    },
+    {
+      "name": "chat send preparation ownership does not consume review context or start after abort during working",
+      "title": "does not consume review context or start after abort during working",
+      "status": "passed",
+      "durationMs": 50.48899999999992
+    },
+    {
+      "name": "chat send preparation ownership releases invalidated preparation immediately and prevents its finally from releasing a newer send",
+      "title": "releases invalidated preparation immediately and prevents its finally from releasing a newer send",
+      "status": "passed",
+      "durationMs": 105.03595799999994
+    },
+    {
+      "name": "chat send preparation ownership keeps accepted context in the runtime prompt and the author text in the displayed transcript",
+      "title": "keeps accepted context in the runtime prompt and the author text in the displayed transcript",
+      "status": "passed",
+      "durationMs": 1.6826670000000377
+    },
+    {
+      "name": "chat send preparation ownership preserves an already-submitted turn after new while its start acknowledgement is pending",
+      "title": "preserves an already-submitted turn after new while its start acknowledgement is pending",
+      "status": "passed",
+      "durationMs": 52.15283299999987
+    },
+    {
+      "name": "chat send preparation ownership preserves an already-submitted turn after load while its start acknowledgement is pending",
+      "title": "preserves an already-submitted turn after load while its start acknowledgement is pending",
+      "status": "passed",
+      "durationMs": 52.49274999999989
+    },
+    {
+      "name": "chat send preparation ownership preserves an already-submitted turn after stopAfterTool while its start acknowledgement is pending",
+      "title": "preserves an already-submitted turn after stopAfterTool while its start acknowledgement is pending",
+      "status": "passed",
+      "durationMs": 53.80329199999983
+    },
+    {
+      "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following abort",
+      "title": "reissues cancellation after a late successful start acknowledgement following abort",
+      "status": "passed",
+      "durationMs": 51.746916000000056
+    },
+    {
+      "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following project",
+      "title": "reissues cancellation after a late successful start acknowledgement following project",
+      "status": "passed",
+      "durationMs": 53.900916999999936
+    },
+    {
+      "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following delete",
+      "title": "reissues cancellation after a late successful start acknowledgement following delete",
+      "status": "passed",
+      "durationMs": 51.95233399999984
+    },
+    {
+      "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following clear",
+      "title": "reissues cancellation after a late successful start acknowledgement following clear",
+      "status": "passed",
+      "durationMs": 53.543957999999975
+    },
+    {
+      "name": "chat send preparation ownership keeps a late startup failure on its owning conversation without unlocking a newer preparation",
+      "title": "keeps a late startup failure on its owning conversation without unlocking a newer preparation",
+      "status": "passed",
+      "durationMs": 103.21983300000011
+    },
+    {
+      "name": "chat send preparation ownership cleans up a synchronous transport startup exception",
+      "title": "cleans up a synchronous transport startup exception",
+      "status": "passed",
+      "durationMs": 0.9194169999998394
+    },
+    {
+      "name": "chat send preparation ownership discards a late conversation-fork error after preparation has been invalidated",
+      "title": "discards a late conversation-fork error after preparation has been invalidated",
+      "status": "passed",
+      "durationMs": 53.399916000000076
+    },
+    {
+      "name": "agent chat canonical journal projection renders text deltas immediately and finalizes only from canonical lifecycle events",
+      "title": "renders text deltas immediately and finalizes only from canonical lifecycle events",
+      "status": "passed",
+      "durationMs": 1.0330419999999094
+    },
+    {
+      "name": "agent chat canonical journal projection shows fragmented tool arguments before ready/execution/result",
+      "title": "shows fragmented tool arguments before ready/execution/result",
+      "status": "passed",
+      "durationMs": 0.5143749999999727
+    },
+    {
+      "name": "agent chat canonical journal projection settles the newest tool card when a later turn reuses a provider call id",
+      "title": "settles the newest tool card when a later turn reuses a provider call id",
+      "status": "passed",
+      "durationMs": 0.10199999999997544
+    },
+    {
+      "name": "agent chat canonical journal projection surfaces a certified write review from the canonical tool result",
+      "title": "surfaces a certified write review from the canonical tool result",
+      "status": "passed",
+      "durationMs": 0.10804099999995742
+    },
+    {
+      "name": "agent chat canonical journal projection adds accepted steering and user input once from canonical events",
+      "title": "adds accepted steering and user input once from canonical events",
+      "status": "passed",
+      "durationMs": 0.9527920000000449
+    },
+    {
+      "name": "agent chat canonical journal projection keeps permission state out of transcript and derives usage/error from turn_finished",
+      "title": "keeps permission state out of transcript and derives usage/error from turn_finished",
+      "status": "passed",
+      "durationMs": 0.20354199999997036
+    },
+    {
+      "name": "agent chat canonical journal projection records work duration for a terminal turn even when token usage is zero",
+      "title": "records work duration for a terminal turn even when token usage is zero",
+      "status": "passed",
+      "durationMs": 0.08633399999996527
+    },
+    {
+      "name": "agent chat canonical journal projection selects the displayed turn independently from sibling conversations",
+      "title": "selects the displayed turn independently from sibling conversations",
+      "status": "passed",
+      "durationMs": 0.14033400000005258
+    },
+    {
+      "name": "agent chat canonical journal projection offers an explicit one-shot continuation only after an idle budget terminal",
+      "title": "offers an explicit one-shot continuation only after an idle budget terminal",
+      "status": "passed",
+      "durationMs": 0.31933300000002873
+    },
+    {
+      "name": "agent chat canonical journal projection offers manual continuation after any terminal turn with an authoritative same-session open plan",
+      "title": "offers manual continuation after any terminal turn with an authoritative same-session open plan",
+      "status": "passed",
+      "durationMs": 0.20404200000007222
+    },
+    {
+      "name": "agent chat canonical journal projection keeps only the latest same-project conversation load intent current",
+      "title": "keeps only the latest same-project conversation load intent current",
+      "status": "passed",
+      "durationMs": 0.0907080000000633
+    },
+    {
+      "name": "agent chat canonical journal projection does not let an awaited send preflight override New Chat or Load Conversation intent",
+      "title": "does not let an awaited send preflight override New Chat or Load Conversation intent",
+      "status": "passed",
+      "durationMs": 1.2083330000000387
+    },
+    {
+      "name": "chat startup intent lifetime rejects overlapping starts and only releases the lease that owns preparation",
+      "title": "rejects overlapping starts and only releases the lease that owns preparation",
+      "status": "passed",
+      "durationMs": 1.1728750000000048
+    },
+    {
+      "name": "chat startup intent lifetime keeps submitted background turns independent, but retains a later explicit cancellation",
+      "title": "keeps submitted background turns independent, but retains a later explicit cancellation",
+      "status": "passed",
+      "durationMs": 0.16141700000000014
+    },
+    {
+      "name": "chat startup intent lifetime disposes pending and submitted ownership once, including a late preparation registration",
+      "title": "disposes pending and submitted ownership once, including a late preparation registration",
+      "status": "passed",
+      "durationMs": 0.134791000000007
+    }
+  ],
+  "baseline": {
+    "commit": "c9a21018ea7ed00664ccf05e42195ce247e7ea0b",
+    "testSha256": "ebbeaecddefc42a4dc40871529233dd596ee16d3cbdb028569417097717788c1",
+    "tests": [
+      {
+        "name": "chat send preparation ownership does not consume review context or start after new during memories",
+        "title": "does not consume review context or start after new during memories",
+        "status": "failed",
+        "durationMs": 58.19266600000003
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after load during memories",
+        "title": "does not consume review context or start after load during memories",
+        "status": "failed",
+        "durationMs": 51.09379100000001
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after project during memories",
+        "title": "does not consume review context or start after project during memories",
+        "status": "failed",
+        "durationMs": 51.665416999999934
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after delete during memories",
+        "title": "does not consume review context or start after delete during memories",
+        "status": "failed",
+        "durationMs": 51.692916999999966
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after abort during memories",
+        "title": "does not consume review context or start after abort during memories",
+        "status": "failed",
+        "durationMs": 55.06441700000005
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after new during working",
+        "title": "does not consume review context or start after new during working",
+        "status": "failed",
+        "durationMs": 51.989083999999934
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after load during working",
+        "title": "does not consume review context or start after load during working",
+        "status": "failed",
+        "durationMs": 54.71054200000003
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after project during working",
+        "title": "does not consume review context or start after project during working",
+        "status": "failed",
+        "durationMs": 52.69508300000007
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after delete during working",
+        "title": "does not consume review context or start after delete during working",
+        "status": "failed",
+        "durationMs": 54.01854199999991
+      },
+      {
+        "name": "chat send preparation ownership does not consume review context or start after abort during working",
+        "title": "does not consume review context or start after abort during working",
+        "status": "failed",
+        "durationMs": 52.111000000000104
+      },
+      {
+        "name": "chat send preparation ownership releases invalidated preparation immediately and prevents its finally from releasing a newer send",
+        "title": "releases invalidated preparation immediately and prevents its finally from releasing a newer send",
+        "status": "failed",
+        "durationMs": 55.741665999999896
+      },
+      {
+        "name": "chat send preparation ownership keeps accepted context in the runtime prompt and the author text in the displayed transcript",
+        "title": "keeps accepted context in the runtime prompt and the author text in the displayed transcript",
+        "status": "passed",
+        "durationMs": 1.6100420000000213
+      },
+      {
+        "name": "chat send preparation ownership preserves an already-submitted turn after new while its start acknowledgement is pending",
+        "title": "preserves an already-submitted turn after new while its start acknowledgement is pending",
+        "status": "failed",
+        "durationMs": 52.200874999999996
+      },
+      {
+        "name": "chat send preparation ownership preserves an already-submitted turn after load while its start acknowledgement is pending",
+        "title": "preserves an already-submitted turn after load while its start acknowledgement is pending",
+        "status": "failed",
+        "durationMs": 52.19029099999989
+      },
+      {
+        "name": "chat send preparation ownership preserves an already-submitted turn after stopAfterTool while its start acknowledgement is pending",
+        "title": "preserves an already-submitted turn after stopAfterTool while its start acknowledgement is pending",
+        "status": "passed",
+        "durationMs": 51.016374999999925
+      },
+      {
+        "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following abort",
+        "title": "reissues cancellation after a late successful start acknowledgement following abort",
+        "status": "failed",
+        "durationMs": 53.66295800000012
+      },
+      {
+        "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following project",
+        "title": "reissues cancellation after a late successful start acknowledgement following project",
+        "status": "failed",
+        "durationMs": 51.27054199999998
+      },
+      {
+        "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following delete",
+        "title": "reissues cancellation after a late successful start acknowledgement following delete",
+        "status": "failed",
+        "durationMs": 52.35833300000013
+      },
+      {
+        "name": "chat send preparation ownership reissues cancellation after a late successful start acknowledgement following clear",
+        "title": "reissues cancellation after a late successful start acknowledgement following clear",
+        "status": "failed",
+        "durationMs": 52.37104199999999
+      },
+      {
+        "name": "chat send preparation ownership keeps a late startup failure on its owning conversation without unlocking a newer preparation",
+        "title": "keeps a late startup failure on its owning conversation without unlocking a newer preparation",
+        "status": "failed",
+        "durationMs": 1054.9029160000002
+      },
+      {
+        "name": "chat send preparation ownership cleans up a synchronous transport startup exception",
+        "title": "cleans up a synchronous transport startup exception",
+        "status": "failed",
+        "durationMs": 2.6802910000001248
+      },
+      {
+        "name": "chat send preparation ownership discards a late conversation-fork error after preparation has been invalidated",
+        "title": "discards a late conversation-fork error after preparation has been invalidated",
+        "status": "failed",
+        "durationMs": 54.996415999999954
+      }
+    ]
+  },
+  "acceptance": {
+    "productionStore": true,
+    "repositories": "synthetic-ports",
+    "provider": "synthetic-transport",
+    "native": "not-run",
+    "performanceBudget": "not-evaluated",
+    "workingMemoryStorageCancellation": "not-proven"
+  }
+}

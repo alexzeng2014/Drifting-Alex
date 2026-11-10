@@ -1,0 +1,154 @@
+@import './mobile-foundation.css';
+
+/* The phone's shelf (docs/mobile-ui-foundation.md): the desktop's shelf in
+ * one column. The rail that stands at the desktop's left becomes the shelf's
+ * head (its name and the account first, import and Recently Deleted on one
+ * line under it); the writing year scrolls sideways under the thumb; each
+ * book is a card a whole phone wide, its cover on the left. The sea of
+ * characters still lies under it all. */
+
+html[data-shell-mode='mobile'] .pp {
+  height: 100%;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+html[data-shell-mode='mobile'] .pp::-webkit-scrollbar { display: none; }
+html[data-shell-mode='mobile'] .pp__window-drag-strip { display: none; }
+
+html[data-shell-mode='mobile'] .pp__frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+html[data-shell-mode='mobile'] .pp__inner,
+html[data-shell-mode='mobile'] .pp__frame > .pp__inner {
+  width: 100%;
+  min-height: 0;
+  padding: 4px max(16px, env(safe-area-inset-left, 0px)) 28px max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* ── The rail, laid across the top ────────────────────────────────── */
+html[data-shell-mode='mobile'] .pp-rail {
+  position: static;
+  height: auto;
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 0 6px;
+  padding: 14px max(16px, env(safe-area-inset-left, 0px)) 6px max(16px, env(safe-area-inset-right, 0px));
+}
+
+html[data-shell-mode='mobile'] .pp-rail .pp-head__title {
+  order: 0;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  font-size: 30px;
+}
+
+html[data-shell-mode='mobile'] .pp-rail__foot {
+  order: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+}
+
+html[data-shell-mode='mobile'] .pp-rail__library {
+  order: 2;
+  flex-basis: 100%;
+  margin: 0 0 6px;
+}
+
+html[data-shell-mode='mobile'] .pp-rail__grow { display: none; }
+
+html[data-shell-mode='mobile'] .pp-rail__cell {
+  order: 3;
+  width: auto;
+  min-height: 44px;
+  margin-left: -10px;
+  margin-right: 10px;
+  font-size: var(--ui-font-secondary);
+}
+
+html[data-shell-mode='mobile'] .pp-rail__text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+
+html[data-shell-mode='mobile'] .pp-rail__account {
+  min-height: 44px;
+}
+
+html[data-shell-mode='mobile'] .pp-rail__who,
+html[data-shell-mode='mobile'] .pp-rail__status {
+  display: none;
+}
+
+/* ── The writing year ─────────────────────────────────────────────── */
+html[data-shell-mode='mobile'] .pp-heat {
+  max-width: 100%;
+}
+
+html[data-shell-mode='mobile'] .pp-heat__scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+
+html[data-shell-mode='mobile'] .pp-heat__scroll::-webkit-scrollbar { display: none; }
+
+/* ── The books ────────────────────────────────────────────────────── */
+html[data-shell-mode='mobile'] .pp-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+html[data-shell-mode='mobile'] .pp-card {
+  min-height: 0;
+  gap: 14px;
+  padding: 10px;
+}
+
+html[data-shell-mode='mobile'] .pp-cover {
+  width: 92px;
+  height: 164px;
+}
+
+html[data-shell-mode='mobile'] .pp-card__title {
+  font-size: 19px;
+}
+
+html[data-shell-mode='mobile'] .pp-card__summary {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+/* The card's own actions (edit, export, delete) live in its held card on a
+   phone; the corner icons that wait for a hover stay hidden. */
+html[data-shell-mode='mobile'] .pp-acts {
+  opacity: 1;
+}
+
+html[data-shell-mode='mobile'] .pp-cover-style {
+  padding-bottom: 8px;
+}
+
+html[data-shell-mode='mobile'] .pp-cover-style__turn.ghost-icon-button {
+  width: var(--glass-round-size);
+  height: var(--glass-round-size);
+}
+
+/* Dialogs on the shelf are as wide as the phone allows. */
+html[data-shell-mode='mobile'] .pp-dialog {
+  width: calc(100vw - 32px) !important;
+  max-width: 420px;
+}

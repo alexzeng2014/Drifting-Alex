@@ -1,0 +1,297 @@
+import type { Editor } from '@tiptap/core';
+import { Schema, type Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { EditorState, TextSelection, type Transaction } from '@tiptap/pm/state';
+import { getEditorSelectionSnapshot, pruneEditorSelectionMemory, saveEditorSelectionSnapshot } from '../../lib/editor-selection-memory';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EntityEditorSession, type EditorPersistDerived } from './entity-editor-session';
+
+const schema = new Schema({ nodes: {
+  doc: { content: 'block+' }, text: { group: 'inline' },
+  paragraph: { group: 'block', content: 'text*', attrs: { id: { default: 'paragraph' } } },
+  heading: { group: 'block', content: 'text*', attrs: { id: { default: 'heading' }, level: { default: 1 } } },
+} });
+function document(heading = 'Synthetic heading', prose = 'Synthetic prose') {
+  return schema.node('doc', null, [schema.node('heading', null, [schema.text(heading)]), schema.node('paragraph', null, [schema.text(prose)])]);
+}
+
+// Real immutable ProseMirror documents, with an explicit event/clock double.
+// Full Tiptap/Yjs and React lifecycle wiring is checked by the native harness.
+function fixture(id = 'chapter') {
+  const callbacks = new Map<string, Set<() => void>>();
+  const emitter = {
+    isDestroyed: false, isFocused: false, state: EditorState.create({ doc: document() }),
+    view: { composing: false },
+    getJSON() { return this.state.doc.toJSON(); },
+    on(name: string, fn: () => void) { const listeners = callbacks.get(name) ?? new Set(); listeners.add(fn); callbacks.set(name, listeners); },
+    off(name: string, fn: () => void) { callbacks.get(name)?.delete(fn); },
+  };
+  const editor = emitter as unknown as Editor;
+  const persist = vi.fn<(editor: Editor, derived: EditorPersistDerived) => void>();
+  const session = new EntityEditorSession(editor, { projectId: 'synthetic-project', sourceKind: 'node', sourceId: id });
+  session.updateOptions({ onPersist: persist, selectionKey: null, autoFocus: true, isCommandActive: true });
+  const emit = (event: string) => { for (const callback of [...callbacks.get(event) ?? []]) callback(); };
+  return { session, editor, emitter, persist, emit,
+    listenerCount: () => [...callbacks.values()].reduce((sum, listeners) => sum + listeners.size, 0),
+    update(doc: ProseMirrorNode) { emitter.state = EditorState.create({ doc }); emit('update'); },
+  };
+}
+
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe('canonical editor session ownership', () => {
+  it('waits through a long IME candidate pause and serializes only the committed draft', () => {
+    vi.useFakeTimers();
+    const f = fixture(); f.session.attach();
+    const serialize = vi.spyOn(f.emitter, 'getJSON');
+    f.update(document('Before composition'));
+    vi.advanceTimersByTime(300);
+    f.emitter.view.composing = true;
+    f.update(document('Temporary candidate', 'han'));
+    vi.advanceTimersByTime(2400);
+    expect(serialize).not.toHaveBeenCalled();
+    expect(f.persist).not.toHaveBeenCalled();
+    f.update(document('Committed text', '汉字'));
+    f.emitter.view.composing = false;
+    vi.advanceTimersByTime(400);
+    expect(f.persist).toHaveBeenCalledOnce();
+    expect(f.persist.mock.calls[0][1].pmJson).toContain('汉字');
+    f.session.detach();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retains explicit save and teardown while composition is active', () => {
+    vi.useFakeTimers();
+    const f = fixture(); f.session.attach(); f.emitter.view.composing = true;
+    f.update(document('Draft')); vi.advanceTimersByTime(500);
+    f.session.saveNow();
+    expect(f.persist).toHaveBeenCalledOnce();
+    f.update(document('Latest draft'));
+    f.session.detach();
+    expect(f.persist).toHaveBeenCalledTimes(2);
+    expect(f.persist.mock.calls[1][1].outline[0].text).toBe('Latest draft');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('keeps a 400 ms trailing save, yields blur, flushes close, and cancels retired timers', () => {
+    vi.useFakeTimers();
+    const f = fixture(); const dispose = f.session.attach();
+    f.update(document('One')); vi.advanceTimersByTime(300);
+    f.update(document('Two')); vi.advanceTimersByTime(399);
+    expect(f.persist).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(f.persist).toHaveBeenCalledTimes(1);
+    expect(f.persist.mock.calls[0][1].outline[0].text).toBe('Two');
+    f.update(document('Blur')); f.emit('blur');
+    expect(f.persist).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(0);
+    expect(f.persist).toHaveBeenCalledTimes(2);
+    f.update(document('Close')); dispose();
+    expect(f.persist).toHaveBeenCalledTimes(3);
+    expect(f.persist.mock.calls[2][1].outline[0].text).toBe('Close');
+    expect(f.listenerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(1000);
+    expect(f.persist).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['close', 'save'] as const)('does no full-document work during blur and preserves an immediate %s', action => {
+    vi.useFakeTimers();
+    const f = fixture(); f.session.attach();
+    const serialize = vi.spyOn(f.emitter, 'getJSON');
+    f.update(document('Pending focus handoff', '文'.repeat(50_000)));
+    f.emit('blur'); f.emit('blur');
+    expect(serialize).not.toHaveBeenCalled();
+    expect(f.persist).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    if (action === 'close') f.session.detach(); else f.session.saveNow();
+    expect(f.persist).toHaveBeenCalledOnce();
+    expect(f.persist.mock.calls[0][1].pmJson).toContain('文'.repeat(50_000));
+    vi.advanceTimersByTime(1000);
+    expect(f.persist).toHaveBeenCalledOnce();
+    f.session.detach();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('coalesces a blur followed by more typing into the latest draft', () => {
+    vi.useFakeTimers();
+    const f = fixture(); f.session.attach();
+    f.update(document('Before blur')); f.emit('blur');
+    f.update(document('After refocus'));
+    vi.advanceTimersByTime(399);
+    expect(f.persist).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(f.persist).toHaveBeenCalledOnce();
+    expect(f.persist.mock.calls[0][1].outline[0].text).toBe('After refocus');
+    f.session.detach();
+  });
+
+  it('never sends a retiring editor draft to the incoming source callback', () => {
+    vi.useFakeTimers();
+    const old = fixture('old'); const incoming = fixture('incoming');
+    old.session.attach(); old.update(document('Old draft'));
+    incoming.session.attach(); incoming.update(document('Incoming draft'));
+    old.session.detach();
+    expect(old.persist.mock.calls[0][1].outline[0].text).toBe('Old draft');
+    expect(incoming.persist).not.toHaveBeenCalled();
+    incoming.session.saveNow();
+    expect(incoming.persist.mock.calls[0][1].outline[0].text).toBe('Incoming draft');
+    incoming.session.detach();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('refreshes a callback without restarting or dropping its pending task', () => {
+    vi.useFakeTimers();
+    const f = fixture(); f.session.attach(); f.update(document('Pending'));
+    const refreshed = vi.fn();
+    f.session.updateOptions({ onPersist: refreshed, selectionKey: null, autoFocus: true, isCommandActive: true });
+    vi.advanceTimersByTime(400);
+    expect(f.persist).not.toHaveBeenCalled(); expect(refreshed).toHaveBeenCalledOnce();
+    expect(f.listenerCount()).toBe(4); f.session.detach();
+  });
+
+  it('supports effect replay and cleans up on editor destruction', () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const first = f.session.attach(); first(); f.session.attach();
+    expect(f.listenerCount()).toBe(4);
+    f.update(document('Before destroy')); f.emit('destroy'); f.emitter.isDestroyed = true;
+    expect(f.persist).toHaveBeenCalledOnce(); expect(f.listenerCount()).toBe(0);
+    f.session.detach(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels its initialization frame when an unfocused session is retired', () => {
+    const requestFrame = vi.fn(() => 17); const cancelFrame = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+    const f = fixture();
+    const blur = vi.fn();
+    Object.assign(f.emitter, { view: { dispatch: vi.fn(), dom: { blur } } });
+    f.session.updateOptions({ onPersist: f.persist, selectionKey: null, autoFocus: false, isCommandActive: true });
+    f.session.attach(); f.session.detach();
+    expect(blur).toHaveBeenCalledOnce();
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(cancelFrame).toHaveBeenCalledWith(17);
+    expect(f.listenerCount()).toBe(0);
+  });
+
+  it('does not notify an outline consumer when only paragraph text changed', async () => {
+    vi.useFakeTimers();
+    const f = fixture(); f.session.setPresentationNeeded(true); f.session.attach();
+    await Promise.resolve();
+    const before = f.session.getSnapshot(); const notify = vi.fn(); const unsubscribe = f.session.subscribe(notify);
+    f.update(document('Synthetic heading', 'A different paragraph')); vi.advanceTimersByTime(400);
+    expect(f.persist).toHaveBeenCalledOnce(); expect(notify).not.toHaveBeenCalled();
+    expect(f.session.getSnapshot()).toBe(before);
+    expect(f.persist.mock.calls[0][1].pmJson).toContain('A different paragraph');
+    unsubscribe(); f.session.detach();
+  });
+
+  it.each([1, 5, 20])('persists all %i sessions while publishing only visible outlines and preparing a hidden target', async count => {
+    vi.useFakeTimers();
+    const sessions = Array.from({ length: count }, (_, index) => fixture(String(index)));
+    const notifications = sessions.map(() => vi.fn());
+    const unsubscribers = sessions.map((f, index) => {
+      f.session.setPresentationNeeded(index === 0); f.session.attach();
+      return f.session.subscribe(notifications[index]);
+    });
+    await Promise.resolve();
+    notifications.forEach(fn => fn.mockClear());
+    for (const f of sessions) f.update(document('Updated while retained'));
+    vi.advanceTimersByTime(400);
+    for (const f of sessions) expect(f.persist).toHaveBeenCalledOnce();
+    expect(notifications.reduce((sum, fn) => sum + fn.mock.calls.length, 0)).toBe(1);
+    if (count > 1) {
+      const hidden = sessions[1];
+      expect(hidden.session.getSnapshot().ready).toBe(false);
+      hidden.update(document('Latest, still pending save'));
+      hidden.session.setPresentationNeeded(true);
+      expect(hidden.session.getSnapshot()).toMatchObject({ ready: true, outline: [{ text: 'Latest, still pending save' }] });
+      expect(notifications[1]).toHaveBeenCalledOnce();
+      expect(hidden.persist).toHaveBeenCalledOnce(); // Preparation never forces a save.
+    }
+    unsubscribers.forEach(fn => fn()); sessions.forEach(f => f.session.detach());
+    expect(sessions.reduce((sum, f) => sum + f.listenerCount(), 0)).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for initial block IDs before publishing navigable JSON heading anchors', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.emitter.state = EditorState.create({ doc: schema.node('doc', null, [schema.node('heading', { id: null, level: 1 }, [schema.text('Initial heading')])]) });
+    const publishedIds: string[] = [];
+    f.session.subscribe(() => publishedIds.push(f.session.getSnapshot().outline[0].id));
+    // This is the BlockId plugin's construction-time normalization ordering.
+    queueMicrotask(() => f.update(schema.node('doc', null, [schema.node('heading', { id: 'canonical-block', level: 1 }, [schema.text('Initial heading')])])));
+    f.session.setPresentationNeeded(true); f.session.attach();
+    expect(f.session.getSnapshot().ready).toBe(false);
+    await Promise.resolve();
+    expect(publishedIds).toEqual(['canonical-block']);
+    f.session.detach();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('session-owned selection restoration', () => {
+  function restoringFixture() {
+    const f = fixture();
+    const key = 'selection-restore:node:chapter';
+    const frames = new Map<number, FrameRequestCallback>(); let sequence = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++sequence, callback); return sequence; });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+    f.emitter.state = f.emitter.state.apply(f.emitter.state.tr.setSelection(TextSelection.create(f.emitter.state.doc, 10, 3)));
+    saveEditorSelectionSnapshot(key, f.editor);
+    f.emitter.state = f.emitter.state.apply(f.emitter.state.tr.setSelection(TextSelection.create(f.emitter.state.doc, 1)));
+    const focus = vi.fn(); const transactions: Transaction[] = [];
+    Object.assign(f.emitter, { view: { focus, dispatch(tr: Transaction) { transactions.push(tr); f.emitter.state = f.emitter.state.apply(tr); } } });
+    const options = { onPersist: f.persist, selectionKey: key, autoFocus: false, isCommandActive: false };
+    f.session.updateOptions(options);
+    return { ...f, key, frames, focus, transactions, options,
+      paint() { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(0)); } };
+  }
+  afterEach(() => pruneEditorSelectionMemory('selection-restore', []));
+
+  it('restores positions while hidden and waits for visible command ownership before focusing once', () => {
+    const f = restoringFixture(); f.session.attach();
+    expect(f.editor.state.selection.toJSON()).toEqual({ type: 'text', anchor: 10, head: 3 });
+    expect(f.frames.size).toBe(0); expect(f.transactions[0].scrolledIntoView).toBe(false);
+    f.session.setPresentationNeeded(true); expect(f.frames.size).toBe(0);
+    f.session.updateOptions({ ...f.options, isCommandActive: true }); expect(f.frames.size).toBe(1);
+    f.session.updateOptions(f.options); expect(f.frames.size).toBe(0); f.paint(); expect(f.focus).not.toHaveBeenCalled();
+    f.session.updateOptions({ ...f.options, isCommandActive: true }); f.paint();
+    expect(f.focus).toHaveBeenCalledOnce(); expect(f.transactions[f.transactions.length - 1]?.scrolledIntoView).toBe(true);
+    f.session.setPresentationNeeded(false); f.session.setPresentationNeeded(true); f.paint(); expect(f.focus).toHaveBeenCalledOnce();
+    f.session.detach(); expect(f.frames.size).toBe(0);
+  });
+
+  it('cancels retired frames and fences a late callback from an earlier attachment', () => {
+    const f = restoringFixture(); f.session.setPresentationNeeded(true);
+    f.session.updateOptions({ ...f.options, isCommandActive: true }); f.session.attach();
+    const stale = [...f.frames.values()][0]; f.session.detach(); expect(f.frames.size).toBe(0);
+    f.session.attach(); expect(f.frames.size).toBe(1); stale(0); expect(f.focus).not.toHaveBeenCalled();
+    f.paint(); expect(f.focus).toHaveBeenCalledOnce(); f.session.detach();
+  });
+
+  it('does not refocus or scroll an editor the user already focused', () => {
+    const f = restoringFixture(); f.session.setPresentationNeeded(true);
+    f.session.updateOptions({ ...f.options, isCommandActive: true }); f.session.attach();
+    f.emitter.isFocused = true; f.paint(); expect(f.focus).not.toHaveBeenCalled();
+    expect(f.transactions).toHaveLength(1); f.session.detach();
+  });
+
+  it('brings a phone page back at its caret without starting to write', () => {
+    const f = restoringFixture(); f.session.setPresentationNeeded(true);
+    f.session.updateOptions({ ...f.options, isCommandActive: true, restoreFocus: false }); f.session.attach();
+    expect(f.editor.state.selection.toJSON()).toEqual({ type: 'text', anchor: 10, head: 3 });
+    expect(f.frames.size).toBe(0); f.paint(); expect(f.focus).not.toHaveBeenCalled();
+    f.session.detach();
+  });
+
+  it('keeps mapped positions current for hidden authoritative changes without copying prose', () => {
+    vi.useFakeTimers(); const f = restoringFixture(); f.session.attach();
+    f.emitter.state = f.emitter.state.apply(f.emitter.state.tr.insertText('Synthetic ', 1));
+    f.emit('update');
+    expect(getEditorSelectionSnapshot(f.key)).toEqual({ anchor: 20, head: 13, focusOnRestore: true });
+    const snapshot = getEditorSelectionSnapshot(f.key); f.emit('selectionUpdate');
+    expect(getEditorSelectionSnapshot(f.key)).toBe(snapshot);
+    f.session.detach(); expect(f.persist).toHaveBeenCalledOnce(); expect(f.frames.size).toBe(0);
+  });
+});

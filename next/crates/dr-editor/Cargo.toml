@@ -1,0 +1,62 @@
+[package]
+name = "dr-editor"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Drifting's editor (F4e): gpui-prose on dr-doc through the workspace, entity links, Markdown input rules, TODO markers, and its paint layers (comments, Agent changes, find, links)"
+
+[dependencies]
+dr-doc.workspace = true
+dr-model.workspace = true
+dr-store.workspace = true
+dr-text.workspace = true
+dr-ui.workspace = true
+dr-workspace.workspace = true
+futures.workspace = true
+gpui.workspace = true
+gpui-prose.workspace = true
+icu_collator.workspace = true
+icu_locale_core.workspace = true
+log.workspace = true
+loro.workspace = true
+pinyin.workspace = true
+prose-metrics.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# The showcase library for the example and the tests.
+dr-platform.workspace = true
+dr-testkit.workspace = true
+gpui = { workspace = true, features = ["test-support"] }
+gpui-prose = { workspace = true, features = ["conformance"] }
+# `test-support` gives book-bench and prose-bench (`headless`, `decor`,
+# `capture`) GPUI's headless renderer.
+gpui_platform = { workspace = true, features = ["test-support"] }
+# Synthetic pictures for embedded materials (tests, page-capture).
+png.workspace = true
+tempfile.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+# book-bench and prose-bench read the process's memory footprint and CPU
+# time; prose-bench also asks AppKit to draw right after an edit
+# (present-now) and drops the input method's marked text.
+libc.workspace = true
+objc2.workspace = true
+raw-window-handle.workspace = true
+
+[[example]]
+name = "edit"
+
+[[example]]
+name = "editor-bench"
+
+[[example]]
+name = "book-bench"
+
+[[example]]
+name = "prose-bench"
+path = "examples/prose-bench/main.rs"
+# Its unit tests (statistics, the xctrace table reader) run with `cargo test`.
+test = true

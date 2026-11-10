@@ -1,0 +1,2887 @@
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+
+import type { DbClient, DbTransaction } from '../../lib/db';
+import { applyHostedGenerationDeletion } from '../hosted/project-deletion';
+import type { ProjectDeletionReceipt } from '../../sqlite-repo/project-deletion-repo';
+import { boundedProseDocIds } from '../prose-change-scope';
+import {
+  SyncBlobStateTable,
+  SyncChangeSetTable,
+  SyncConflictTable,
+  SyncFrontierGapTable,
+  SyncFrontierTable,
+  SyncLocalObjectTable,
+  SyncMutationTable,
+  SyncProviderBindingTable,
+  SyncQuarantinedObjectTable,
+  SyncRemoteObjectTable,
+  SyncSegmentTable,
+  SyncTransferTable,
+  SyncGenerationTable,
+  SyncGenerationWriterStateTable,
+} from '../../schema/drizzle';
+import type { SyncWriterIdentitySource } from '../journal';
+import { installSnapshotCatchUp, planSnapshotCatchUp } from '../compaction/catch-up';
+import { truncateCoveredJournal, type JournalTruncationOutcome } from '../compaction/journal-truncation';
+import { truncatePrunedLocalSegments } from '../compaction/local-truncation';
+import {
+  applyVerifiedRemoteChangeSetInTransaction,
+  invalidateSqliteReducerStateCache,
+  type ReducerEffect,
+  type SyncDomainMaterializationKernel,
+  SyncReducerRejectedError,
+} from '../reducer';
+import {
+  beginInventory,
+  commitDurableChangePage,
+  commitDurableInventoryPage,
+  createDurableCursorState,
+  currentChangePageRequest,
+  currentInventoryPageToken,
+  resetCursorForFullInventory,
+  type DurablePageReceipt,
+} from './cursor';
+import {
+  decodeCanonicalCbor,
+  decodeSyncChangeSetV1,
+  decodeSegmentV1,
+  encodeCanonicalCbor,
+  createLocalObjectRef,
+  compareUtf8Bytewise,
+  sha256Bytes,
+  parseProjectAssetMutationV1,
+  validateProjectAssetBindSemantics,
+  type LocalObjectRef,
+  type ObjectLogProvider,
+  type ProviderBinding,
+  type ProviderKind,
+  type ProviderObjectId,
+  type ProviderGeneration,
+  type RemoteObject,
+  type RemoteObjectChange,
+  type SegmentV1,
+  type Sha256,
+  type SyncObjectKind,
+  type TransferProgress,
+} from '../protocol';
+import {
+  canAdvanceContiguousFrontier,
+  contiguousFrontierSeq,
+  isFrontierRangeComplete,
+  observeFrontierRange,
+  setAppliedSegmentHead,
+} from './frontier';
+import type { SyncEngineObjectCodec } from './object-codec';
+import type { SyncAssetBlobDeclaration, SyncEngineBlobPort } from './blob-port';
+import {
+  persistWriterFrontierInTransaction,
+  SqliteSyncEngineStateRepository,
+} from './sqlite-repository';
+import {
+  ChangeSetSegmenter,
+  SEGMENT_MAX_CHANGE_SETS,
+  type SealedSegment,
+  type SegmentFlushReason,
+} from './segmenter';
+import type { SchedulerTrigger } from './scheduler';
+import { createProviderTransferId } from './transfer-id';
+import type {
+  SyncGenerationPendingDiagnostics,
+  SyncGenerationTransferProgress,
+  SyncGenerationTransferStage,
+} from './status-store';
+import { SyncGenerationCycleLane, type CycleClock, type SyncGenerationCycleResult } from './cycle';
+
+const MAX_PROVIDER_PAGES_PER_CYCLE = 10_000;
+/** Change sets sealed per cycle across all lanes; a backlog drains over cycles. */
+export const SEAL_MAX_CHANGE_SETS_PER_CYCLE = 16 * SEGMENT_MAX_CHANGE_SETS;
+const MAX_INVALID_TOKEN_RECOVERIES_PER_CYCLE = 1;
+
+/** Cursor ownership must change whenever provider authority or binding identity changes. */
+export function syncProviderEpoch(providerKind: ProviderKind, binding: ProviderBinding): string {
+  return `${providerKind}:${binding.authorityGeneration}:${binding.bindingId}`;
+}
+
+export interface SyncEngineRuntimeClock extends CycleClock {
+  nowIso(): string;
+}
+
+export type RemoteProjectChangeProjectionImpact = 'prose-only' | 'workspace';
+
+/**
+ * Pure Yjs materialization is delivered directly into every open editor before
+ * the product callback runs. It therefore does not require replacing the
+ * renderer's structural workspace projection. Empty/no-op and mixed batches
+ * stay conservative so only proven prose-only commits can bypass the barrier.
+ */
+export function remoteProjectChangeProjectionImpact(
+  effects: readonly ReducerEffect[],
+): RemoteProjectChangeProjectionImpact {
+  const materialized = effects.filter((effect) => effect.materialize);
+  return materialized.length > 0 &&
+    materialized.every((effect) => effect.type === 'yjs.update')
+    ? 'prose-only'
+    : 'workspace';
+}
+
+export interface SyncEngineCheckpointHook {
+  captureIfDue(input: {
+    syncGenerationId: string;
+    signal: AbortSignal;
+  }): Promise<boolean>;
+}
+
+export interface SqliteSyncGenerationRuntimeOptions {
+  readonly onRemoteProjectDeleted?: (input: { projectId: string; receipt: ProjectDeletionReceipt }) => Promise<void>;
+  /**
+   * A cycle retired this binding (a remote `sync-generation.purge` applied by
+   * the reducer). The registered runtimes for it are now inert; the host
+   * reloads so they leave the coordinator and its diagnostics.
+   */
+  readonly onBindingRetired?: () => void;
+  readonly db: DbClient;
+  readonly syncGenerationId: string;
+  readonly projectId?: string;
+  readonly provider: ObjectLogProvider;
+  readonly providerBinding: ProviderBinding;
+  readonly objectCodec: SyncEngineObjectCodec;
+  readonly blobPort?: SyncEngineBlobPort;
+  readonly writerIdentity: SyncWriterIdentitySource;
+  readonly domainKernel: SyncDomainMaterializationKernel;
+  readonly clock?: SyncEngineRuntimeClock;
+  readonly flushLocalDurability?: () => Promise<void>;
+  /** Tests shrink the per-cycle seal budget; production keeps the default. */
+  readonly sealMaxChangeSetsPerCycle?: number;
+  readonly checkpoint?: SyncEngineCheckpointHook;
+  /**
+   * On a pruning provider, delete local journal rows a published snapshot
+   * covers once this replica has applied them (default on).
+   */
+  readonly truncateJournal?: boolean;
+  /**
+   * Renderer-only post-commit bridge for already-open Yjs sessions. Omitting
+   * docIds reconciles every open document in the project, which makes a prior
+   * callback failure/crash replayable on the next cycle even though the remote
+   * apply receipt and frontier are already durable.
+   */
+  readonly reconcileOpenYjsDocuments?: (input: {
+    readonly projectId: string;
+    readonly docIds?: readonly string[];
+  }) => Promise<void>;
+  /** Fired after the reducer commit and any exact live-Yjs reconciliation. */
+  readonly onRemoteChangeCommitted?: (input: {
+    readonly projectId: string;
+    readonly changeSetId: string;
+    readonly projectionImpact: RemoteProjectChangeProjectionImpact;
+    readonly proseDocIds?: readonly string[];
+  }) => void;
+  /** One complete derived-reference check when a sync runtime first applies. */
+  readonly onReferenceCoverageInvalidated?: (input: { readonly projectId: string }) => void;
+  readonly onStatus?: (runtime: SqliteSyncGenerationRuntime) => void;
+}
+
+interface SyncGenerationIdentity {
+  readonly projectId: string;
+  readonly projectSyncId: string;
+  readonly syncGenerationId: string;
+}
+
+interface DurableDownload {
+  readonly remoteId: string;
+  readonly localObjectId: string;
+  readonly destinationRef: LocalObjectRef;
+  readonly transferId: string;
+  readonly downloadRequired: boolean;
+  readonly quarantineCollision: boolean;
+}
+
+interface StagedRemoteObject {
+  readonly disposition: 'inbox' | 'quarantined';
+  readonly transferred: boolean;
+}
+
+interface DownloadedSegmentRow {
+  readonly remoteId: string;
+  readonly providerObjectId: string;
+  readonly logicalKeyId: string;
+  readonly storedSha256: string;
+  readonly sizeBytes: number;
+  readonly localObjectId: string;
+  readonly storageRef: string;
+}
+
+interface PublishableLocalObject {
+  readonly localObjectId: string;
+  readonly objectKind: SyncObjectKind;
+  readonly logicalKeyId: string;
+  readonly storageRef: string;
+  readonly storedSha256: string;
+  readonly sizeBytes: number;
+}
+
+interface MutableTransferProgress {
+  stage: SyncGenerationTransferStage;
+  completedObjects: number;
+  totalObjects: number;
+  completedBytes: number;
+  totalBytes: number;
+  totalKnown: boolean;
+}
+
+const systemClock: SyncEngineRuntimeClock = {
+  nowMs: () => Date.now(),
+  nowIso: () => new Date().toISOString(),
+};
+
+function sha256Hex(value: Sha256): string {
+  const match = /^sha256:([0-9a-f]{64})$/u.exec(value);
+  if (!match) throw new TypeError('SHA-256 must use sha256:<lowercase hex>');
+  return match[1];
+}
+
+function protocolSha256(value: string): Sha256 {
+  if (!/^[0-9a-f]{64}$/u.test(value)) throw new Error('stored SHA-256 is malformed');
+  return `sha256:${value}` as Sha256;
+}
+
+function opaqueId(parts: readonly (string | number)[]): string {
+  return JSON.stringify(parts);
+}
+
+/** Canonical SQLite identity for one provider object inside a SyncGeneration. */
+export function syncRemoteObjectId(syncGenerationId: string, providerObjectId: string): string {
+  return opaqueId(['remote', syncGenerationId, providerObjectId]);
+}
+
+function localObjectId(syncGenerationId: string, logicalKeyId: string): string {
+  return opaqueId(['local-object', syncGenerationId, logicalKeyId]);
+}
+
+function observedProviderCursor(cursor: string): string {
+  return opaqueId(['provider-cursor', cursor]);
+}
+
+function segmentId(input: {
+  syncGenerationId: string;
+  writerId: string;
+  writerEpoch: string;
+  firstSeq: number;
+  lastSeq: number;
+}): string {
+  return opaqueId([
+    'segment',
+    input.syncGenerationId,
+    input.writerId,
+    input.writerEpoch,
+    input.firstSeq,
+    input.lastSeq,
+  ]);
+}
+
+function canonicalSegmentLogicalKey(segment: SegmentV1): string {
+  const header = segment.header;
+  return [
+    'segment',
+    header.syncGenerationId,
+    header.writerId,
+    header.writerEpoch,
+    `${header.firstSeq}-${header.lastSeq}`,
+  ].join('/');
+}
+
+function assertNotAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error(`SyncEngine cycle cancelled: ${String(signal.reason ?? 'aborted')}`);
+}
+
+function validatedTransferredBytes(
+  progress: TransferProgress,
+  expectedTotalBytes: number,
+): number | null {
+  if (
+    !Number.isSafeInteger(progress.transferredBytes) ||
+    progress.transferredBytes < 0 ||
+    !Number.isSafeInteger(progress.totalBytes) ||
+    progress.totalBytes !== expectedTotalBytes ||
+    progress.transferredBytes > progress.totalBytes
+  ) {
+    return null;
+  }
+  return progress.transferredBytes;
+}
+
+const BACKLOG_OBJECT_KINDS = ['segment', 'genesis', 'checkpoint', 'snapshot-commit'] as const;
+
+function isRemoteObjectMissing(error: unknown): boolean {
+  return Boolean(
+    error && typeof error === 'object' && 'code' in error &&
+    (error as { code: unknown }).code === 'REMOTE_OBJECT_MISSING',
+  );
+}
+
+/**
+ * On a pruning provider, removing any non-blob object is announced log
+ * truncation: segment bytes already downloaded stay authoritative and
+ * snapshots are superseded. Blobs are never pruned, so losing one remains
+ * corruption, as does any removal on providers that never prune.
+ */
+export function isPrunedRemovalKind(provider: ObjectLogProvider, objectKind: string): boolean {
+  return typeof provider.pruneObjects === 'function' && objectKind !== 'blob';
+}
+
+function isInvalidProviderToken(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  const code = String((error as { code: unknown }).code)
+    .trim()
+    .replaceAll('-', '_')
+    .toUpperCase();
+  return code === 'INVALID_CURSOR' || code === 'INVALID_PAGE_TOKEN';
+}
+
+function emptyPageReceipt(): MutablePageReceipt {
+  return {
+    itemCount: 0,
+    durableInbox: 0,
+    dependencyPending: 0,
+    quarantinedWithRawBytes: 0,
+    removedRecorded: 0,
+  };
+}
+
+type MutablePageReceipt = {
+  -readonly [K in keyof DurablePageReceipt]: DurablePageReceipt[K];
+};
+
+function remoteObjectFromRow(row: DownloadedSegmentRow): RemoteObject {
+  return {
+    objectId: row.providerObjectId as ProviderObjectId,
+    objectKind: 'segment',
+    logicalKeyId: row.logicalKeyId,
+    storedSha256: protocolSha256(row.storedSha256),
+    sizeBytes: row.sizeBytes,
+  };
+}
+
+function decodeRequiredBlobIds(value: unknown): readonly string[] {
+  const decoded = decodeCanonicalCbor(value as Uint8Array);
+  if (
+    !decoded.ok ||
+    !Array.isArray(decoded.value) ||
+    decoded.value.some((entry) => typeof entry !== 'string')
+  ) {
+    throw new Error('persisted segment requiredBlobIds are malformed');
+  }
+  return decoded.value as string[];
+}
+
+function quarantineState(reason: string): 'blocked-update' | 'blocked-corrupt' {
+  return reason === 'unsupported-protocol-version' || reason === 'unsupported-payload-version'
+    ? 'blocked-update'
+    : 'blocked-corrupt';
+}
+
+export class SqliteSyncGenerationRuntime {
+  readonly syncGenerationId: string;
+  readonly projectId?: string;
+
+  private readonly db: DbClient;
+  private readonly provider: ObjectLogProvider;
+  private readonly providerBinding: ProviderBinding;
+  private readonly objectCodec: SyncEngineObjectCodec;
+  private readonly blobPort: SyncEngineBlobPort | null;
+  private readonly writerIdentity: SyncWriterIdentitySource;
+  private readonly domainKernel: SyncDomainMaterializationKernel;
+  private readonly clock: SyncEngineRuntimeClock;
+  private readonly flushLocalDurability: () => Promise<void>;
+  private readonly sealMaxChangeSetsPerCycle: number;
+  /** The last seal stopped at its budget with more local history waiting. */
+  private sealBacklogRemains = false;
+  private readonly checkpoint?: SyncEngineCheckpointHook;
+  private readonly reconcileOpenYjsDocuments?: SqliteSyncGenerationRuntimeOptions['reconcileOpenYjsDocuments'];
+  private readonly onRemoteChangeCommitted?: SqliteSyncGenerationRuntimeOptions['onRemoteChangeCommitted'];
+  private pendingProjectNotification: Parameters<NonNullable<SqliteSyncGenerationRuntimeOptions['onRemoteChangeCommitted']>>[0] | null = null;
+  private referenceCoverageNotified = false;
+  /** Snapshot set and applied frontier of the last catch-up check that found nothing. */
+  private settledCatchUpKey: string | null = null;
+  private readonly truncateJournal: boolean;
+  /** Snapshot set and frontier of the last finished journal truncation check. */
+  private settledJournalTruncationKey: string | null = null;
+  private lastJournalTruncation: JournalTruncationOutcome | null = null;
+  private readonly onReferenceCoverageInvalidated?: SqliteSyncGenerationRuntimeOptions['onReferenceCoverageInvalidated'];
+  private readonly onStatus?: (runtime: SqliteSyncGenerationRuntime) => void;
+  private readonly statusListeners = new Set<(runtime: SqliteSyncGenerationRuntime) => void>();
+  private readonly stateRepository: SqliteSyncEngineStateRepository;
+  private providerGenerationPromise: Promise<ProviderGeneration> | null = null;
+  private readonly onRemoteProjectDeleted: SqliteSyncGenerationRuntimeOptions['onRemoteProjectDeleted'];
+  private readonly onBindingRetired: SqliteSyncGenerationRuntimeOptions['onBindingRetired'];
+  private activeTriggers: ReadonlySet<SchedulerTrigger> = new Set();
+  private currentTransferProgress: SyncGenerationTransferProgress | null = null;
+  private readonly lane: SyncGenerationCycleLane;
+
+  constructor(options: SqliteSyncGenerationRuntimeOptions) {
+    if (options.providerBinding.syncGenerationId !== options.syncGenerationId) {
+      throw new Error('provider binding SyncGeneration does not match runtime SyncGeneration');
+    }
+    this.db = options.db;
+    this.onRemoteProjectDeleted = options.onRemoteProjectDeleted;
+    this.onBindingRetired = options.onBindingRetired;
+    this.syncGenerationId = options.syncGenerationId;
+    this.projectId = options.projectId;
+    this.provider = options.provider;
+    this.providerBinding = options.providerBinding;
+    this.objectCodec = options.objectCodec;
+    this.blobPort = options.blobPort ?? null;
+    this.writerIdentity = options.writerIdentity;
+    this.domainKernel = options.domainKernel;
+    this.clock = options.clock ?? systemClock;
+    this.flushLocalDurability = options.flushLocalDurability ?? (async () => {});
+    this.sealMaxChangeSetsPerCycle =
+      options.sealMaxChangeSetsPerCycle ?? SEAL_MAX_CHANGE_SETS_PER_CYCLE;
+    this.checkpoint = options.checkpoint;
+    this.truncateJournal = options.truncateJournal ?? true;
+    this.reconcileOpenYjsDocuments = options.reconcileOpenYjsDocuments;
+    this.onRemoteChangeCommitted = options.onRemoteChangeCommitted;
+    this.onReferenceCoverageInvalidated = options.onReferenceCoverageInvalidated;
+    this.onStatus = options.onStatus;
+    this.stateRepository = new SqliteSyncEngineStateRepository(this.db);
+    this.lane = new SyncGenerationCycleLane({
+      syncGenerationId: this.syncGenerationId,
+      clock: this.clock,
+      durable: {
+        prepare: (signal) => this.prepare(signal),
+        ingest: (signal) => this.ingest(signal),
+        apply: (signal) => this.apply(signal),
+        // A snapshot embeds every unsealed local change set; while a backlog
+        // is still being sealed it would carry that whole backlog. Wait until
+        // the backlog is in segments.
+        checkpoint: (signal) => this.sealBacklogRemains
+          ? Promise.resolve(false)
+          : this.checkpoint?.captureIfDue({ syncGenerationId: this.syncGenerationId, signal }) ?? Promise.resolve(false),
+        inspectPending: async (signal) => {
+          assertNotAborted(signal);
+          const pending = await this.inspectPending();
+          return {
+            hasPending:
+              pending.pendingChangeSets > 0 ||
+              pending.pendingSegments > 0 ||
+              pending.pendingTransfers > 0,
+            hasGap: pending.openGaps > 0,
+            hasConflict: pending.openConflicts > 0,
+            hasQuarantine: pending.quarantinedObjects > 0,
+          };
+        },
+      },
+      provider: {
+        pull: (signal) => this.pull(signal),
+        publishBlobs: (signal) => this.publishBlobs(signal),
+        publishSegments: (signal) => this.publishSegments(signal),
+      },
+      onPhaseChange: () => {
+        this.currentTransferProgress = null;
+        this.emitStatus();
+      },
+    });
+  }
+
+  get status() {
+    return this.lane.status;
+  }
+
+  get transferProgress(): SyncGenerationTransferProgress | null {
+    return this.currentTransferProgress;
+  }
+
+  subscribeStatus(listener: (runtime: SqliteSyncGenerationRuntime) => void): () => void {
+    this.statusListeners.add(listener);
+    listener(this);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  async runCycle(
+    triggers: ReadonlySet<SchedulerTrigger>,
+    signal: AbortSignal,
+  ): Promise<SyncGenerationCycleResult> {
+    if (!(await this.bindingAllowsCycle())) {
+      return Object.freeze({
+        pulledObjects: 0,
+        publishedBlobs: 0,
+        publishedSegments: 0,
+        checkpointCreated: false,
+        converged: false,
+        requiresRepull: false,
+      });
+    }
+    this.activeTriggers = new Set(triggers);
+    try {
+      const result = await this.lane.run(signal);
+      await this.persistSuccessfulCycleStatus(result);
+      this.emitStatus();
+      if (!(await this.bindingAllowsCycle())) this.onBindingRetired?.();
+      return result;
+    } catch (error) {
+      if (this.provider.kind === 'hosted' && error && typeof error === 'object' &&
+          'code' in error && error.code === 'GENERATION_DELETED' &&
+          'syncGenerationId' in error && error.syncGenerationId === this.syncGenerationId) {
+        const deleted = await applyHostedGenerationDeletion(this.db, this.syncGenerationId);
+        if (deleted) {
+          await this.onRemoteProjectDeleted?.(deleted);
+          this.onRemoteChangeCommitted?.({ projectId: deleted.projectId,
+            changeSetId: `hosted-deletion:${this.syncGenerationId}`, projectionImpact: 'workspace' });
+        }
+        return { pulledObjects: 0, publishedBlobs: 0, publishedSegments: 0,
+          checkpointCreated: false, converged: true, requiresRepull: false };
+      }
+      await this.persistFailureBindingState(error);
+      throw error;
+    } finally {
+      this.activeTriggers = new Set();
+      this.emitStatus();
+    }
+  }
+
+  private async bindingAllowsCycle(): Promise<boolean> {
+    const rows = await this.db
+      .select({
+        state: SyncProviderBindingTable.state,
+        generationStatus: SyncGenerationTable.status,
+      })
+      .from(SyncProviderBindingTable)
+      .innerJoin(SyncGenerationTable, eq(SyncGenerationTable.syncGenerationId, SyncProviderBindingTable.syncGenerationId))
+      .where(eq(SyncProviderBindingTable.syncGenerationId, this.syncGenerationId))
+      .limit(1);
+    return rows[0]?.state === 'ready' && rows[0]?.generationStatus === 'active';
+  }
+
+  private async persistFailureBindingState(error: unknown): Promise<void> {
+    if (!error || typeof error !== 'object') return;
+    const code = 'code' in error ? String((error as { code: unknown }).code) : '';
+    const state = code === 'needs-reauth' || code === 'permission-denied'
+      ? 'needs-reauth'
+      : [
+          'REMOTE_STORE_CORRUPT',
+          'HASH_MISMATCH',
+          'IMMUTABLE_OBJECT_CONFLICT',
+          'remote-corrupt',
+          'local-object-invalid',
+          'immutable-conflict',
+        ].includes(code)
+        ? 'blocked-corrupt'
+        : null;
+    if (!state) return;
+    await this.db
+      .update(SyncProviderBindingTable)
+      .set({ state, updatedAt: this.clock.nowIso() })
+      .where(eq(SyncProviderBindingTable.syncGenerationId, this.syncGenerationId));
+  }
+
+  private emitStatus(): void {
+    this.onStatus?.(this);
+    for (const listener of this.statusListeners) listener(this);
+  }
+
+  private startTransferProgress(
+    stage: SyncGenerationTransferStage,
+    totalKnown: boolean,
+  ): MutableTransferProgress {
+    const progress: MutableTransferProgress = {
+      stage,
+      completedObjects: 0,
+      totalObjects: 0,
+      completedBytes: 0,
+      totalBytes: 0,
+      totalKnown,
+    };
+    this.publishTransferProgress(progress);
+    return progress;
+  }
+
+  private addTransferProgressObjects(
+    progress: MutableTransferProgress,
+    objects: readonly { sizeBytes: number }[],
+  ): void {
+    progress.totalObjects += objects.length;
+    progress.totalBytes += objects.reduce((sum, object) => sum + object.sizeBytes, 0);
+    this.publishTransferProgress(progress);
+  }
+
+  private publishTransferProgress(
+    progress: MutableTransferProgress,
+    currentObjectBytes = 0,
+  ): void {
+    this.currentTransferProgress = Object.freeze({
+      stage: progress.stage,
+      completedObjects: progress.completedObjects,
+      totalObjects: progress.totalObjects,
+      transferredBytes: Math.min(
+        progress.totalBytes,
+        progress.completedBytes + Math.max(0, currentObjectBytes),
+      ),
+      totalBytes: progress.totalBytes,
+      totalKnown: progress.totalKnown,
+    });
+    this.emitStatus();
+  }
+
+  private completeTransferProgressObject(
+    progress: MutableTransferProgress,
+    sizeBytes: number,
+    transferred = true,
+  ): void {
+    progress.completedObjects += 1;
+    if (transferred) progress.completedBytes += sizeBytes;
+    else progress.totalBytes -= sizeBytes;
+    this.publishTransferProgress(progress);
+  }
+
+  private async persistSuccessfulCycleStatus(result: SyncGenerationCycleResult): Promise<void> {
+    const status = this.lane.status;
+    const lastPullSuccessAt = status.lastPullSuccessAtMs === null
+      ? null
+      : new Date(status.lastPullSuccessAtMs).toISOString();
+    const lastPublishSuccessAt = status.lastPublishSuccessAtMs === null
+      ? null
+      : new Date(status.lastPublishSuccessAtMs).toISOString();
+    const lastConvergedAt = result.converged && status.lastConvergedAtMs !== null
+      ? new Date(status.lastConvergedAtMs).toISOString()
+      : null;
+    await this.db
+      .update(SyncProviderBindingTable)
+      .set({
+        lastPullSuccessAt,
+        lastPublishSuccessAt,
+        ...(lastConvergedAt ? { lastConvergedAt } : {}),
+        updatedAt: this.clock.nowIso(),
+      })
+      .where(eq(SyncProviderBindingTable.syncGenerationId, this.syncGenerationId));
+  }
+
+  async inspectPending(): Promise<SyncGenerationPendingDiagnostics> {
+    const [
+      localChanges,
+      segments,
+      transferCount,
+      gapCount,
+      conflictCount,
+      quarantineCount,
+      removedRemoteCount,
+    ] = await Promise.all([
+        this.db
+          .select({
+            writerId: SyncChangeSetTable.writerId,
+            writerEpoch: SyncChangeSetTable.writerEpoch,
+            deviceSeq: SyncChangeSetTable.deviceSeq,
+          })
+          .from(SyncChangeSetTable)
+          .where(
+            and(
+              eq(SyncChangeSetTable.syncGenerationId, this.syncGenerationId),
+              eq(SyncChangeSetTable.origin, 'local'),
+            ),
+          ),
+        this.db
+          .select({
+            writerId: SyncSegmentTable.writerId,
+            writerEpoch: SyncSegmentTable.writerEpoch,
+            firstSeq: SyncSegmentTable.firstSeq,
+            lastSeq: SyncSegmentTable.lastSeq,
+            state: SyncSegmentTable.state,
+          })
+          .from(SyncSegmentTable)
+          .where(eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId)),
+        this.db
+          .select({ value: count() })
+          .from(SyncTransferTable)
+          .where(
+            and(
+              eq(SyncTransferTable.syncGenerationId, this.syncGenerationId),
+              inArray(SyncTransferTable.state, ['pending', 'running', 'retry-wait']),
+            ),
+          ),
+        this.db
+          .select({ value: count() })
+          .from(SyncFrontierGapTable)
+          .where(
+            and(
+              eq(SyncFrontierGapTable.syncGenerationId, this.syncGenerationId),
+              eq(SyncFrontierGapTable.state, 'open'),
+            ),
+          ),
+        this.db
+          .select({ value: count() })
+          .from(SyncConflictTable)
+          .where(
+            and(
+              eq(SyncConflictTable.syncGenerationId, this.syncGenerationId),
+              eq(SyncConflictTable.state, 'open'),
+            ),
+          ),
+        this.db
+          .select({ value: count() })
+          .from(SyncQuarantinedObjectTable)
+          .where(
+            and(
+              eq(SyncQuarantinedObjectTable.syncGenerationId, this.syncGenerationId),
+              inArray(SyncQuarantinedObjectTable.state, ['blocked-update', 'blocked-corrupt']),
+            ),
+          ),
+        this.db
+          .select({ value: count() })
+          .from(SyncRemoteObjectTable)
+          .where(
+            and(
+              eq(SyncRemoteObjectTable.syncGenerationId, this.syncGenerationId),
+              isNotNull(SyncRemoteObjectTable.removedAt),
+              // Pruned history is expected; only a lost blob is outstanding.
+              ...(typeof this.provider.pruneObjects === 'function'
+                ? [eq(SyncRemoteObjectTable.objectKind, 'blob')]
+                : []),
+            ),
+          ),
+      ]);
+    // A writer seals contiguously, so everything up to its newest segment is
+    // sealed even after pruned predecessors were dropped locally.
+    const sealedThrough = new Map<string, number>();
+    for (const segment of segments) {
+      const lane = `${segment.writerId}\u0000${segment.writerEpoch}`;
+      sealedThrough.set(lane, Math.max(sealedThrough.get(lane) ?? 0, segment.lastSeq));
+    }
+    const pendingChangeSets = localChanges.filter((changeSet) =>
+      changeSet.deviceSeq > (sealedThrough.get(`${changeSet.writerId}\u0000${changeSet.writerEpoch}`) ?? 0),
+    ).length;
+    const frontierByWriter = new Map<string, Awaited<ReturnType<SqliteSyncEngineStateRepository['loadWriterFrontier']>>>();
+    for (const segment of segments) {
+      const key = `${segment.writerId}\u0000${segment.writerEpoch}`;
+      if (!frontierByWriter.has(key)) {
+        frontierByWriter.set(key, await this.stateRepository.loadWriterFrontier({
+          syncGenerationId: this.syncGenerationId,
+          writerId: segment.writerId,
+          writerEpoch: segment.writerEpoch,
+        }));
+      }
+    }
+    const pendingSegments = segments.filter((segment) => {
+      if (segment.state === 'sealed' || segment.state === 'publishing') return true;
+      const frontier = frontierByWriter.get(`${segment.writerId}\u0000${segment.writerEpoch}`);
+      return !frontier || !isFrontierRangeComplete(frontier.applied, {
+        firstSeq: segment.firstSeq,
+        lastSeq: segment.lastSeq,
+      });
+    }).length;
+    return {
+      pendingChangeSets,
+      pendingSegments,
+      pendingTransfers: Number(transferCount[0]?.value ?? 0),
+      openGaps: Number(gapCount[0]?.value ?? 0),
+      openConflicts: Number(conflictCount[0]?.value ?? 0),
+      quarantinedObjects:
+        Number(quarantineCount[0]?.value ?? 0) +
+        Number(removedRemoteCount[0]?.value ?? 0),
+    };
+  }
+
+  private async identity(): Promise<SyncGenerationIdentity> {
+    const rows = await this.db
+      .select({
+        projectId: SyncGenerationTable.projectId,
+        projectSyncId: SyncGenerationTable.projectSyncId,
+        status: SyncGenerationTable.status,
+      })
+      .from(SyncGenerationTable)
+      .where(eq(SyncGenerationTable.syncGenerationId, this.syncGenerationId))
+      .limit(1);
+    const generation = rows[0];
+    if (!generation || generation.status !== 'active') {
+      throw new Error(`SyncEngine SyncGeneration ${this.syncGenerationId} is not an active project SyncGeneration`);
+    }
+    if (generation.projectId) {
+      return { projectId: generation.projectId, projectSyncId: generation.projectSyncId, syncGenerationId: this.syncGenerationId };
+    }
+    const detachedRows = await this.db
+      .select({ projectId: SyncChangeSetTable.projectId })
+      .from(SyncChangeSetTable)
+      .where(eq(SyncChangeSetTable.syncGenerationId, this.syncGenerationId));
+    const detachedProjectIds = new Set(detachedRows.map((row) => row.projectId));
+    if (detachedProjectIds.size !== 1) {
+      throw new Error(
+        `Detached SyncEngine SyncGeneration ${this.syncGenerationId} has no unambiguous terminal project identity`,
+      );
+    }
+    return {
+      projectId: [...detachedProjectIds][0]!,
+      projectSyncId: generation.projectSyncId,
+      syncGenerationId: this.syncGenerationId,
+    };
+  }
+
+  private providerGeneration(): Promise<ProviderGeneration> {
+    this.providerGenerationPromise ??= this.provider.openGeneration(this.providerBinding);
+    return this.providerGenerationPromise;
+  }
+
+  private async prepare(signal: AbortSignal): Promise<void> {
+    assertNotAborted(signal);
+    await this.flushLocalDurability();
+    assertNotAborted(signal);
+    await this.prepareLocalBlobs(signal);
+    assertNotAborted(signal);
+    await this.sealLocalChangeSets(signal);
+  }
+
+  private assetDeclarations(
+    changeSets: readonly import('../protocol').SyncChangeSetV1[],
+  ): readonly SyncAssetBlobDeclaration[] {
+    const declarations = new Map<string, SyncAssetBlobDeclaration>();
+    for (const changeSet of changeSets) {
+      for (const mutation of changeSet.mutations) {
+        if (mutation.action !== 'asset.bind') continue;
+        const parsed = parseProjectAssetMutationV1(mutation);
+        if (!parsed.ok || parsed.value.action !== 'asset.bind') {
+          throw new Error('asset.bind declaration does not match protocol v1');
+        }
+        const issues = validateProjectAssetBindSemantics(parsed.value.payload);
+        if (issues.length > 0) {
+          throw new Error(`asset.bind declaration is invalid: ${issues[0]?.message ?? 'unknown'}`);
+        }
+        const declaration: SyncAssetBlobDeclaration = {
+          assetId: mutation.target.id,
+          blobId: parsed.value.payload.blobId,
+          sourceSha256: parsed.value.payload.sourceSha256,
+          sourceSizeBytes: parsed.value.payload.sourceSizeBytes,
+          sourceMime: parsed.value.payload.sourceMime,
+        };
+        const key = `${declaration.blobId}\u0000${declaration.assetId}`;
+        const existing = declarations.get(key);
+        if (existing && JSON.stringify(existing) !== JSON.stringify(declaration)) {
+          throw new Error('one asset has conflicting immutable blob declarations');
+        }
+        declarations.set(key, declaration);
+      }
+    }
+    return [...declarations.values()].sort((left, right) =>
+      left.blobId === right.blobId
+        ? compareUtf8Bytewise(left.assetId, right.assetId)
+        : compareUtf8Bytewise(left.blobId, right.blobId),
+    );
+  }
+
+  private async prepareLocalBlobs(signal: AbortSignal): Promise<void> {
+    // Only change sets that bind an asset declare blobs; decoding the whole
+    // journal every cycle grows with history.
+    const rows = await this.db
+      .selectDistinct({ encodedBytes: SyncChangeSetTable.encodedBytes })
+      .from(SyncChangeSetTable)
+      .innerJoin(
+        SyncMutationTable,
+        eq(SyncMutationTable.changeSetId, SyncChangeSetTable.changeSetId),
+      )
+      .where(
+        and(
+          eq(SyncChangeSetTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncChangeSetTable.origin, 'local'),
+          eq(SyncMutationTable.action, 'asset.bind'),
+        ),
+      );
+    const changeSets: import('../protocol').SyncChangeSetV1[] = [];
+    for (const row of rows) {
+      const decoded = await decodeSyncChangeSetV1(row.encodedBytes as Uint8Array);
+      if (!decoded.ok) throw new Error(`local asset journal is invalid: ${decoded.reason}`);
+      changeSets.push(decoded.value);
+    }
+    const declarations = this.assetDeclarations(changeSets);
+    if (declarations.length === 0) return;
+    if (!this.blobPort) {
+      throw new Error('asset journal requires a configured SyncEngine blob port');
+    }
+    const identity = await this.identity();
+    const declarationsByBlob = new Map<string, SyncAssetBlobDeclaration[]>();
+    for (const declaration of declarations) {
+      const list = declarationsByBlob.get(declaration.blobId) ?? [];
+      list.push(declaration);
+      declarationsByBlob.set(declaration.blobId, list);
+    }
+    for (const [blobId, candidates] of declarationsByBlob) {
+      assertNotAborted(signal);
+      const existing = await this.db
+        .select()
+        .from(SyncBlobStateTable)
+        .where(
+          and(
+            eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncBlobStateTable.blobId, blobId),
+          ),
+        )
+        .limit(1);
+      if (existing[0]?.localState === 'verified') {
+        const declaration = candidates[0]!;
+        if (
+          existing[0].contentSha256 !== sha256Hex(declaration.sourceSha256) ||
+          existing[0].sizeBytes !== declaration.sourceSizeBytes
+        ) {
+          throw new Error('verified local blob conflicts with authored immutable metadata');
+        }
+        continue;
+      }
+      const declaration = candidates[0]!;
+      const prepared = await this.blobPort.prepareOutbound({
+        syncGenerationId: this.syncGenerationId,
+        projectId: identity.projectId,
+        declaration,
+      });
+      if (prepared.contentSha256 !== declaration.sourceSha256) {
+        throw new Error('prepared outbound blob changed immutable source identity');
+      }
+      const objectId = localObjectId(this.syncGenerationId, prepared.logicalKeyId);
+      const nowIso = this.clock.nowIso();
+      await this.db.transaction(async (tx) => {
+        await tx
+          .insert(SyncLocalObjectTable)
+          .values({
+            id: objectId,
+            syncGenerationId: this.syncGenerationId,
+            objectKind: 'blob',
+            logicalKeyId: prepared.logicalKeyId,
+            storageRef: prepared.sourceRef,
+            storedSha256: sha256Hex(prepared.storedSha256),
+            contentSha256: sha256Hex(prepared.contentSha256),
+            sizeBytes: prepared.sizeBytes,
+            codec: 'raw',
+            state: 'verified',
+            createdAt: nowIso,
+            verifiedAt: nowIso,
+          })
+          .onConflictDoUpdate({
+            target: SyncLocalObjectTable.id,
+            set: {
+              storageRef: prepared.sourceRef,
+              storedSha256: sha256Hex(prepared.storedSha256),
+              contentSha256: sha256Hex(prepared.contentSha256),
+              sizeBytes: prepared.sizeBytes,
+              state: 'verified',
+              verifiedAt: nowIso,
+            },
+          });
+        await tx
+          .insert(SyncBlobStateTable)
+          .values({
+            syncGenerationId: this.syncGenerationId,
+            blobId,
+            assetId: declaration.assetId,
+            logicalKeyId: prepared.logicalKeyId,
+            contentSha256: sha256Hex(declaration.sourceSha256),
+            sizeBytes: declaration.sourceSizeBytes,
+            mime: declaration.sourceMime,
+            localObjectId: objectId,
+            localState: 'verified',
+            remoteState: 'missing',
+            verifiedAt: nowIso,
+            updatedAt: nowIso,
+          })
+          .onConflictDoUpdate({
+            target: [SyncBlobStateTable.syncGenerationId, SyncBlobStateTable.blobId],
+            set: {
+              localObjectId: objectId,
+              localState: 'verified',
+              verifiedAt: nowIso,
+              updatedAt: nowIso,
+            },
+          });
+      });
+    }
+  }
+
+  private flushReason(): Extract<SegmentFlushReason, 'manual' | 'lifecycle'> | null {
+    if (this.activeTriggers.has('manual')) return 'manual';
+    if (this.activeTriggers.has('lifecycle-flush')) return 'lifecycle';
+    return null;
+  }
+
+  private async sealLocalChangeSets(signal: AbortSignal): Promise<void> {
+    const identity = await this.identity();
+    // Every lane this installation wrote, retired or not: an identity that was
+    // replaced and later restored must not strand its own unsealed history.
+    // A restored checkpoint has no outbound history until this installation
+    // owns a writer, and lanes of other installations stay theirs: a copied
+    // database must never reseal what the original may still publish.
+    const lanes = await this.db
+      .select({
+        writerId: SyncGenerationWriterStateTable.writerId,
+        writerEpoch: SyncGenerationWriterStateTable.writerEpoch,
+      })
+      .from(SyncGenerationWriterStateTable)
+      .where(
+        and(
+          eq(SyncGenerationWriterStateTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncGenerationWriterStateTable.installationId, this.writerIdentity.installationId),
+        ),
+      )
+      .orderBy(asc(SyncGenerationWriterStateTable.createdAt));
+    let budget = this.sealMaxChangeSetsPerCycle;
+    this.sealBacklogRemains = false;
+    for (const lane of lanes) {
+      if (budget <= 0) {
+        this.sealBacklogRemains = true;
+        break;
+      }
+      const sealed = await this.sealLane(identity, lane, budget, signal);
+      if (sealed === budget) this.sealBacklogRemains = true;
+      budget -= sealed;
+    }
+  }
+
+  /**
+   * Seal up to `budget` unsealed change sets of one lane and persist them, so a
+   * long backlog advances in bounded cycles instead of one that never ends.
+   */
+  private async sealLane(
+    identity: SyncGenerationIdentity,
+    lane: { writerId: string; writerEpoch: string },
+    budget: number,
+    signal: AbortSignal,
+  ): Promise<number> {
+    const { writerId, writerEpoch } = lane;
+    const [lastSegment] = await this.db
+      .select({
+        lastSeq: SyncSegmentTable.lastSeq,
+        segmentSha256: SyncSegmentTable.segmentSha256,
+      })
+      .from(SyncSegmentTable)
+      .where(
+        and(
+          eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncSegmentTable.writerId, writerId),
+          eq(SyncSegmentTable.writerEpoch, writerEpoch),
+        ),
+      )
+      .orderBy(desc(SyncSegmentTable.lastSeq))
+      .limit(1);
+    const nextDeviceSeq = (lastSegment?.lastSeq ?? 0) + 1;
+    const pendingRows = await this.db
+      .select({
+        deviceSeq: SyncChangeSetTable.deviceSeq,
+        encodedBytes: SyncChangeSetTable.encodedBytes,
+        createdAt: SyncChangeSetTable.createdAt,
+      })
+      .from(SyncChangeSetTable)
+      .where(
+        and(
+          eq(SyncChangeSetTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncChangeSetTable.origin, 'local'),
+          eq(SyncChangeSetTable.writerId, writerId),
+          eq(SyncChangeSetTable.writerEpoch, writerEpoch),
+          gte(SyncChangeSetTable.deviceSeq, nextDeviceSeq),
+        ),
+      )
+      .orderBy(asc(SyncChangeSetTable.deviceSeq))
+      .limit(budget);
+    if (pendingRows.length === 0) return 0;
+    assertNotAborted(signal);
+    if (pendingRows[0]?.deviceSeq !== nextDeviceSeq) {
+      throw new Error(
+        `local journal lane ${writerId}/${writerEpoch} has a segment gap before ${pendingRows[0]?.deviceSeq}`,
+      );
+    }
+    const segmenter = new ChangeSetSegmenter({
+      identity: { ...identity, writerId, writerEpoch },
+      nextDeviceSeq,
+      previousSegmentHash: lastSegment?.segmentSha256
+        ? protocolSha256(lastSegment.segmentSha256)
+        : null,
+    });
+    const sealed: SealedSegment[] = [];
+    for (const row of pendingRows) {
+      const decoded = await decodeSyncChangeSetV1(row.encodedBytes as Uint8Array);
+      if (!decoded.ok) {
+        throw new Error(`local journal change-set cannot be segmented: ${decoded.reason}`);
+      }
+      sealed.push(
+        ...(await segmenter.push({
+          changeSet: decoded.value,
+          enqueuedAtMs: Date.parse(row.createdAt),
+        })),
+      );
+    }
+    const reason = this.flushReason();
+    const tail = reason
+      ? await segmenter.flush(reason)
+      : await segmenter.sealExpired(this.clock.nowMs());
+    if (tail) sealed.push(tail);
+    for (const segment of sealed) {
+      assertNotAborted(signal);
+      await this.persistSealedSegment(segment);
+    }
+    return pendingRows.length;
+  }
+
+  private async persistSealedSegment(sealed: SealedSegment): Promise<void> {
+    const canonicalLogicalKey = canonicalSegmentLogicalKey(sealed.segment);
+    const prepared = await this.objectCodec.prepareOutbound({
+      syncGenerationId: this.syncGenerationId,
+      objectKind: 'segment',
+      canonicalLogicalKey,
+      protocolBytes: sealed.encodedBytes,
+    });
+    if (prepared.contentSha256 !== sealed.segmentSha256) {
+      throw new Error('outbound object codec changed the segment content hash');
+    }
+    const header = sealed.segment.header;
+    const id = segmentId(header);
+    const localId = localObjectId(this.syncGenerationId, prepared.logicalKeyId);
+    const nowIso = this.clock.nowIso();
+    const frontier = await this.stateRepository.loadWriterFrontier({
+      syncGenerationId: this.syncGenerationId,
+      writerId: header.writerId,
+      writerEpoch: header.writerEpoch,
+    });
+    const range = { firstSeq: header.firstSeq, lastSeq: header.lastSeq };
+    const received = observeFrontierRange(frontier, 'received', range);
+    const applied = setAppliedSegmentHead(
+      observeFrontierRange(received, 'applied', range),
+      { lastSeq: header.lastSeq, sha256: sealed.segmentSha256 },
+    );
+
+    await this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ segmentSha256: SyncSegmentTable.segmentSha256 })
+        .from(SyncSegmentTable)
+        .where(
+          and(
+            eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncSegmentTable.writerId, header.writerId),
+            eq(SyncSegmentTable.writerEpoch, header.writerEpoch),
+            eq(SyncSegmentTable.firstSeq, header.firstSeq),
+            eq(SyncSegmentTable.lastSeq, header.lastSeq),
+          ),
+        )
+        .limit(1);
+      if (existing[0] && existing[0].segmentSha256 !== sha256Hex(sealed.segmentSha256)) {
+        throw new Error('local segment range collides with different bytes');
+      }
+      if (!existing[0]) {
+        await tx.insert(SyncLocalObjectTable).values({
+          id: localId,
+          syncGenerationId: this.syncGenerationId,
+          objectKind: 'segment',
+          logicalKeyId: prepared.logicalKeyId,
+          storageRef: prepared.sourceRef,
+          storedSha256: sha256Hex(prepared.storedSha256),
+          contentSha256: sha256Hex(prepared.contentSha256),
+          sizeBytes: prepared.sizeBytes,
+          codec: prepared.codec,
+          state: 'verified',
+          createdAt: nowIso,
+          verifiedAt: nowIso,
+        });
+        await tx.insert(SyncSegmentTable).values({
+          segmentId: id,
+          syncGenerationId: this.syncGenerationId,
+          writerId: header.writerId,
+          writerEpoch: header.writerEpoch,
+          firstSeq: header.firstSeq,
+          lastSeq: header.lastSeq,
+          changeSetCount: header.opCount,
+          previousSegmentSha256: header.previousSegmentHash
+            ? sha256Hex(header.previousSegmentHash)
+            : null,
+          requiredBlobIdsCbor: encodeCanonicalCbor([...header.requiredBlobIds]),
+          localObjectId: localId,
+          segmentSha256: sha256Hex(sealed.segmentSha256),
+          state: 'sealed',
+          createdAt: nowIso,
+        });
+      }
+      await persistWriterFrontierInTransaction(tx, applied, nowIso);
+    });
+  }
+
+  private async pull(signal: AbortSignal): Promise<{ objectCount: number }> {
+    const generation = await this.providerGeneration();
+    const providerEpoch = syncProviderEpoch(this.provider.kind, this.providerBinding);
+    let invalidTokenRecoveries = 0;
+    let state = await this.stateRepository.loadCursor(this.syncGenerationId);
+    if (state && state.providerEpoch !== providerEpoch) {
+      throw new Error('provider authority changed without a new SyncGeneration generation');
+    }
+    state ??= createDurableCursorState(providerEpoch);
+    for (;;) {
+      let objectCount = 0;
+      const progress = this.startTransferProgress('download', false);
+
+      try {
+        if (!state.inventoryComplete) {
+          if (!state.inventory) {
+            assertNotAborted(signal);
+            const startCursor = await this.provider.captureStartCursor(generation);
+            state = beginInventory(state, startCursor);
+            await this.stateRepository.persistCursor(this.syncGenerationId, state, this.clock.nowIso());
+          }
+          for (let pageIndex = 0; pageIndex < MAX_PROVIDER_PAGES_PER_CYCLE; pageIndex += 1) {
+            assertNotAborted(signal);
+            const inventoryObservationCursor = state.inventory!.startCursor;
+            const requestedPageToken = currentInventoryPageToken(state);
+            const page = await this.provider.listInventory({
+              generation,
+              ...(requestedPageToken ? { pageToken: requestedPageToken } : {}),
+            });
+            const receipt = await this.stageRemoteItems(
+              generation,
+              page.objects.map((object) => ({ kind: 'present', object })),
+              signal,
+              observedProviderCursor(inventoryObservationCursor),
+              progress,
+            );
+            objectCount += page.objects.length;
+            state = commitDurableInventoryPage(state, {
+              ...(requestedPageToken ? { requestedPageToken } : {}),
+              ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}),
+              receipt,
+            });
+            const persisted = await this.stateRepository.persistInventoryCursor(
+              this.syncGenerationId,
+              state,
+              this.clock.nowIso(),
+              { prunesHistory: typeof this.provider.pruneObjects === 'function' },
+            );
+            if (persisted.missingObjectCount > 0) {
+              throw new Error(
+                `full provider inventory omitted ${persisted.missingObjectCount} previously observed immutable object(s); sync is blocked-corrupt`,
+              );
+            }
+            if (!page.nextPageToken) break;
+            if (pageIndex === MAX_PROVIDER_PAGES_PER_CYCLE - 1) {
+              throw new Error('provider inventory exceeded the per-cycle page safety limit');
+            }
+          }
+        }
+
+        for (let pageIndex = 0; pageIndex < MAX_PROVIDER_PAGES_PER_CYCLE; pageIndex += 1) {
+          assertNotAborted(signal);
+          const request = currentChangePageRequest(state);
+          const page = await this.provider.listChanges({ generation, ...request });
+          const receipt = await this.stageRemoteItems(
+            generation,
+            page.changes,
+            signal,
+            observedProviderCursor(request.cursor),
+            progress,
+          );
+          objectCount += page.changes.filter((change) => change.kind === 'present').length;
+          state = commitDurableChangePage(state, {
+            request,
+            ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}),
+            ...(page.newCursor ? { newCursor: page.newCursor } : {}),
+            receipt,
+          });
+          await this.stateRepository.persistCursor(this.syncGenerationId, state, this.clock.nowIso());
+          if (!page.nextPageToken) break;
+          if (pageIndex === MAX_PROVIDER_PAGES_PER_CYCLE - 1) {
+            throw new Error('provider changes exceeded the per-cycle page safety limit');
+          }
+        }
+        objectCount += await this.stageObservedSegmentBacklog(generation, signal, progress);
+        progress.totalKnown = true;
+        this.publishTransferProgress(progress);
+        return { objectCount };
+      } catch (error) {
+        if (
+          !isInvalidProviderToken(error) ||
+          invalidTokenRecoveries >= MAX_INVALID_TOKEN_RECOVERIES_PER_CYCLE
+        ) {
+          throw error;
+        }
+        assertNotAborted(signal);
+        await this.stateRepository.resetCursorForFullInventory(this.syncGenerationId);
+        state = resetCursorForFullInventory(state);
+        invalidTokenRecoveries += 1;
+      }
+    }
+  }
+
+  /**
+   * Restore activation can already own a complete provider cursor. Segments
+   * observed by that discovery still need a durable local inbox before they
+   * can be decoded and applied. Incremental removals are drained first, so a
+   * deletion between activation and this first cycle blocks before download.
+   */
+  private async stageObservedSegmentBacklog(
+    generation: ProviderGeneration,
+    signal: AbortSignal,
+    progress: MutableTransferProgress,
+  ): Promise<number> {
+    const rows = await this.db
+      .select({
+        objectId: SyncRemoteObjectTable.providerObjectId,
+        logicalKeyId: SyncRemoteObjectTable.logicalKeyId,
+        objectKind: SyncRemoteObjectTable.objectKind,
+        storedSha256: SyncRemoteObjectTable.storedSha256,
+        sizeBytes: SyncRemoteObjectTable.sizeBytes,
+        completedTransferId: SyncTransferTable.transferId,
+      })
+      .from(SyncRemoteObjectTable)
+      .leftJoin(
+        SyncTransferTable,
+        and(
+          eq(SyncTransferTable.remoteObjectId, SyncRemoteObjectTable.id),
+          eq(SyncTransferTable.direction, 'download'),
+          eq(SyncTransferTable.state, 'completed'),
+        ),
+      )
+      .where(
+        and(
+          eq(SyncRemoteObjectTable.syncGenerationId, this.syncGenerationId),
+          // On a pruning provider snapshot objects too: compaction reads every
+          // committed snapshot, and a restore records them without downloading.
+          inArray(
+            SyncRemoteObjectTable.objectKind,
+            typeof this.provider.pruneObjects === 'function' ? [...BACKLOG_OBJECT_KINDS] : ['segment'],
+          ),
+          isNull(SyncRemoteObjectTable.removedAt),
+          isNull(SyncTransferTable.transferId),
+        ),
+      );
+    this.addTransferProgressObjects(progress, rows);
+    let staged = 0;
+    for (const row of rows) {
+      assertNotAborted(signal);
+      if (row.completedTransferId !== null) continue;
+      let transferComplete = false;
+      let stagedObject: StagedRemoteObject;
+      try {
+        stagedObject = await this.stageRemoteObject(
+          generation,
+          {
+            objectId: row.objectId as ProviderObjectId,
+            objectKind: row.objectKind as SyncObjectKind,
+            logicalKeyId: row.logicalKeyId,
+            storedSha256: protocolSha256(row.storedSha256),
+            sizeBytes: row.sizeBytes,
+          },
+          signal,
+          undefined,
+          (currentBytes) => {
+            if (!transferComplete) this.publishTransferProgress(progress, currentBytes);
+          },
+        );
+      } catch (error) {
+        if (!isRemoteObjectMissing(error) || !isPrunedRemovalKind(this.provider, row.objectKind)) {
+          throw error;
+        }
+        this.completeTransferProgressObject(progress, row.sizeBytes, false);
+        continue;
+      }
+      transferComplete = true;
+      staged += 1;
+      this.completeTransferProgressObject(progress, row.sizeBytes, stagedObject.transferred);
+    }
+    return staged;
+  }
+
+  private async stageRemoteItems(
+    generation: ProviderGeneration,
+    changes: readonly RemoteObjectChange[],
+    signal: AbortSignal,
+    observedCursor?: string,
+    progress?: MutableTransferProgress,
+  ): Promise<DurablePageReceipt> {
+    const receipt = emptyPageReceipt();
+    receipt.itemCount = changes.length;
+    const presentObjects = changes.flatMap((change) =>
+      change.kind === 'present' ? [change.object] : [],
+    );
+    if (progress) this.addTransferProgressObjects(progress, presentObjects);
+    for (const change of changes) {
+      assertNotAborted(signal);
+      if (change.kind === 'removed') {
+        const removal = await this.recordRemoteRemoval(change.objectId);
+        receipt.removedRecorded += 1;
+        if (removal === 'corrupt') {
+          throw new Error(
+            'provider removed a previously observed immutable object; sync is blocked-corrupt',
+          );
+        }
+        continue;
+      }
+      let transferComplete = false;
+      let stagedObject: StagedRemoteObject;
+      try {
+        stagedObject = await this.stageRemoteObject(
+          generation,
+          change.object,
+          signal,
+          observedCursor,
+          progress
+            ? (currentBytes) => {
+                if (!transferComplete) this.publishTransferProgress(progress, currentBytes);
+              }
+            : undefined,
+        );
+      } catch (error) {
+        // Listed, then missing: possibly pruned in between, but a 404 alone
+        // proves nothing. The observation and its retry-wait transfer are
+        // durable; the backlog retries the download until the provider's
+        // removal change settles it.
+        if (
+          !isRemoteObjectMissing(error) ||
+          !isPrunedRemovalKind(this.provider, change.object.objectKind)
+        ) {
+          throw error;
+        }
+        receipt.durableInbox += 1;
+        continue;
+      }
+      transferComplete = true;
+      if (stagedObject.disposition === 'quarantined') receipt.quarantinedWithRawBytes += 1;
+      else receipt.durableInbox += 1;
+      if (progress) {
+        this.completeTransferProgressObject(
+          progress,
+          change.object.sizeBytes,
+          stagedObject.transferred,
+        );
+      }
+    }
+    return receipt;
+  }
+
+  private async recordRemoteRemoval(
+    objectId: ProviderObjectId,
+  ): Promise<'unknown' | 'pruned' | 'corrupt'> {
+    const nowIso = this.clock.nowIso();
+    return this.db.transaction(async (tx) => {
+      const [known] = await tx
+        .select({ id: SyncRemoteObjectTable.id, objectKind: SyncRemoteObjectTable.objectKind })
+        .from(SyncRemoteObjectTable)
+        .where(
+          and(
+            eq(SyncRemoteObjectTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncRemoteObjectTable.providerObjectId, objectId),
+          ),
+        )
+        .limit(1);
+      if (!known) return 'unknown';
+      await tx
+        .update(SyncRemoteObjectTable)
+        .set({ removedAt: nowIso, lastObservedAt: nowIso })
+        .where(eq(SyncRemoteObjectTable.id, known.id));
+      // Provider removal is transport, never a domain tombstone. A pruning
+      // provider truncates history it has proven covered by retained
+      // snapshots; everywhere else losing an observed object blocks
+      // convergence until an explicit repair proves the bytes are back.
+      if (isPrunedRemovalKind(this.provider, known.objectKind)) {
+        // A download that never completed can no longer complete.
+        await tx
+          .update(SyncTransferTable)
+          .set({ state: 'cancelled', updatedAt: nowIso, nextAttemptAt: null })
+          .where(
+            and(
+              eq(SyncTransferTable.remoteObjectId, known.id),
+              inArray(SyncTransferTable.state, ['pending', 'running', 'retry-wait']),
+            ),
+          );
+        return 'pruned';
+      }
+      await tx
+        .update(SyncProviderBindingTable)
+        .set({ state: 'blocked-corrupt', updatedAt: nowIso })
+        .where(eq(SyncProviderBindingTable.syncGenerationId, this.syncGenerationId));
+      return 'corrupt';
+    });
+  }
+
+  private async stageRemoteObject(
+    generation: ProviderGeneration,
+    remote: RemoteObject,
+    signal: AbortSignal,
+    observedCursor?: string,
+    onProgress?: (transferredBytes: number) => void,
+  ): Promise<StagedRemoteObject> {
+    const prepared = await this.prepareDownload(remote, observedCursor);
+    if (!prepared.downloadRequired) {
+      return {
+        disposition: prepared.quarantineCollision ? 'quarantined' : 'inbox',
+        transferred: false,
+      };
+    }
+    try {
+      const result = await this.provider.downloadImmutable({
+        generation,
+        objectId: remote.objectId,
+        destinationRef: prepared.destinationRef,
+        expectedStoredSha256: remote.storedSha256,
+        transferId: prepared.transferId,
+        signal,
+        onProgress: (event) => {
+          const transferredBytes = validatedTransferredBytes(event, remote.sizeBytes);
+          if (transferredBytes !== null) onProgress?.(transferredBytes);
+        },
+      });
+      if (
+        result.destinationRef !== prepared.destinationRef ||
+        result.storedSha256 !== remote.storedSha256 ||
+        result.sizeBytes !== remote.sizeBytes
+      ) {
+        throw new Error('provider returned inconsistent immutable download metadata');
+      }
+      const nowIso = this.clock.nowIso();
+      await this.db.transaction(async (tx) => {
+        await tx
+          .update(SyncLocalObjectTable)
+          .set({
+            state: prepared.quarantineCollision ? 'quarantined' : 'staged',
+            verifiedAt: null,
+          })
+          .where(eq(SyncLocalObjectTable.id, prepared.localObjectId));
+        await tx
+          .update(SyncTransferTable)
+          .set({
+            state: 'completed',
+            transferredBytes: remote.sizeBytes,
+            updatedAt: nowIso,
+            completedAt: nowIso,
+            lastErrorCode: null,
+            nextAttemptAt: null,
+          })
+          .where(eq(SyncTransferTable.transferId, prepared.transferId));
+        if (prepared.quarantineCollision) {
+          await this.insertQuarantine(tx, {
+            remoteId: prepared.remoteId,
+            localObjectId: prepared.localObjectId,
+            reason: 'logical-key-object-collision',
+            storedSha256: remote.storedSha256,
+            sizeBytes: remote.sizeBytes,
+            state: 'blocked-corrupt',
+          });
+        }
+      });
+      return {
+        disposition: prepared.quarantineCollision ? 'quarantined' : 'inbox',
+        transferred: true,
+      };
+    } catch (error) {
+      const nowIso = this.clock.nowIso();
+      await this.db
+        .update(SyncTransferTable)
+        .set({
+          state: 'retry-wait',
+          updatedAt: nowIso,
+          lastErrorCode:
+            typeof error === 'object' && error && 'code' in error
+              ? String((error as { code: unknown }).code)
+              : 'DOWNLOAD_FAILED',
+          nextAttemptAt: nowIso,
+        })
+        .where(eq(SyncTransferTable.transferId, prepared.transferId));
+      throw error;
+    }
+  }
+
+  private async prepareDownload(
+    remote: RemoteObject,
+    observedCursor?: string,
+  ): Promise<DurableDownload> {
+    const transferId = await createProviderTransferId({
+      direction: 'download',
+      syncGenerationId: this.syncGenerationId,
+      objectIdentity: remote.objectId,
+    });
+    const remoteId = syncRemoteObjectId(this.syncGenerationId, remote.objectId);
+    const existingRemote = await this.db
+      .select()
+      .from(SyncRemoteObjectTable)
+      .where(
+        and(
+          eq(SyncRemoteObjectTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncRemoteObjectTable.providerObjectId, remote.objectId),
+        ),
+      )
+      .limit(1);
+    if (
+      existingRemote[0] &&
+      (existingRemote[0].logicalKeyId !== remote.logicalKeyId ||
+        existingRemote[0].objectKind !== remote.objectKind ||
+        existingRemote[0].storedSha256 !== sha256Hex(remote.storedSha256) ||
+        existingRemote[0].sizeBytes !== remote.sizeBytes)
+    ) {
+      throw new Error(`provider object ${remote.objectId} changed immutable metadata`);
+    }
+
+    const logicalRows = await this.db
+      .select()
+      .from(SyncLocalObjectTable)
+      .where(
+        and(
+          eq(SyncLocalObjectTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncLocalObjectTable.logicalKeyId, remote.logicalKeyId),
+        ),
+      )
+      .limit(1);
+    const logical = logicalRows[0];
+    const identityMatches =
+      logical &&
+      logical.objectKind === remote.objectKind &&
+      logical.storedSha256 === sha256Hex(remote.storedSha256) &&
+      logical.sizeBytes === remote.sizeBytes;
+    const nowIso = this.clock.nowIso();
+    if (identityMatches && logical && ['verified', 'published'].includes(logical.state)) {
+      const storedRemoteId = await this.upsertRemoteObject(remote, remoteId, nowIso, this.db, observedCursor);
+      return {
+        remoteId: storedRemoteId,
+        localObjectId: logical.id,
+        destinationRef: createLocalObjectRef(logical.storageRef),
+        transferId,
+        downloadRequired: false,
+        quarantineCollision: false,
+      };
+    }
+
+    const quarantineCollision = Boolean(logical && !identityMatches);
+    const durableLogicalKey = quarantineCollision
+      ? opaqueId(['quarantine', remote.objectId, remote.storedSha256])
+      : remote.logicalKeyId;
+    const durableLocalId = localObjectId(this.syncGenerationId, durableLogicalKey);
+    const priorTransfer = await this.db
+      .select({
+        state: SyncTransferTable.state,
+        localObjectId: SyncTransferTable.localObjectId,
+        storageRef: SyncLocalObjectTable.storageRef,
+      })
+      .from(SyncTransferTable)
+      .leftJoin(
+        SyncLocalObjectTable,
+        eq(SyncLocalObjectTable.id, SyncTransferTable.localObjectId),
+      )
+      .where(eq(SyncTransferTable.transferId, transferId))
+      .limit(1);
+    const destinationRef = priorTransfer[0]?.storageRef
+      ? createLocalObjectRef(priorTransfer[0].storageRef)
+      : await this.objectCodec.allocateInbound({ syncGenerationId: this.syncGenerationId, remoteObject: remote });
+
+    let storedRemoteId = remoteId;
+    await this.db.transaction(async (tx) => {
+      storedRemoteId = await this.upsertRemoteObject(remote, remoteId, nowIso, tx, observedCursor);
+      await tx
+        .insert(SyncLocalObjectTable)
+        .values({
+          id: durableLocalId,
+          syncGenerationId: this.syncGenerationId,
+          objectKind: quarantineCollision ? 'quarantine' : remote.objectKind,
+          logicalKeyId: durableLogicalKey,
+          storageRef: destinationRef,
+          storedSha256: sha256Hex(remote.storedSha256),
+          contentSha256: null,
+          sizeBytes: remote.sizeBytes,
+          codec: 'opaque',
+          state: 'staged',
+          createdAt: nowIso,
+        })
+        .onConflictDoUpdate({
+          target: SyncLocalObjectTable.id,
+          set: { storageRef: destinationRef, state: 'staged' },
+        });
+      await tx
+        .insert(SyncTransferTable)
+        .values({
+          transferId,
+          syncGenerationId: this.syncGenerationId,
+          direction: 'download',
+          objectKind: remote.objectKind,
+          logicalKeyId: remote.logicalKeyId,
+          localObjectId: durableLocalId,
+          remoteObjectId: storedRemoteId,
+          expectedStoredSha256: sha256Hex(remote.storedSha256),
+          totalBytes: remote.sizeBytes,
+          transferredBytes: 0,
+          state: 'running',
+          attemptCount: 1,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        })
+        .onConflictDoUpdate({
+          target: SyncTransferTable.transferId,
+          set: {
+            state: 'running',
+            attemptCount: sql`${SyncTransferTable.attemptCount} + 1`,
+            updatedAt: nowIso,
+            lastErrorCode: null,
+            nextAttemptAt: null,
+          },
+        });
+    });
+    return {
+      remoteId: storedRemoteId,
+      localObjectId: durableLocalId,
+      destinationRef,
+      transferId,
+      downloadRequired: true,
+      quarantineCollision,
+    };
+  }
+
+  /**
+   * Record a provider object and return the id of its stored row. The checkpoint
+   * publisher may have recorded the same object first under its own id, and
+   * every later reference must name the row that exists.
+   */
+  private async upsertRemoteObject(
+    remote: RemoteObject,
+    id: string,
+    nowIso: string,
+    executor: DbClient | DbTransaction = this.db,
+    observedCursor?: string,
+  ): Promise<string> {
+    const [stored] = await executor
+      .insert(SyncRemoteObjectTable)
+      .values({
+        id,
+        syncGenerationId: this.syncGenerationId,
+        providerObjectId: remote.objectId,
+        logicalKeyId: remote.logicalKeyId,
+        objectKind: remote.objectKind,
+        storedSha256: sha256Hex(remote.storedSha256),
+        sizeBytes: remote.sizeBytes,
+        observedCursor: observedCursor ?? null,
+        firstObservedAt: nowIso,
+        lastObservedAt: nowIso,
+      })
+      .onConflictDoUpdate({
+        target: [SyncRemoteObjectTable.syncGenerationId, SyncRemoteObjectTable.providerObjectId],
+        set: {
+          lastObservedAt: nowIso,
+          removedAt: null,
+          ...(observedCursor ? { observedCursor } : {}),
+        },
+      })
+      .returning({ id: SyncRemoteObjectTable.id });
+    return stored?.id ?? id;
+  }
+
+  private async ingest(signal: AbortSignal): Promise<void> {
+    const rows = await this.db
+      .select({
+        remoteId: SyncRemoteObjectTable.id,
+        providerObjectId: SyncRemoteObjectTable.providerObjectId,
+        logicalKeyId: SyncRemoteObjectTable.logicalKeyId,
+        storedSha256: SyncRemoteObjectTable.storedSha256,
+        sizeBytes: SyncRemoteObjectTable.sizeBytes,
+        localObjectId: SyncLocalObjectTable.id,
+        storageRef: SyncLocalObjectTable.storageRef,
+      })
+      .from(SyncTransferTable)
+      .innerJoin(
+        SyncRemoteObjectTable,
+        eq(SyncRemoteObjectTable.id, SyncTransferTable.remoteObjectId),
+      )
+      .innerJoin(
+        SyncLocalObjectTable,
+        eq(SyncLocalObjectTable.id, SyncTransferTable.localObjectId),
+      )
+      .where(
+        and(
+          eq(SyncTransferTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncTransferTable.direction, 'download'),
+          eq(SyncTransferTable.state, 'completed'),
+          eq(SyncRemoteObjectTable.objectKind, 'segment'),
+          // A completed download stays authoritative after the provider
+          // prunes the object; removal only ever blocks via binding state.
+          inArray(SyncLocalObjectTable.state, ['staged', 'verified']),
+        ),
+      );
+    for (const row of rows) {
+      assertNotAborted(signal);
+      const existing = await this.db
+        .select({ id: SyncSegmentTable.segmentId })
+        .from(SyncSegmentTable)
+        .where(eq(SyncSegmentTable.localObjectId, row.localObjectId))
+        .limit(1);
+      if (existing.length > 0) continue;
+      await this.ingestSegment(row, signal);
+    }
+    if (this.blobPort) {
+      const declarations: SyncAssetBlobDeclaration[] = [];
+      for (const row of rows) {
+        assertNotAborted(signal);
+        const decoded = await this.decodeDownloadedSegment(row);
+        if (decoded) declarations.push(...this.assetDeclarations(decoded.segment.changeSets));
+      }
+      const declared = new Set(declarations.map((declaration) => `${declaration.blobId}\u0000${declaration.assetId}`));
+      for (const pending of await this.pendingAssetDeclarations()) {
+        if (!declared.has(`${pending.blobId}\u0000${pending.assetId}`)) declarations.push(pending);
+      }
+      await this.ingestDownloadedBlobs(
+        await this.identity(),
+        this.dedupeAssetDeclarations(declarations),
+        signal,
+      );
+    }
+  }
+
+  private dedupeAssetDeclarations(
+    declarations: readonly SyncAssetBlobDeclaration[],
+  ): readonly SyncAssetBlobDeclaration[] {
+    const byAsset = new Map<string, SyncAssetBlobDeclaration>();
+    for (const declaration of declarations) {
+      const key = `${declaration.blobId}\u0000${declaration.assetId}`;
+      const existing = byAsset.get(key);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(declaration)) {
+        throw new Error('remote segments contain conflicting immutable asset declarations');
+      }
+      byAsset.set(key, declaration);
+    }
+    return [...byAsset.values()].sort((left, right) =>
+      left.blobId === right.blobId
+        ? compareUtf8Bytewise(left.assetId, right.assetId)
+        : compareUtf8Bytewise(left.blobId, right.blobId),
+    );
+  }
+
+  private async ingestDownloadedBlobs(
+    identity: SyncGenerationIdentity,
+    declarations: readonly SyncAssetBlobDeclaration[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!this.blobPort || declarations.length === 0) return;
+    const rows = await this.db
+      .select({
+        remoteId: SyncRemoteObjectTable.id,
+        providerObjectId: SyncRemoteObjectTable.providerObjectId,
+        logicalKeyId: SyncRemoteObjectTable.logicalKeyId,
+        storedSha256: SyncRemoteObjectTable.storedSha256,
+        sizeBytes: SyncRemoteObjectTable.sizeBytes,
+        localObjectId: SyncLocalObjectTable.id,
+        storageRef: SyncLocalObjectTable.storageRef,
+      })
+      .from(SyncTransferTable)
+      .innerJoin(
+        SyncRemoteObjectTable,
+        eq(SyncRemoteObjectTable.id, SyncTransferTable.remoteObjectId),
+      )
+      .innerJoin(
+        SyncLocalObjectTable,
+        eq(SyncLocalObjectTable.id, SyncTransferTable.localObjectId),
+      )
+      .where(
+        and(
+          eq(SyncTransferTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncTransferTable.direction, 'download'),
+          eq(SyncTransferTable.state, 'completed'),
+          eq(SyncRemoteObjectTable.objectKind, 'blob'),
+          isNull(SyncRemoteObjectTable.removedAt),
+          inArray(SyncLocalObjectTable.state, ['staged', 'verified']),
+        ),
+      );
+    for (const row of rows) {
+      assertNotAborted(signal);
+      const alreadyVerified = await this.db
+        .select({ blobId: SyncBlobStateTable.blobId })
+        .from(SyncBlobStateTable)
+        .where(
+          and(
+            eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncBlobStateTable.logicalKeyId, row.logicalKeyId),
+            eq(SyncBlobStateTable.localState, 'verified'),
+          ),
+        )
+        .limit(1);
+      if (alreadyVerified.length > 0) continue;
+
+      const remote: RemoteObject = {
+        objectId: row.providerObjectId as ProviderObjectId,
+        objectKind: 'blob',
+        logicalKeyId: row.logicalKeyId,
+        storedSha256: protocolSha256(row.storedSha256),
+        sizeBytes: row.sizeBytes,
+      };
+      let verified: Awaited<ReturnType<SyncEngineBlobPort['verifyAndInstallInbound']>>;
+      try {
+        verified = await this.blobPort.verifyAndInstallInbound({
+          syncGenerationId: this.syncGenerationId,
+          projectId: identity.projectId,
+          remoteObject: remote,
+          sourceRef: createLocalObjectRef(row.storageRef),
+          declarations,
+        });
+      } catch {
+        await this.quarantineDownloaded(
+          row,
+          'asset-blob-verification-or-install-failed',
+          'blocked-corrupt',
+        );
+        continue;
+      }
+      if (!verified) continue;
+      if (
+        verified.logicalKeyId !== row.logicalKeyId ||
+        verified.blobId !== verified.contentSha256 ||
+        verified.contentSizeBytes < 0
+      ) {
+        await verified.rollback().catch(() => {});
+        await this.quarantineDownloaded(
+          row,
+          'asset-blob-authenticated-metadata-mismatch',
+          'blocked-corrupt',
+        );
+        continue;
+      }
+      const existingBlob = await this.db
+        .select({
+          logicalKeyId: SyncBlobStateTable.logicalKeyId,
+          contentSha256: SyncBlobStateTable.contentSha256,
+          sizeBytes: SyncBlobStateTable.sizeBytes,
+          localState: SyncBlobStateTable.localState,
+        })
+        .from(SyncBlobStateTable)
+        .where(
+          and(
+            eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncBlobStateTable.blobId, verified.blobId),
+          ),
+        )
+        .limit(1);
+      if (
+        existingBlob[0]?.localState === 'verified' &&
+        (existingBlob[0].logicalKeyId !== row.logicalKeyId ||
+          existingBlob[0].contentSha256 !== sha256Hex(verified.contentSha256) ||
+          existingBlob[0].sizeBytes !== verified.contentSizeBytes)
+      ) {
+        await verified.commit().catch(() => {});
+        await this.quarantineDownloaded(
+          row,
+          'asset-blob-logical-identity-collision',
+          'blocked-corrupt',
+        );
+        continue;
+      }
+
+      const nowIso = this.clock.nowIso();
+      let sqliteCommitted = false;
+      try {
+        await this.db.transaction(async (tx) => {
+          await tx
+            .update(SyncLocalObjectTable)
+            .set({
+              state: 'verified',
+              contentSha256: sha256Hex(verified!.contentSha256),
+              verifiedAt: nowIso,
+            })
+            .where(eq(SyncLocalObjectTable.id, row.localObjectId));
+          await tx
+            .insert(SyncBlobStateTable)
+            .values({
+              syncGenerationId: this.syncGenerationId,
+              blobId: verified!.blobId,
+              assetId: verified!.installedAssetIds[0] ?? null,
+              logicalKeyId: row.logicalKeyId,
+              contentSha256: sha256Hex(verified!.contentSha256),
+              sizeBytes: verified!.contentSizeBytes,
+              mime: verified!.mimeType,
+              localObjectId: row.localObjectId,
+              localState: 'verified',
+              remoteState: 'available',
+              verifiedAt: nowIso,
+              updatedAt: nowIso,
+            })
+            .onConflictDoUpdate({
+              target: [SyncBlobStateTable.syncGenerationId, SyncBlobStateTable.blobId],
+              set: {
+                localObjectId: row.localObjectId,
+                localState: 'verified',
+                remoteState: 'available',
+                verifiedAt: nowIso,
+                updatedAt: nowIso,
+              },
+            });
+        });
+        sqliteCommitted = true;
+      } finally {
+        if (!sqliteCommitted) await verified.rollback().catch(() => {});
+      }
+      try {
+        await verified.commit();
+      } catch {
+        // SQLite is authoritative that activation completed. Startup native
+        // receipt GC may retry staging cleanup; canonical sources stay live.
+      }
+    }
+  }
+
+  private async decodeDownloadedSegment(
+    row: DownloadedSegmentRow,
+  ): Promise<{ segment: SegmentV1; contentSha256: Sha256 } | null> {
+    const remote = remoteObjectFromRow(row);
+    let decodedObject;
+    try {
+      decodedObject = await this.objectCodec.decodeInbound({
+        syncGenerationId: this.syncGenerationId,
+        expectedLogicalKeyId: row.logicalKeyId,
+        remoteObject: remote,
+        sourceRef: createLocalObjectRef(row.storageRef),
+      });
+    } catch {
+      await this.quarantineDownloaded(row, 'object-codec-verification-failed', 'blocked-corrupt');
+      return null;
+    }
+    if (decodedObject.objectKind !== 'segment') {
+      await this.quarantineDownloaded(row, 'decoded-object-kind-mismatch', 'blocked-corrupt');
+      return null;
+    }
+    if (await sha256Bytes(decodedObject.protocolBytes) !== decodedObject.contentSha256) {
+      await this.quarantineDownloaded(row, 'decoded-content-hash-mismatch', 'blocked-corrupt');
+      return null;
+    }
+    const decoded = await decodeSegmentV1(decodedObject.protocolBytes);
+    if (!decoded.ok) {
+      await this.quarantineDownloaded(row, decoded.reason, quarantineState(decoded.reason));
+      return null;
+    }
+    return { segment: decoded.value, contentSha256: decodedObject.contentSha256 };
+  }
+
+  private async ingestSegment(row: DownloadedSegmentRow, signal: AbortSignal): Promise<void> {
+    const identity = await this.identity();
+    const decoded = await this.decodeDownloadedSegment(row);
+    if (!decoded) return;
+    assertNotAborted(signal);
+    const { segment } = decoded;
+    const header = segment.header;
+    if (
+      header.projectId !== identity.projectId ||
+      header.projectSyncId !== identity.projectSyncId ||
+      header.syncGenerationId !== identity.syncGenerationId
+    ) {
+      await this.quarantineDownloaded(row, 'segment-sync-generation-identity-mismatch', 'blocked-corrupt');
+      return;
+    }
+    const range = { firstSeq: header.firstSeq, lastSeq: header.lastSeq };
+    const frontier = await this.stateRepository.loadWriterFrontier({
+      syncGenerationId: this.syncGenerationId,
+      writerId: header.writerId,
+      writerEpoch: header.writerEpoch,
+    });
+    const contiguousApplied = contiguousFrontierSeq(frontier.applied);
+    if (header.firstSeq === contiguousApplied + 1) {
+      const expectedPreviousHash = contiguousApplied === 0
+        ? null
+        : frontier.segmentHeadSha256;
+      if (header.previousSegmentHash !== expectedPreviousHash) {
+        await this.quarantineDownloaded(
+          row,
+          'segment previous hash does not match the applied checkpoint frontier',
+          'blocked-corrupt',
+        );
+        return;
+      }
+    }
+    const received = observeFrontierRange(frontier, 'received', range);
+    const id = segmentId(header);
+    const nowIso = this.clock.nowIso();
+
+    await this.db.transaction(async (tx) => {
+      const collision = await tx
+        .select({
+          segmentSha256: SyncSegmentTable.segmentSha256,
+        })
+        .from(SyncSegmentTable)
+        .where(
+          and(
+            eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncSegmentTable.writerId, header.writerId),
+            eq(SyncSegmentTable.writerEpoch, header.writerEpoch),
+            eq(SyncSegmentTable.firstSeq, header.firstSeq),
+            eq(SyncSegmentTable.lastSeq, header.lastSeq),
+          ),
+        )
+        .limit(1);
+      if (collision[0] && collision[0].segmentSha256 !== sha256Hex(decoded.contentSha256)) {
+        throw new Error('writer/range fork detected');
+      }
+      if (!collision[0]) {
+        const predecessor = await tx
+          .select({ segmentSha256: SyncSegmentTable.segmentSha256 })
+          .from(SyncSegmentTable)
+          .where(
+            and(
+              eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId),
+              eq(SyncSegmentTable.writerId, header.writerId),
+              eq(SyncSegmentTable.writerEpoch, header.writerEpoch),
+              eq(SyncSegmentTable.lastSeq, header.firstSeq - 1),
+            ),
+          )
+          .limit(1);
+        if (
+          predecessor[0] &&
+          header.previousSegmentHash !== protocolSha256(predecessor[0].segmentSha256)
+        ) {
+          throw new Error('segment previous hash does not match its predecessor');
+        }
+        const successor = await tx
+          .select({ previousSegmentSha256: SyncSegmentTable.previousSegmentSha256 })
+          .from(SyncSegmentTable)
+          .where(
+            and(
+              eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId),
+              eq(SyncSegmentTable.writerId, header.writerId),
+              eq(SyncSegmentTable.writerEpoch, header.writerEpoch),
+              eq(SyncSegmentTable.firstSeq, header.lastSeq + 1),
+            ),
+          )
+          .limit(1);
+        if (
+          successor[0] &&
+          successor[0].previousSegmentSha256 !== sha256Hex(decoded.contentSha256)
+        ) {
+          throw new Error('segment hash does not match its successor chain link');
+        }
+        await tx.insert(SyncSegmentTable).values({
+          segmentId: id,
+          syncGenerationId: this.syncGenerationId,
+          writerId: header.writerId,
+          writerEpoch: header.writerEpoch,
+          firstSeq: header.firstSeq,
+          lastSeq: header.lastSeq,
+          changeSetCount: header.opCount,
+          previousSegmentSha256: header.previousSegmentHash
+            ? sha256Hex(header.previousSegmentHash)
+            : null,
+          requiredBlobIdsCbor: encodeCanonicalCbor([...header.requiredBlobIds]),
+          localObjectId: row.localObjectId,
+          segmentSha256: sha256Hex(decoded.contentSha256),
+          state: 'published',
+          createdAt: nowIso,
+          publishedAt: nowIso,
+        });
+      }
+      await tx
+        .update(SyncLocalObjectTable)
+        .set({
+          state: 'verified',
+          contentSha256: sha256Hex(decoded.contentSha256),
+          verifiedAt: nowIso,
+        })
+        .where(eq(SyncLocalObjectTable.id, row.localObjectId));
+      await persistWriterFrontierInTransaction(tx, received, nowIso);
+    }).catch(async (error: unknown) => {
+      await this.quarantineDownloaded(
+        row,
+        error instanceof Error ? error.message : 'segment-ingest-failed',
+        'blocked-corrupt',
+      );
+    });
+  }
+
+  private async apply(signal: AbortSignal): Promise<void> {
+    const identity = await this.identity();
+    // A crash or callback failure after a prior reducer commit cannot rely on
+    // that change-set being applied again: its durable receipt/frontier makes
+    // the next cycle skip it. Reconcile every open session from its own SQLite
+    // coverage cursor before inspecting segment frontiers.
+    await this.reconcileOpenYjsDocuments?.({ projectId: identity.projectId });
+    if (!this.referenceCoverageNotified) {
+      this.onReferenceCoverageInvalidated?.({ projectId: identity.projectId });
+      this.referenceCoverageNotified = true;
+    }
+    // A committed receipt skips reducer replay. Retry its display/index event
+    // only after the open sessions recover; a failing callback stays pending.
+    if (this.pendingProjectNotification) {
+      this.onRemoteChangeCommitted?.(this.pendingProjectNotification);
+      this.pendingProjectNotification = null;
+    }
+    await this.catchUpFromSnapshotIfNeeded(identity, signal);
+    const segments = await this.db
+      .select({
+        segmentId: SyncSegmentTable.segmentId,
+        writerId: SyncSegmentTable.writerId,
+        writerEpoch: SyncSegmentTable.writerEpoch,
+        firstSeq: SyncSegmentTable.firstSeq,
+        lastSeq: SyncSegmentTable.lastSeq,
+        localObjectId: SyncSegmentTable.localObjectId,
+        segmentSha256: SyncSegmentTable.segmentSha256,
+        requiredBlobIdsCbor: SyncSegmentTable.requiredBlobIdsCbor,
+        state: SyncSegmentTable.state,
+      })
+      .from(SyncSegmentTable)
+      .where(eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId))
+      .orderBy(
+        asc(SyncSegmentTable.writerId),
+        asc(SyncSegmentTable.writerEpoch),
+        asc(SyncSegmentTable.firstSeq),
+      );
+    for (const segmentRow of segments) {
+      assertNotAborted(signal);
+      const range = { firstSeq: segmentRow.firstSeq, lastSeq: segmentRow.lastSeq };
+      const frontier = await this.stateRepository.loadWriterFrontier({
+        syncGenerationId: this.syncGenerationId,
+        writerId: segmentRow.writerId,
+        writerEpoch: segmentRow.writerEpoch,
+      });
+      if (isFrontierRangeComplete(frontier.applied, range)) continue;
+      if (!canAdvanceContiguousFrontier(frontier.applied, range)) continue;
+      if (!(await this.requiredBlobsAvailable(segmentRow.requiredBlobIdsCbor))) continue;
+      const download = await this.downloadRowForLocalObject(segmentRow.localObjectId);
+      if (!download) continue;
+      const decoded = await this.decodeDownloadedSegment(download);
+      if (!decoded) continue;
+      for (const changeSet of decoded.segment.changeSets) {
+        let current = await this.stateRepository.loadWriterFrontier({
+          syncGenerationId: this.syncGenerationId,
+          writerId: segmentRow.writerId,
+          writerEpoch: segmentRow.writerEpoch,
+        });
+        const sequence = { firstSeq: changeSet.deviceSeq, lastSeq: changeSet.deviceSeq };
+        if (isFrontierRangeComplete(current.applied, sequence)) continue;
+        if (!canAdvanceContiguousFrontier(current.applied, sequence)) break;
+        let next = observeFrontierRange(current, 'applied', sequence);
+        if (changeSet.deviceSeq === segmentRow.lastSeq) {
+          next = setAppliedSegmentHead(next, {
+            lastSeq: segmentRow.lastSeq,
+            sha256: protocolSha256(segmentRow.segmentSha256),
+          });
+        }
+        try {
+          const applied = await this.db.transaction(async (tx) => {
+            const result = await applyVerifiedRemoteChangeSetInTransaction(tx, {
+              changeSet,
+              identity: this.writerIdentity,
+              clock: { nowMs: this.clock.nowMs(), nowIso: this.clock.nowIso() },
+              kernel: this.domainKernel,
+              sourceObjectId: download.remoteId,
+            });
+            await persistWriterFrontierInTransaction(tx, next, this.clock.nowIso());
+            return result;
+          });
+          const docIds = applied.effects
+            .filter((effect) =>
+              effect.materialize &&
+              effect.type === 'yjs.update' &&
+              effect.source.changeSetId === changeSet.changeSetId,
+            )
+            .map((effect) => effect.target.id);
+          const projectionImpact = remoteProjectChangeProjectionImpact(applied.effects);
+          this.pendingProjectNotification = {
+            projectId: changeSet.projectId,
+            changeSetId: changeSet.changeSetId,
+            projectionImpact,
+            proseDocIds: projectionImpact === 'prose-only' ? boundedProseDocIds(docIds) : undefined,
+          };
+          if (docIds.length > 0) {
+            // This await is intentionally outside the SQLite transaction and
+            // before the apply phase can publish its next UI-visible status.
+            await this.reconcileOpenYjsDocuments?.({
+              projectId: changeSet.projectId,
+              docIds,
+            });
+          }
+          this.onRemoteChangeCommitted?.(this.pendingProjectNotification);
+          this.pendingProjectNotification = null;
+        } catch (error) {
+          if (error instanceof SyncReducerRejectedError) {
+            await this.quarantineDownloaded(
+              download,
+              `reducer-${error.code}`,
+              error.code === 'unknown-target-kind' || error.code === 'unsupported-action'
+                ? 'blocked-update'
+                : 'blocked-corrupt',
+            );
+            break;
+          }
+          throw error;
+        }
+        current = next;
+      }
+    }
+    if (typeof this.provider.pruneObjects === 'function') {
+      await truncatePrunedLocalSegments(this.db, this.syncGenerationId);
+      await this.truncateCoveredJournalIfNeeded(signal);
+    }
+    await this.retireBindingForPurgedSyncGeneration();
+  }
+
+  /** Outcome of the latest journal truncation attempt; null before the first. */
+  get journalTruncation(): JournalTruncationOutcome | null {
+    return this.lastJournalTruncation;
+  }
+
+  /**
+   * Journal truncation is an optimization. Each of its transactions commits a
+   * consistent step or rolls back; a failure is retried once the snapshot set,
+   * the frontier or the published segments move.
+   */
+  private async truncateCoveredJournalIfNeeded(signal: AbortSignal): Promise<void> {
+    if (!this.truncateJournal) return;
+    const published = await this.db
+      .select({ publishedSeq: SyncFrontierTable.publishedSeq })
+      .from(SyncFrontierTable)
+      .where(eq(SyncFrontierTable.syncGenerationId, this.syncGenerationId));
+    const key = JSON.stringify([
+      await this.catchUpCheckKey(),
+      published.reduce((total, row) => total + row.publishedSeq, 0),
+    ]);
+    if (key === this.settledJournalTruncationKey) return;
+    try {
+      this.lastJournalTruncation = await truncateCoveredJournal({
+        db: this.db,
+        syncGenerationId: this.syncGenerationId,
+        objectCodec: this.objectCodec,
+        kernel: this.domainKernel,
+        nowIso: () => this.clock.nowIso(),
+        signal,
+      });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      console.warn('[SyncEngine] Journal truncation stopped; it resumes once the log moves', error);
+      this.lastJournalTruncation = { status: 'skipped', reason: 'failed' };
+    }
+    // A conflict, quarantine or gap can clear without moving the log, so a
+    // blocked run is retried on the next cycle instead of settling.
+    const outcome = this.lastJournalTruncation;
+    if (outcome.status === 'skipped' && outcome.reason === 'blocked') return;
+    this.settledJournalTruncationKey = key;
+  }
+
+  /**
+   * A pruning provider may have truncated history this replica never
+   * received. When the newest snapshot covers a lane no local segment chain
+   * can reach, fast-forward onto that snapshot before applying segments.
+   */
+  private async catchUpFromSnapshotIfNeeded(
+    identity: SyncGenerationIdentity,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (typeof this.provider.pruneObjects !== 'function') return;
+    const key = await this.catchUpCheckKey();
+    if (key === this.settledCatchUpKey) return;
+    const input = { db: this.db, syncGenerationId: this.syncGenerationId, objectCodec: this.objectCodec };
+    let outcome: Awaited<ReturnType<typeof installSnapshotCatchUp>>;
+    try {
+      const plan = await planSnapshotCatchUp(input);
+      if (!plan) {
+        this.settledCatchUpKey = key;
+        return;
+      }
+      assertNotAborted(signal);
+      outcome = await installSnapshotCatchUp({
+        ...input,
+        kernel: this.domainKernel,
+        writerIdentity: this.writerIdentity,
+        clock: () => ({ nowMs: this.clock.nowMs(), nowIso: this.clock.nowIso() }),
+        plan,
+      });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      // A snapshot this replica cannot install (newer format, corrupt
+      // package, rejected replay) leaves it waiting on the gap, exactly as
+      // before truncation existed. It must not stop local edits uploading.
+      this.settledCatchUpKey = key;
+      return;
+    }
+    if (outcome.status === 'forked') {
+      for (const localObjectId of outcome.forkedLocalObjectIds) {
+        const download = await this.downloadRowForLocalObject(localObjectId);
+        if (download) {
+          await this.quarantineDownloaded(
+            download,
+            'segment previous hash does not match the applied checkpoint frontier',
+            'blocked-corrupt',
+          );
+        }
+      }
+      return;
+    }
+    if (outcome.status !== 'installed') {
+      // Retried only once the snapshot set or local frontier changes; an
+      // open conflict or quarantine is re-checked on every cycle.
+      if (outcome.reason !== 'blocked') this.settledCatchUpKey = key;
+      return;
+    }
+    invalidateSqliteReducerStateCache(this.syncGenerationId);
+    this.settledCatchUpKey = null;
+    // Durable before any await: a failed display refresh retries next cycle.
+    // Assets from pruned history were recorded as missing blob state in the
+    // install transaction; ingest keeps installing them until verified.
+    this.pendingProjectNotification = {
+      projectId: outcome.projectId,
+      changeSetId: `checkpoint:${outcome.snapshotId}`,
+      projectionImpact: 'workspace',
+    };
+    await this.ingestDownloadedBlobs(identity, await this.pendingAssetDeclarations(), signal);
+    await this.reconcileOpenYjsDocuments?.({ projectId: outcome.projectId });
+    this.onRemoteChangeCommitted?.(this.pendingProjectNotification);
+    this.pendingProjectNotification = null;
+  }
+
+  /** Assets a snapshot introduced whose blobs this replica has not installed yet. */
+  private async pendingAssetDeclarations(): Promise<SyncAssetBlobDeclaration[]> {
+    const rows = await this.db
+      .select({
+        assetId: SyncBlobStateTable.assetId,
+        blobId: SyncBlobStateTable.blobId,
+        contentSha256: SyncBlobStateTable.contentSha256,
+        sizeBytes: SyncBlobStateTable.sizeBytes,
+        mime: SyncBlobStateTable.mime,
+      })
+      .from(SyncBlobStateTable)
+      .where(
+        and(
+          eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncBlobStateTable.localState, 'missing'),
+          isNotNull(SyncBlobStateTable.assetId),
+        ),
+      );
+    return rows.map((row) => ({
+      assetId: row.assetId!,
+      blobId: row.blobId as Sha256,
+      sourceSha256: protocolSha256(row.contentSha256),
+      sourceSizeBytes: row.sizeBytes,
+      sourceMime: row.mime,
+    }));
+  }
+
+  private async catchUpCheckKey(): Promise<string> {
+    const [markers, frontier] = await Promise.all([
+      this.db
+        .select({ objectId: SyncRemoteObjectTable.providerObjectId })
+        .from(SyncRemoteObjectTable)
+        .where(
+          and(
+            eq(SyncRemoteObjectTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncRemoteObjectTable.objectKind, 'snapshot-commit'),
+            isNull(SyncRemoteObjectTable.removedAt),
+          ),
+        ),
+      this.db
+        .select({
+          writerId: SyncFrontierTable.writerId,
+          writerEpoch: SyncFrontierTable.writerEpoch,
+          appliedSeq: SyncFrontierTable.appliedSeq,
+        })
+        .from(SyncFrontierTable)
+        .where(eq(SyncFrontierTable.syncGenerationId, this.syncGenerationId)),
+    ]);
+    const segments = await this.db
+      .select({ value: count() })
+      .from(SyncSegmentTable)
+      .where(eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId));
+    return JSON.stringify([
+      markers.map((row) => row.objectId).sort(),
+      frontier.map((row) => [row.writerId, row.writerEpoch, row.appliedSeq]).sort(),
+      segments[0]?.value ?? 0,
+    ]);
+  }
+
+  private async retireBindingForPurgedSyncGeneration(): Promise<void> {
+    const generation = (await this.db
+      .select({ status: SyncGenerationTable.status })
+      .from(SyncGenerationTable)
+      .where(eq(SyncGenerationTable.syncGenerationId, this.syncGenerationId))
+      .limit(1))[0];
+    if (generation?.status !== 'purged') return;
+    await this.db
+      .update(SyncProviderBindingTable)
+      .set({ state: 'purged', updatedAt: this.clock.nowIso() })
+      .where(eq(SyncProviderBindingTable.syncGenerationId, this.syncGenerationId));
+  }
+
+  private async requiredBlobsAvailable(encoded: unknown): Promise<boolean> {
+    const ids = decodeRequiredBlobIds(encoded);
+    if (ids.length === 0) return true;
+    const rows = await this.db
+      .select({ blobId: SyncBlobStateTable.blobId })
+      .from(SyncBlobStateTable)
+      .where(
+        and(
+          eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+          inArray(SyncBlobStateTable.blobId, [...ids]),
+          eq(SyncBlobStateTable.localState, 'verified'),
+        ),
+      );
+    return new Set(rows.map((row) => row.blobId)).size === ids.length;
+  }
+
+  private async downloadRowForLocalObject(
+    id: string,
+  ): Promise<DownloadedSegmentRow | null> {
+    const rows = await this.db
+      .select({
+        remoteId: SyncRemoteObjectTable.id,
+        providerObjectId: SyncRemoteObjectTable.providerObjectId,
+        logicalKeyId: SyncRemoteObjectTable.logicalKeyId,
+        storedSha256: SyncRemoteObjectTable.storedSha256,
+        sizeBytes: SyncRemoteObjectTable.sizeBytes,
+        localObjectId: SyncLocalObjectTable.id,
+        storageRef: SyncLocalObjectTable.storageRef,
+      })
+      .from(SyncTransferTable)
+      .innerJoin(
+        SyncRemoteObjectTable,
+        eq(SyncRemoteObjectTable.id, SyncTransferTable.remoteObjectId),
+      )
+      .innerJoin(
+        SyncLocalObjectTable,
+        eq(SyncLocalObjectTable.id, SyncTransferTable.localObjectId),
+      )
+      .where(
+        and(
+          eq(SyncTransferTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncTransferTable.direction, 'download'),
+          eq(SyncTransferTable.state, 'completed'),
+          eq(SyncLocalObjectTable.id, id),
+        ),
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  private async publishBlobs(signal: AbortSignal): Promise<{ objectCount: number }> {
+    const rows = await this.db
+      .select({
+        localObjectId: SyncLocalObjectTable.id,
+        objectKind: SyncLocalObjectTable.objectKind,
+        logicalKeyId: SyncLocalObjectTable.logicalKeyId,
+        storageRef: SyncLocalObjectTable.storageRef,
+        storedSha256: SyncLocalObjectTable.storedSha256,
+        sizeBytes: SyncLocalObjectTable.sizeBytes,
+      })
+      .from(SyncBlobStateTable)
+      .innerJoin(
+        SyncLocalObjectTable,
+        eq(SyncLocalObjectTable.id, SyncBlobStateTable.localObjectId),
+      )
+      .where(
+        and(
+          eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+          eq(SyncBlobStateTable.localState, 'verified'),
+          inArray(SyncBlobStateTable.remoteState, ['missing', 'publishing']),
+        ),
+      );
+    const progress = this.startTransferProgress('upload-assets', true);
+    this.addTransferProgressObjects(progress, rows);
+    let countPublished = 0;
+    for (const row of rows) {
+      assertNotAborted(signal);
+      let transferComplete = false;
+      const uploaded = await this.publishLocalObject(
+        { ...row, objectKind: 'blob' },
+        signal,
+        (currentBytes) => {
+          if (!transferComplete) this.publishTransferProgress(progress, currentBytes);
+        },
+      );
+      transferComplete = true;
+      await this.db
+        .update(SyncBlobStateTable)
+        .set({ remoteState: 'available', updatedAt: this.clock.nowIso() })
+        .where(
+          and(
+            eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+            eq(SyncBlobStateTable.localObjectId, row.localObjectId),
+          ),
+        );
+      countPublished += 1;
+      this.completeTransferProgressObject(progress, row.sizeBytes, uploaded.transferred);
+    }
+    return { objectCount: countPublished };
+  }
+
+  private async publishSegments(signal: AbortSignal): Promise<{ objectCount: number }> {
+    const rows = await this.db
+      .select({
+        segmentId: SyncSegmentTable.segmentId,
+        writerId: SyncSegmentTable.writerId,
+        writerEpoch: SyncSegmentTable.writerEpoch,
+        firstSeq: SyncSegmentTable.firstSeq,
+        lastSeq: SyncSegmentTable.lastSeq,
+        requiredBlobIdsCbor: SyncSegmentTable.requiredBlobIdsCbor,
+        segmentSha256: SyncSegmentTable.segmentSha256,
+        localObjectId: SyncLocalObjectTable.id,
+        objectKind: SyncLocalObjectTable.objectKind,
+        logicalKeyId: SyncLocalObjectTable.logicalKeyId,
+        storageRef: SyncLocalObjectTable.storageRef,
+        storedSha256: SyncLocalObjectTable.storedSha256,
+        sizeBytes: SyncLocalObjectTable.sizeBytes,
+      })
+      .from(SyncSegmentTable)
+      .innerJoin(
+        SyncLocalObjectTable,
+        eq(SyncLocalObjectTable.id, SyncSegmentTable.localObjectId),
+      )
+      .where(
+        and(
+          eq(SyncSegmentTable.syncGenerationId, this.syncGenerationId),
+          inArray(SyncSegmentTable.state, ['sealed', 'publishing']),
+        ),
+      )
+      .orderBy(
+        asc(SyncSegmentTable.writerId),
+        asc(SyncSegmentTable.writerEpoch),
+        asc(SyncSegmentTable.firstSeq),
+      );
+    const publishableRows: typeof rows = [];
+    for (const row of rows) {
+      if (await this.requiredBlobsRemoteAvailable(row.requiredBlobIdsCbor)) {
+        publishableRows.push(row);
+      }
+    }
+    const progress = this.startTransferProgress('upload-changes', true);
+    this.addTransferProgressObjects(progress, publishableRows);
+    let countPublished = 0;
+    for (const row of publishableRows) {
+      assertNotAborted(signal);
+      let transferComplete = false;
+      const uploaded = await this.publishLocalObject(
+        { ...row, objectKind: 'segment' },
+        signal,
+        (currentBytes) => {
+          if (!transferComplete) this.publishTransferProgress(progress, currentBytes);
+        },
+      );
+      transferComplete = true;
+      const remote = uploaded.object;
+      const frontier = await this.stateRepository.loadWriterFrontier({
+        syncGenerationId: this.syncGenerationId,
+        writerId: row.writerId,
+        writerEpoch: row.writerEpoch,
+      });
+      const range = { firstSeq: row.firstSeq, lastSeq: row.lastSeq };
+      const published = observeFrontierRange(frontier, 'published', range);
+      const nowIso = this.clock.nowIso();
+      await this.db.transaction(async (tx) => {
+        await tx
+          .update(SyncSegmentTable)
+          .set({ state: 'published', publishedAt: nowIso })
+          .where(eq(SyncSegmentTable.segmentId, row.segmentId));
+        await tx
+          .update(SyncLocalObjectTable)
+          .set({ state: 'published' })
+          .where(eq(SyncLocalObjectTable.id, row.localObjectId));
+        await this.upsertRemoteObject(remote, syncRemoteObjectId(this.syncGenerationId, remote.objectId), nowIso, tx);
+        await persistWriterFrontierInTransaction(tx, published, nowIso);
+        const terminalPurge = await tx
+          .select({ changeSetId: SyncChangeSetTable.changeSetId })
+          .from(SyncChangeSetTable)
+          .innerJoin(
+            SyncMutationTable,
+            eq(SyncMutationTable.changeSetId, SyncChangeSetTable.changeSetId),
+          )
+          .where(
+            and(
+              eq(SyncChangeSetTable.syncGenerationId, this.syncGenerationId),
+              eq(SyncChangeSetTable.writerId, row.writerId),
+              eq(SyncChangeSetTable.writerEpoch, row.writerEpoch),
+              gte(SyncChangeSetTable.deviceSeq, row.firstSeq),
+              lte(SyncChangeSetTable.deviceSeq, row.lastSeq),
+              eq(SyncMutationTable.action, 'sync-generation.purge'),
+            ),
+          )
+          .limit(1);
+        if (terminalPurge.length > 0) {
+          const generation = (await tx
+            .select({ projectId: SyncGenerationTable.projectId, status: SyncGenerationTable.status })
+            .from(SyncGenerationTable)
+            .where(eq(SyncGenerationTable.syncGenerationId, this.syncGenerationId))
+            .limit(1))[0];
+          if (!generation || generation.status !== 'active' || generation.projectId !== null) {
+            throw new Error('sync-generation.purge publication requires a detached active SyncGeneration');
+          }
+          await tx
+            .update(SyncGenerationTable)
+            .set({ status: 'purged', purgedAt: nowIso, updatedAt: nowIso })
+            .where(eq(SyncGenerationTable.syncGenerationId, this.syncGenerationId));
+          await tx
+            .update(SyncProviderBindingTable)
+            .set({ state: 'purged', updatedAt: nowIso })
+            .where(eq(SyncProviderBindingTable.syncGenerationId, this.syncGenerationId));
+        }
+      });
+      countPublished += 1;
+      this.completeTransferProgressObject(progress, row.sizeBytes, uploaded.transferred);
+    }
+    return { objectCount: countPublished };
+  }
+
+  private async requiredBlobsRemoteAvailable(encoded: unknown): Promise<boolean> {
+    const ids = decodeRequiredBlobIds(encoded);
+    if (ids.length === 0) return true;
+    const rows = await this.db
+      .select({ blobId: SyncBlobStateTable.blobId })
+      .from(SyncBlobStateTable)
+      .where(
+        and(
+          eq(SyncBlobStateTable.syncGenerationId, this.syncGenerationId),
+          inArray(SyncBlobStateTable.blobId, [...ids]),
+          eq(SyncBlobStateTable.remoteState, 'available'),
+        ),
+      );
+    return new Set(rows.map((row) => row.blobId)).size === ids.length;
+  }
+
+  private async publishLocalObject(
+    local: PublishableLocalObject,
+    signal: AbortSignal,
+    onProgress?: (transferredBytes: number) => void,
+  ): Promise<{ object: RemoteObject; transferred: boolean }> {
+    const generation = await this.providerGeneration();
+    const storedSha256 = protocolSha256(local.storedSha256);
+    const identity = { generation, objectKind: local.objectKind, logicalKeyId: local.logicalKeyId };
+    const transferId = await createProviderTransferId({
+      direction: 'upload',
+      syncGenerationId: this.syncGenerationId,
+      objectIdentity: local.logicalKeyId,
+    });
+    const nowIso = this.clock.nowIso();
+    await this.db
+      .insert(SyncTransferTable)
+      .values({
+        transferId,
+        syncGenerationId: this.syncGenerationId,
+        direction: 'upload',
+        objectKind: local.objectKind,
+        logicalKeyId: local.logicalKeyId,
+        localObjectId: local.localObjectId,
+        expectedStoredSha256: local.storedSha256,
+        totalBytes: local.sizeBytes,
+        transferredBytes: 0,
+        state: 'running',
+        attemptCount: 1,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      })
+      .onConflictDoUpdate({
+        target: SyncTransferTable.transferId,
+        set: {
+          state: 'running',
+          attemptCount: sql`${SyncTransferTable.attemptCount} + 1`,
+          updatedAt: nowIso,
+          lastErrorCode: null,
+          nextAttemptAt: null,
+        },
+      });
+    try {
+      assertNotAborted(signal);
+      const existing = await this.provider.statImmutable(identity);
+      if (existing) {
+        if (existing.storedSha256 !== storedSha256 || existing.sizeBytes !== local.sizeBytes) {
+          throw new Error(`provider immutable key ${local.logicalKeyId} has conflicting bytes`);
+        }
+        await this.completeUploadReceipt(local, transferId, existing);
+        return { object: existing, transferred: false };
+      }
+      const result = await this.provider.uploadImmutable({
+        generation,
+        sourceRef: createLocalObjectRef(local.storageRef),
+        objectKind: local.objectKind,
+        logicalKeyId: local.logicalKeyId,
+        storedSha256,
+        sizeBytes: local.sizeBytes,
+        transferId,
+        signal,
+        onProgress: (event) => {
+          const transferredBytes = validatedTransferredBytes(event, local.sizeBytes);
+          if (transferredBytes !== null) onProgress?.(transferredBytes);
+        },
+      });
+      await this.completeUploadReceipt(local, transferId, result.object);
+      return { object: result.object, transferred: result.status === 'created' };
+    } catch (error) {
+      const failedAt = this.clock.nowIso();
+      await this.db
+        .update(SyncTransferTable)
+        .set({
+          state: 'retry-wait',
+          updatedAt: failedAt,
+          lastErrorCode:
+            typeof error === 'object' && error && 'code' in error
+              ? String((error as { code: unknown }).code)
+              : 'UPLOAD_FAILED',
+          nextAttemptAt: failedAt,
+        })
+        .where(eq(SyncTransferTable.transferId, transferId));
+      throw error;
+    }
+  }
+
+  private async completeUploadReceipt(
+    local: PublishableLocalObject,
+    transferId: string,
+    remote: RemoteObject,
+  ): Promise<void> {
+    const completedAt = this.clock.nowIso();
+    await this.db.transaction(async (tx) => {
+      const remoteId = await this.upsertRemoteObject(
+        remote,
+        syncRemoteObjectId(this.syncGenerationId, remote.objectId),
+        completedAt,
+        tx,
+      );
+      await tx
+        .update(SyncTransferTable)
+        .set({
+          remoteObjectId: remoteId,
+          state: 'completed',
+          transferredBytes: local.sizeBytes,
+          updatedAt: completedAt,
+          completedAt,
+          lastErrorCode: null,
+          nextAttemptAt: null,
+        })
+        .where(eq(SyncTransferTable.transferId, transferId));
+    });
+  }
+
+  private async quarantineDownloaded(
+    row: DownloadedSegmentRow,
+    reason: string,
+    state: 'blocked-update' | 'blocked-corrupt',
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(SyncLocalObjectTable)
+        .set({ state: 'quarantined' })
+        .where(eq(SyncLocalObjectTable.id, row.localObjectId));
+      await this.insertQuarantine(tx, {
+        remoteId: row.remoteId,
+        localObjectId: row.localObjectId,
+        reason,
+        storedSha256: protocolSha256(row.storedSha256),
+        sizeBytes: row.sizeBytes,
+        state,
+      });
+    });
+  }
+
+  private async insertQuarantine(
+    tx: DbTransaction,
+    input: {
+      remoteId: string;
+      localObjectId: string;
+      reason: string;
+      storedSha256: Sha256;
+      sizeBytes: number;
+      state: 'blocked-update' | 'blocked-corrupt';
+    },
+  ): Promise<void> {
+    const nowIso = this.clock.nowIso();
+    await tx
+      .insert(SyncQuarantinedObjectTable)
+      .values({
+        quarantineId: opaqueId(['quarantine', this.syncGenerationId, input.localObjectId]),
+        syncGenerationId: this.syncGenerationId,
+        remoteObjectId: input.remoteId,
+        localObjectId: input.localObjectId,
+        reason: input.reason.slice(0, 512),
+        observedProtocol: 'drifting.sync.segment',
+        observedVersion: null,
+        storedSha256: sha256Hex(input.storedSha256),
+        sizeBytes: input.sizeBytes,
+        state: input.state,
+        createdAt: nowIso,
+      })
+      .onConflictDoUpdate({
+        target: SyncQuarantinedObjectTable.localObjectId,
+        set: { reason: input.reason.slice(0, 512), state: input.state },
+      });
+    await tx
+      .update(SyncProviderBindingTable)
+      .set({ state: input.state, updatedAt: nowIso })
+      .where(eq(SyncProviderBindingTable.syncGenerationId, this.syncGenerationId));
+  }
+}

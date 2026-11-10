@@ -1,0 +1,1026 @@
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useAutosizeTextArea } from '../hooks/useAutosizeTextArea';
+import { EditorContent } from '@tiptap/react';
+import type { Editor } from '@tiptap/core';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useDataStore } from '../store/data-store';
+import { requestConfirmation } from '../store/confirmation-store';
+import { useSettingsStore } from '../store/settings-store';
+import { useBookElement } from '../usecase/useBookElement';
+import { ElementNameConflictError } from '../domain/book-element';
+import { useElementCategory } from '../usecase/useElementCategory';
+import { EditorTopBar } from '../components/editor/EditorTopBar';
+import { EntityTitleField } from '../components/editor/EntityTitleField';
+import { EditorReviewLayer } from '../components/editor/EditorReviewLayer';
+import { EditorCommentComposer } from '../components/editor/EditorCommentComposer';
+import { useCommentMarksToggle } from '../components/editor/comment-marks';
+import {
+  useEditorSurfaceLifecycle,
+  useReportEditorSurfaceReady,
+} from '../components/editor/editor-surface-lifecycle-context';
+import { EditorOutlineRail } from '../components/editor/EditorOutlineRail';
+import { nestHeadings, type OutlineEntry } from '../components/editor/outline-rail-model';
+import { KvAddButton, KvEditor, type KvEditorHandle } from '../components/editor/KvEditor';
+import { FieldReview, FieldReviewStrip } from '../components/editor/FieldReview';
+import { useFieldReview } from '../hooks/useFieldReview';
+import { scrollToOutlineAnchor } from '../components/editor/outline-scroll';
+import { useAgentChangeMarks } from '../hooks/useAgentChangeMarks';
+import { ReferencesPanel } from '../components/editor/ReferencesPanel';
+import { PatchesSection } from '../components/editor/PatchesSection';
+import { LibraryItemFullscreenPreview } from '../components/rightBars/MemoMaterialPanel';
+import loglevel from 'loglevel';
+import { useAuthStore } from '../store/auth';
+import { useProjectNavigation } from '../hooks/useProjectNavigation';
+import {
+  useEntityEditor,
+  type EditorCommentRequest,
+  type EditorPersistDerived,
+} from '../hooks/useEntityEditor';
+import { useEntityYjsDoc } from '../hooks/useEntityYjsDoc';
+import { EditorDocumentLoadError } from '../components/editor/EditorDocumentLoadError';
+import { useCanPromoteOnEdit, usePromoteCurrentTab, useUiStore } from '../store/ui-store';
+import { editorTabSelectionKey } from '../lib/editor-selection-memory';
+import { assetStoreService } from '../services/asset-store.service';
+import type { LibraryItem } from '../domain/library-item';
+import { platform } from '../platform';
+import { Button } from '../components/ui/Button';
+import { ElementImageEntry } from '../features/element-images/ElementImageEntry';
+import { ElementImageCandidatePreview } from '../features/element-images/ElementImageCandidatePreview';
+import { useElementImageWorkflow } from '../features/element-images/useElementImageWorkflow';
+import { useGeneratedImageCommands } from '../usecase/useGeneratedImages';
+import {
+  ModalActions,
+  ModalBody,
+  ModalCard,
+  ModalHeader,
+  ModalRoot,
+} from '../components/ui/Modal';
+import { HostedQuotaExceededError } from '../sync/hosted/quota';
+import { BrushIcon } from '../components/ui/BrushIcon';
+import { KindMark } from '../components/ui/KindMark';
+
+const log = loglevel.getLogger('ElementEditorView');
+log.setLevel(loglevel.levels.ERROR);
+
+export function ElementEditorView({ elementIdOverride }: { elementIdOverride?: string } = {}) {
+  const { t } = useTranslation();
+  const kvRef = useRef<KvEditorHandle>(null);
+  const { isCommandActive, isVisible } = useEditorSurfaceLifecycle();
+  const navigate = useNavigate();
+  const { leaveDeletedEntity } = useProjectNavigation();
+  const params = useParams<{ elementId: string; projectId: string }>();
+  const projectId = params.projectId;
+  const elementId = elementIdOverride ?? params.elementId;
+  const promoteCurrentTab = usePromoteCurrentTab(projectId);
+  const canPromoteOnEdit = useCanPromoteOnEdit(elementId);
+  const userId = useAuthStore((state) => state.user?.id);
+  // Per-slice selectors instead of `useDataStore()` (no selector) so this large
+  // view only re-renders when a slice it actually uses changes — not on every
+  // unrelated store mutation (storylines, relations, bookNodes, …).
+  const bookElements = useDataStore((s) => s.bookElements);
+  const bookElementCategories = useDataStore((s) => s.bookElementCategories);
+  const projectAssets = useDataStore((s) => s.projectAssets);
+  const elementUsecases = useBookElement({
+    projectId: projectId ?? '',
+    userId: userId ?? '',
+  });
+  const { createCategory } = useElementCategory({
+    projectId: projectId ?? '',
+    userId: userId ?? '',
+  });
+  const { updateElement } = elementUsecases;
+
+  const curElement = elementId ? (bookElements.find((e) => e.id === elementId) ?? null) : null;
+  const elementCategoryName = curElement?.categoryId
+    ? (bookElementCategories.find((category) => category.id === curElement.categoryId)?.name ?? null)
+    : null;
+  const generatedImageCommands = useGeneratedImageCommands({
+    projectId: projectId ?? '',
+    userId: userId ?? '',
+    elementUsecases,
+  });
+  const imageWorkflow = useElementImageWorkflow({
+    projectId: projectId ?? null,
+    elementId: elementId ?? null,
+    elementName: curElement?.name ?? '',
+    categoryName: elementCategoryName,
+    commands: generatedImageCommands,
+  });
+  const portraitAssetId = curElement?.portraitAssetId ?? null;
+  const portraitAsset = useMemo(() => {
+    if (!portraitAssetId) return null;
+    return projectAssets.find((asset) => asset.id === portraitAssetId) ?? null;
+  }, [portraitAssetId, projectAssets]);
+  const readyPortraitAssetId = portraitAsset?.id ?? null;
+
+  const [editingCategory, setEditingCategory] = useState(false);
+  const [nameValue, setNameValue] = useState(curElement?.name || '');
+  const [summaryValue, setSummaryValue] = useState(curElement?.summary || '');
+  const [nameDirty, setNameDirty] = useState(false);
+  const [summaryDirty, setSummaryDirty] = useState(false);
+  const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupNameInput, setGroupNameInput] = useState('');
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const [pendingComment, setPendingComment] = useState<EditorCommentRequest | null>(null);
+  const [portraitUrlByAssetId, setPortraitUrlByAssetId] = useState<Record<string, string>>({});
+  const [portraitPickerBusy, setPortraitPickerBusy] = useState(false);
+  const [portraitPreviewOpen, setPortraitPreviewOpen] = useState(false);
+  const [portraitErrorState, setPortraitErrorState] = useState<{
+    elementId: string | null;
+    assetId: string | null;
+    message: string;
+  } | null>(null);
+  const portraitUrl = readyPortraitAssetId
+    ? (portraitUrlByAssetId[readyPortraitAssetId] ?? null)
+    : null;
+  const portraitHasImageSlot = !!readyPortraitAssetId;
+  const portraitBusy = portraitPickerBusy;
+  const portraitError =
+    portraitErrorState?.elementId === (elementId ?? null) &&
+    portraitErrorState.assetId === portraitAssetId
+      ? portraitErrorState.message
+      : null;
+  const portraitPreviewMaterial = useMemo<LibraryItem | null>(() => {
+    if (!projectId || !curElement || !portraitAsset || !portraitUrl) return null;
+    const now = portraitAsset.createdAt || '1970-01-01T00:00:00.000Z';
+    return {
+      id: portraitAsset.id,
+      projectId,
+      title: curElement.name || t('elementEditor.untitled'),
+      kind: 'image',
+      assetId: portraitAsset.id,
+      externalUrl: null,
+      bodyJson: null,
+      notesJson: null,
+      provenanceJson: null,
+      previewImageUrl: null,
+      orderKey: 0,
+      folderId: null,
+      taskTodos: true,
+      createdAt: portraitAsset.createdAt || now,
+      updatedAt: now,
+    };
+  }, [projectId, curElement, portraitAsset, portraitUrl, t]);
+  // Clear the cell's "M" once the user opens this element (coarse — element
+  // writes arrive as structural changes; see useAgentChangeMarks).
+  useAgentChangeMarks(scrollEl, 'element', elementId, isVisible);
+  const commentToggle = useCommentMarksToggle(projectId ?? '', 'element', elementId ?? '');
+  const entityLinkInteractive = useSettingsStore((state) => state.entityLinkInteractive);
+  const setEntityLinkInteractive = useSettingsStore((state) => state.setEntityLinkInteractive);
+  const toggleEntityLinkInteractive = useCallback(
+    () => setEntityLinkInteractive(!entityLinkInteractive),
+    [entityLinkInteractive, setEntityLinkInteractive],
+  );
+
+  // Derive curElement from the store at render time. Local edit-state values
+  // (nameValue, summaryValue) reset whenever the underlying element id changes
+  // via the prev-snapshot pattern below to avoid the "setState in effect"
+  // anti-pattern.
+  const navigateIfMissingRef = useRef(false);
+  useEffect(() => {
+    if (!elementId && !navigateIfMissingRef.current) {
+      navigateIfMissingRef.current = true;
+      navigate('/', { replace: true });
+    }
+  }, [elementId, navigate]);
+
+  const [syncedElementKey, setSyncedElementKey] = useState({
+    routeId: elementId ?? null,
+    entityId: curElement?.id ?? null,
+    name: curElement?.name ?? '',
+    summary: curElement?.summary ?? '',
+  });
+  if (
+    syncedElementKey.routeId !== (elementId ?? null) ||
+    syncedElementKey.entityId !== (curElement?.id ?? null) ||
+    syncedElementKey.name !== (curElement?.name ?? '') ||
+    syncedElementKey.summary !== (curElement?.summary ?? '')
+  ) {
+    const entityChanged =
+      syncedElementKey.routeId !== (elementId ?? null) ||
+      syncedElementKey.entityId !== (curElement?.id ?? null);
+    setSyncedElementKey({
+      routeId: elementId ?? null,
+      entityId: curElement?.id ?? null,
+      name: curElement?.name ?? '',
+      summary: curElement?.summary ?? '',
+    });
+    if (entityChanged || !nameDirty) {
+      setNameDirty(false);
+      setNameValue(curElement?.name || '');
+    }
+    if (entityChanged || !summaryDirty) {
+      setSummaryDirty(false);
+      setSummaryValue(curElement?.summary || '');
+    }
+  }
+
+  const { ydoc, ydocError } = useEntityYjsDoc({
+    kind: 'element',
+    entityId: curElement?.id ?? '',
+    projectId: projectId ?? '',
+    seedContentJson: curElement?.contentJson ?? null,
+  });
+
+  const handlePersist = useCallback(
+    (_ed: Editor, { pmJson }: EditorPersistDerived) => {
+      if (!elementId) return;
+      if (pmJson === curElement?.contentJson) return;
+      if (isCommandActive && canPromoteOnEdit()) promoteCurrentTab();
+      void updateElement(elementId, { contentJson: pmJson });
+    },
+    [
+      elementId,
+      curElement?.contentJson,
+      canPromoteOnEdit,
+      isCommandActive,
+      updateElement,
+      promoteCurrentTab,
+    ],
+  );
+
+  const { editor, outline, ready: editorReady } = useEntityEditor({
+    sourceKind: 'element',
+    sourceId: curElement?.id ?? '',
+    projectId: projectId ?? '',
+    content: curElement?.contentJson ?? null,
+    documentMode: 'yjs',
+    ydoc,
+    onPersist: handlePersist,
+    placeholder: t('elementEditor.bodyPlaceholder'),
+    typewriterScrolling: true,
+    onAddCommentRequest: setPendingComment,
+    selectionKey:
+      projectId && curElement
+        ? editorTabSelectionKey(projectId, { entityType: 'element', id: curElement.id })
+        : null,
+    editable: Boolean(ydoc),
+  });
+  useReportEditorSurfaceReady(Boolean(curElement && (editorReady || ydocError)));
+
+  // Outline = framework anchors for every section of the element editor, in
+  // document order: 概述 → 记·传 (with its body headings nested as sub-structure)
+  // → 字段 → 关联 → 补丁. Sections carry no ordinal — the order is
+  // the only ranking. Built before the early return below so the scrollspy hook
+  // always runs (Rules of Hooks).
+  const frameworkItems: OutlineEntry[] = [
+    { id: 'el-overview', level: 2, kind: 'section', text: t('elementEditor.sections.overview') },
+    {
+      id: 'el-bio',
+      level: 2,
+      kind: 'section',
+      text: t('elementEditor.sections.bio'),
+      children: nestHeadings(outline),
+    },
+    { id: 'el-kv', level: 2, kind: 'section', text: t('elementEditor.sections.facts') },
+    {
+      id: 'el-relations',
+      level: 2,
+      kind: 'section',
+      text: t('referencesPanel.sections.relations'),
+    },
+    { id: 'el-patches', level: 2, kind: 'section', text: t('elementEditor.sections.patches') },
+  ];
+  // Scrollspy needs the FLAT id list (framework anchors + every heading),
+  // not just the nested tree's roots.
+  const outlineIds = [...frameworkItems.map((item) => item.id), ...outline.map((heading) => heading.id)];
+
+  const commitName = async () => {
+    if (!elementId) return;
+    setNameDirty(false);
+    const next = nameValue.trim();
+    if (!next || next === curElement?.name) return;
+    promoteCurrentTab();
+    try {
+      await updateElement(elementId, { name: next });
+    } catch (err) {
+      if (err instanceof ElementNameConflictError) {
+        alert(
+          t('elementEditor.alerts.renameConflict', {
+            name: next,
+            conflicting: err.conflictingElement.name,
+          }),
+        );
+        setNameValue(curElement?.name ?? '');
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // Aliases editor — chip list + inline draft input. Conflict surfacing
+  // mirrors commitName: ElementNameConflictError → alert + abort.
+  const [aliasDraft, setAliasDraft] = useState('');
+  const writeAliases = async (next: string[]) => {
+    if (!elementId) return;
+    promoteCurrentTab();
+    try {
+      await updateElement(elementId, { aliases: next });
+    } catch (err) {
+      if (err instanceof ElementNameConflictError) {
+        alert(
+          t('elementEditor.alerts.aliasConflict', {
+            name: err.conflictingName,
+            conflicting: err.conflictingElement.name,
+          }),
+        );
+        return;
+      }
+      throw err;
+    }
+  };
+  const addAlias = async () => {
+    const trimmed = aliasDraft.trim();
+    setAliasDraft('');
+    if (!trimmed || !curElement) return;
+    // Idempotent local check — don't bother round-tripping if it's already in
+    // this element's own list (the project-wide uniqueness check would not
+    // catch self-overlap because we exclude self in the conflict scan).
+    if (curElement.aliases.some((a) => a.trim().toLowerCase() === trimmed.toLowerCase())) {
+      return;
+    }
+    await writeAliases([...curElement.aliases, trimmed]);
+  };
+  const removeAlias = async (idx: number) => {
+    if (!curElement) return;
+    const next = curElement.aliases.filter((_, i) => i !== idx);
+    await writeAliases(next);
+  };
+  // 概要 textarea 自动增高，去掉固定 rows 的裁切
+  const summaryRef = useAutosizeTextArea(summaryValue);
+
+  const commitSummary = async () => {
+    if (!elementId) return;
+    setSummaryDirty(false);
+    if (summaryValue === curElement?.summary) return;
+    promoteCurrentTab();
+    await updateElement(elementId, { summary: summaryValue });
+  };
+
+  const commitKv = useCallback(
+    (nextJson: string) => {
+      if (!elementId || nextJson === curElement?.kvJson) return;
+      promoteCurrentTab();
+      void updateElement(elementId, { kvJson: nextJson });
+    },
+    [elementId, curElement?.kvJson, updateElement, promoteCurrentTab],
+  );
+
+  // Unread presentation of committed Agent summary and kv edits.
+  const fieldReview = useFieldReview('element', elementId);
+
+  const handleCreateNewCategory = async () => {
+    if (!newCategoryName.trim() || !elementId) return;
+    const created = await createCategory({ name: newCategoryName.trim() });
+    await updateElement(elementId, { categoryId: created.id });
+    setShowNewCategoryModal(false);
+    setNewCategoryName('');
+    setEditingCategory(false);
+  };
+
+  const applyGroup = async (nextGroup: string | null) => {
+    setShowGroupModal(false);
+    if (!elementId || !curElement) return;
+    if (nextGroup === (curElement.groupName ?? null)) return;
+    try {
+      await updateElement(elementId, { groupName: nextGroup });
+    } catch (error) {
+      log.error('Failed to update group:', error);
+      alert(t('elementEditor.alerts.groupUpdateFailed'));
+    }
+  };
+
+  const handleSaveGroup = () => {
+    const trimmed = groupNameInput.trim();
+    void applyGroup(trimmed === '' ? null : trimmed);
+  };
+
+  // All distinct groupNames currently used by elements in this element's
+  // category — drives the combobox list in the group modal.
+  const groupOptions = useMemo(() => {
+    if (!curElement) return [];
+    const categoryId = curElement.categoryId;
+    const names = new Set<string>();
+    bookElements.forEach((el) => {
+      if (el.categoryId !== categoryId) return;
+      if (!el.groupName) return;
+      names.add(el.groupName);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [bookElements, curElement]);
+  const groupQuery = groupNameInput.trim();
+  const filteredGroups = useMemo(() => {
+    if (!groupQuery) return groupOptions;
+    const q = groupQuery.toLowerCase();
+    return groupOptions.filter((g) => g.toLowerCase().includes(q));
+  }, [groupOptions, groupQuery]);
+  const groupQueryIsExisting = groupQuery !== '' && groupOptions.includes(groupQuery);
+
+  useEffect(() => {
+    let canceled = false;
+    if (!projectId || !readyPortraitAssetId) {
+      return () => {
+        canceled = true;
+      };
+    }
+    if (portraitUrl) {
+      return () => {
+        canceled = true;
+      };
+    }
+
+    const asset = portraitAsset;
+    if (!asset) {
+      return () => {
+        canceled = true;
+      };
+    }
+
+    assetStoreService
+      .requireVariant(projectId, asset, 'display')
+      .then((stored) => {
+        if (!canceled) {
+          setPortraitUrlByAssetId((prev) => ({ ...prev, [readyPortraitAssetId]: stored.fileUrl }));
+          setPortraitErrorState(null);
+        }
+      })
+      .catch((error) => {
+        log.error('Failed to load element portrait:', error);
+        if (!canceled) {
+          setPortraitErrorState({
+            elementId: elementId ?? null,
+            assetId: readyPortraitAssetId,
+            message: t('elementEditor.portrait.loadFailed'),
+          });
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [projectId, elementId, portraitAsset, readyPortraitAssetId, portraitUrl, t]);
+
+  const handleImportPortrait = useCallback(async () => {
+    if (!projectId || !elementId) return;
+    setPortraitErrorState(null);
+    let pickedImportPath: string | null = null;
+    let ownershipTransferred = false;
+
+    try {
+      setPortraitPickerBusy(true);
+      const picked = await platform.material.pickFile('image');
+      if (!picked.ok) return;
+      pickedImportPath = picked.filePath;
+      await generatedImageCommands.replacePortraitFromLocalFile(elementId, picked.filePath);
+      ownershipTransferred = true;
+    } catch (error) {
+      log.error('Failed to import element portrait:', error);
+      setPortraitErrorState({
+        elementId,
+        assetId: portraitAssetId,
+        message: error instanceof HostedQuotaExceededError
+          ? error.message
+          : t('elementEditor.portrait.importFailed'),
+      });
+    } finally {
+      if (pickedImportPath && !ownershipTransferred) {
+        const deleted = await platform.material.deleteImport(pickedImportPath).catch((error) => {
+          log.error('Failed to clean unowned portrait import:', error);
+          return null;
+        });
+        if (deleted && !deleted.ok) {
+          log.error('Failed to clean unowned portrait import:', deleted.error);
+        }
+      }
+      setPortraitPickerBusy(false);
+    }
+  }, [projectId, elementId, portraitAssetId, generatedImageCommands, t]);
+
+  const handleRemovePortrait = useCallback(async () => {
+    if (!projectId || !elementId || !portraitAssetId) return;
+    const assetId = portraitAssetId;
+    const previousUrl = portraitUrlByAssetId[assetId] ?? null;
+    setPortraitErrorState(null);
+    setPortraitUrlByAssetId((prev) => {
+      const next = { ...prev };
+      delete next[assetId];
+      return next;
+    });
+
+    try {
+      await elementUsecases.removeElementPortrait(elementId);
+    } catch (error) {
+      log.error('Failed to remove element portrait:', error);
+      if (previousUrl) {
+        setPortraitUrlByAssetId((prev) => ({ ...prev, [assetId]: previousUrl }));
+      }
+      setPortraitErrorState({
+        elementId,
+        assetId,
+        message: t('elementEditor.portrait.removeFailed'),
+      });
+    }
+  }, [
+    projectId,
+    elementId,
+    portraitAssetId,
+    portraitUrlByAssetId,
+    elementUsecases,
+    t,
+  ]);
+
+  const handleContextAction = useCallback(
+    async (action: string) => {
+      if (!elementId || !curElement) return;
+      if (action === 'deleteElement') {
+        const confirmed = await requestConfirmation(
+          t('elementEditor.deleteConfirm', { name: curElement.name }),
+        );
+        if (!confirmed) return;
+        try {
+          await elementUsecases.removeElement(elementId);
+          leaveDeletedEntity();
+        } catch (error) {
+          log.error('Failed to delete element:', error);
+          alert(t('elementEditor.alerts.deleteFailed'));
+        }
+      } else if (action === 'categoryPicker') {
+        setEditingCategory(true);
+      } else if (action === 'groupPicker') {
+        setGroupNameInput('');
+        setShowGroupModal(true);
+      }
+    },
+    [elementId, curElement, elementUsecases, leaveDeletedEntity, t],
+  );
+
+  // Pending-action consumer — see NodeEditorView for the queue rationale.
+  const pendingEntityAction = useUiStore((s) => s.pendingEntityAction);
+  const consumeEntityAction = useUiStore((s) => s.consumeEntityAction);
+  useEffect(() => {
+    if (!isCommandActive) return;
+    if (!elementId || !curElement) return;
+    if (!pendingEntityAction) return;
+    const queued = consumeEntityAction('element', elementId);
+    if (queued) queueMicrotask(() => void handleContextAction(queued));
+  }, [
+    isCommandActive,
+    elementId,
+    curElement,
+    pendingEntityAction,
+    consumeEntityAction,
+    handleContextAction,
+  ]);
+
+  if (!elementId || !curElement) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          color: 'hsl(var(--ink-4))',
+        }}
+      >
+        {t('elementEditor.empty.selectElement')}
+      </div>
+    );
+  }
+
+  const currentCategory = bookElementCategories.find((cat) => cat.id === curElement.categoryId);
+  // Element's summary buffer is local + only re-seeds on id change, so sync it
+  // explicitly when a summary review resolves (accept → new, reject → old).
+  const summaryReviewChange = fieldReview.summaryChange;
+  const aliasInputProps = {
+    type: 'text',
+    value: aliasDraft,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setAliasDraft(e.target.value),
+    onBlur: () => void addAlias(),
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        void addAlias();
+      }
+      if (e.key === 'Escape') {
+        setAliasDraft('');
+        e.currentTarget.blur();
+      }
+    },
+    placeholder:
+      curElement.aliases.length === 0
+        ? t('elementEditor.alias.addFirst')
+        : t('elementEditor.alias.add'),
+  };
+  const groupInputProps = {
+    type: 'text',
+    value: groupNameInput,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setGroupNameInput(e.target.value),
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSaveGroup();
+      }
+      if (e.key === 'Escape') setShowGroupModal(false);
+    },
+    placeholder: t('elementEditor.group.placeholder'),
+    autoFocus: true,
+  };
+  const closeNewCategory = () => {
+    setShowNewCategoryModal(false);
+    setNewCategoryName('');
+    setEditingCategory(false);
+  };
+  const newCategoryInputProps = {
+    type: 'text',
+    value: newCategoryName,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setNewCategoryName(e.target.value),
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') handleCreateNewCategory();
+      if (e.key === 'Escape') closeNewCategory();
+    },
+    placeholder: t('elementEditor.category.namePlaceholder'),
+    autoFocus: true,
+  };
+  const choiceTick = <BrushIcon name="check" size={11} className="entity-choice__tick" />;
+
+  return (
+    <div className="editor-shell" style={{ height: '100%', position: 'relative' }}>
+      <EditorTopBar
+        editorType="element"
+        onMenuAction={handleContextAction}
+        imageEntry={
+          <ElementImageEntry
+            imageUrl={portraitUrl}
+            hasImage={portraitHasImageSlot}
+            busy={portraitBusy}
+            error={portraitError}
+            onViewLarge={() => setPortraitPreviewOpen(true)}
+            onImportFromFile={() => void handleImportPortrait()}
+            onRemove={() => void handleRemovePortrait()}
+            workflow={imageWorkflow}
+          />
+        }
+        shareTarget={projectId && curElement ? { projectId, kind: 'element', id: curElement.id, title: curElement.name } : undefined}
+        referenceLinkToggle={{
+          enabled: entityLinkInteractive,
+          onToggle: toggleEntityLinkInteractive,
+        }}
+        commentToggle={commentToggle}
+      />
+
+      {/* Mode-controlled semantic TOC beside the native scroll tree. */}
+      <div className="editor-body">
+        <EditorOutlineRail
+          title={`${curElement.name || 'ELEMENT'} · OUTLINE`}
+          items={frameworkItems}
+          scrollspyIds={outlineIds}
+          onItemClick={(id) => {
+            scrollToOutlineAnchor(id, scrollEl);
+          }}
+        />
+        <div
+          className="editor-scroll"
+          ref={setScrollEl}
+        >
+          <div className="editor__spread">
+            <article className="page page--entity">
+              <div className="page__folio" aria-hidden="true">
+                <span className="page__folio-line">{t('elementEditor.folio')}</span>
+                {currentCategory && (
+                  <span className="page__folio-line page__folio-storyline">
+                    <KindMark kind="category" color={currentCategory.color ?? undefined} />
+                    {currentCategory.name}
+                    {curElement.groupName ? ` - ${curElement.groupName}` : ''}
+                  </span>
+                )}
+              </div>
+
+              <section id="el-overview" className="elem-overview">
+                <div className="elem-hero">
+                  <div className="elem-hero__main">
+                    <EntityTitleField
+                      className="elem-hero__name"
+                      value={nameValue}
+                      onChange={(e) => {
+                        setNameDirty(true);
+                        setNameValue(e.target.value);
+                      }}
+                      onBlur={() => void commitName()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                        if (e.key === 'Escape') {
+                          setNameDirty(false);
+                          setNameValue(curElement.name || '');
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      placeholder={t('elementEditor.untitled')}
+                    />
+
+                    {/* Aliases: plain words set apart by a dot, the one under
+                      the pointer ringed like a sidebar cell. */}
+                    <div className="entity-aliases">
+                      {curElement.aliases.map((alias, idx) => (
+                        <Fragment key={`${alias}-${idx}`}>
+                          {idx > 0 && <span className="entity-alias__sep" aria-hidden="true">·</span>}
+                          <span className="entity-alias sand-cell">
+                            {alias}
+                            <button
+                              type="button"
+                              className="entity-alias__remove"
+                              onClick={() => void removeAlias(idx)}
+                              title={t('elementEditor.alias.remove')}
+                              aria-label={t('elementEditor.alias.remove')}
+                            >
+                              <BrushIcon name="close" size={9} />
+                            </button>
+                            <i className="cell-ring" aria-hidden="true" />
+                          </span>
+                        </Fragment>
+                      ))}
+                      <input {...aliasInputProps} className="entity-aliases__input" />
+                    </div>
+
+                    {/* DEFERRED: KV facts list (alias / 类目 / 生年 / 首次出场 …)
+                      Needs schema migration to add typed fields per category, plus
+                      a category-level field definition surface (see CategoryEditor
+                      § 字段定义 in design). Once implemented, render here. */}
+                  </div>
+                </div>
+                <div data-agent-summary>
+                  {summaryReviewChange ? (
+                    <FieldReview
+                      change={summaryReviewChange}
+                      onAccept={() => {
+                        setSummaryDirty(false);
+                        fieldReview.accept(summaryReviewChange);
+                        setSummaryValue(summaryReviewChange.newText);
+                      }}
+                    />
+                  ) : (
+                    <textarea
+                      ref={summaryRef}
+                      className="page__sub"
+                      value={summaryValue}
+                      onChange={(e) => {
+                        setSummaryDirty(true);
+                        setSummaryValue(e.target.value);
+                      }}
+                      onBlur={() => void commitSummary()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setSummaryDirty(false);
+                          setSummaryValue(curElement.summary || '');
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      placeholder={t('elementEditor.summaryPlaceholder')}
+                      rows={1}
+                    />
+                  )}
+                </div>
+              </section>
+
+              {/* 记·传 — the element's free-form biography (TipTap body). Sits
+                directly under the hero so the prose leads; structured 字段
+                follow. Its H1/H2/H3 headings nest under this anchor in the TOC. */}
+              <h2 id="el-bio" className="page__section">
+                <span className="page__section-title">{t('elementEditor.sections.bioTitle')}</span>
+              </h2>
+              <div className="elem-body">
+                {ydocError ? <EditorDocumentLoadError /> : <EditorContent editor={editor} />}
+              </div>
+
+              {/* 字段 — element's own KV facts. Seeded at creation from the
+                category's elementTemplateKvJson; owned thereafter. */}
+              <h2 id="el-kv" className="page__section">
+                <span className="page__section-title">{t('elementEditor.sections.facts')}</span>
+                <KvAddButton onClick={() => kvRef.current?.addRow()} />
+              </h2>
+              <div className="elem-body">
+                <FieldReviewStrip
+                  changes={fieldReview.kvChanges}
+                  onAccept={fieldReview.accept}
+                />
+                <KvEditor
+                  ref={kvRef}
+                  key={`el-kv-${curElement.id}`}
+                  valueJson={curElement.kvJson}
+                  onPersist={commitKv}
+                  suppressKeys={new Set(fieldReview.kvChanges.map((c) => c.field?.key ?? ''))}
+                  emptyHint={t('elementEditor.empty.noFacts')}
+                />
+              </div>
+
+              {/* Manual relations stay in the body (they're authored here, with
+                the link picker); 被引用/引用其他 are read-only projections and
+                live in the right sidebar's stats panel instead. */}
+              {elementId && projectId && (
+                <div id="el-relations" style={{ scrollMarginTop: 24 }}>
+                  <ReferencesPanel
+                    entityKind="element"
+                    entityId={elementId}
+                    projectId={projectId}
+                    sections={['relations']}
+                  />
+                </div>
+              )}
+              {elementId && projectId && (
+                <div id="el-patches" style={{ scrollMarginTop: 24 }}>
+                  <PatchesSection elementId={elementId} projectId={projectId} />
+                </div>
+              )}
+            </article>
+          </div>
+        </div>
+        <EditorCommentComposer
+          projectId={projectId ?? curElement.projectId}
+          targetKind="element"
+          targetId={elementId}
+          request={pendingComment}
+          onClose={() => setPendingComment(null)}
+        />
+        <EditorReviewLayer
+          projectId={projectId ?? curElement.projectId}
+          entityType="element"
+          id={elementId}
+          scrollEl={scrollEl}
+        />
+      </div>
+
+      {/* Category picker (triggered from 3-dot menu) */}
+      {editingCategory && (
+        <ModalRoot
+          onClose={() => setEditingCategory(false)}
+          ariaLabel={t('elementEditor.category.change')}
+        >
+          <ModalCard width={360}>
+            <ModalHeader
+              title={t('elementEditor.category.change')}
+              onClose={() => setEditingCategory(false)}
+              closeLabel={t('common.close')}
+            />
+            <ModalBody>
+            <div className="entity-choice" role="listbox" aria-label={t('elementEditor.category.change')}>
+              {bookElementCategories.map((cat) => {
+                const current = cat.id === curElement.categoryId;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    role="option"
+                    aria-selected={current}
+                    className={`menu-surface__item entity-choice__row${current ? ' entity-choice__row--current' : ''}`}
+                    onClick={() => {
+                      void updateElement(elementId, { categoryId: cat.id });
+                      setEditingCategory(false);
+                    }}
+                  >
+                    <KindMark kind="category" color={cat.color ?? undefined} />
+                    <span>{cat.name}</span>
+                    {current && choiceTick}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="menu-surface__item entity-choice__row entity-choice__row--create"
+                onClick={() => {
+                  setEditingCategory(false);
+                  setShowNewCategoryModal(true);
+                }}
+              >
+                <BrushIcon name="plus" size={11} />
+                <span>{t('elementEditor.category.newOption')}</span>
+              </button>
+            </div>
+            </ModalBody>
+          </ModalCard>
+        </ModalRoot>
+      )}
+
+      {showGroupModal && (
+        <ModalRoot
+          onClose={() => setShowGroupModal(false)}
+          ariaLabel={t('elementEditor.group.title', {
+            category: currentCategory?.name ?? t('storyGraph.edge.uncategorized'),
+          })}
+        >
+          <ModalCard width={420}>
+            <ModalHeader
+              title={t('elementEditor.group.title', {
+                category: currentCategory?.name ?? t('storyGraph.edge.uncategorized'),
+              })}
+              onClose={() => setShowGroupModal(false)}
+              closeLabel={t('common.close')}
+            />
+            <ModalBody>
+            <>
+              <label className="ui-field glass glass--rest glass--field glass--small">
+                <input {...groupInputProps} />
+              </label>
+              <div className="entity-choice" role="listbox" aria-label={t('elementEditor.group.title', {
+                category: currentCategory?.name ?? t('storyGraph.edge.uncategorized'),
+              })}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={curElement.groupName == null}
+                  className={`menu-surface__item entity-choice__row entity-choice__row--none${curElement.groupName == null ? ' entity-choice__row--current' : ''}`}
+                  onClick={() => void applyGroup(null)}
+                >
+                  <span>{t('elementEditor.group.noGroup')}</span>
+                  {curElement.groupName == null && choiceTick}
+                </button>
+                {filteredGroups.length === 0 && groupQuery === '' && (
+                  <div className="entity-choice__empty">{t('elementEditor.group.empty')}</div>
+                )}
+                {filteredGroups.map((name) => {
+                  const current = name === curElement.groupName;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      role="option"
+                      aria-selected={current}
+                      className={`menu-surface__item entity-choice__row${current ? ' entity-choice__row--current' : ''}`}
+                      onClick={() => void applyGroup(name)}
+                    >
+                      <span>{name}</span>
+                      {current && choiceTick}
+                    </button>
+                  );
+                })}
+                {groupQuery !== '' && !groupQueryIsExisting && (
+                  <button
+                    type="button"
+                    className="menu-surface__item entity-choice__row entity-choice__row--create"
+                    onClick={() => void applyGroup(groupQuery)}
+                  >
+                    <BrushIcon name="plus" size={11} />
+                    <span>{t('elementEditor.group.create', { name: groupQuery })}</span>
+                  </button>
+                )}
+              </div>
+            </>
+            </ModalBody>
+            <ModalActions>
+              <Button variant="default" onClick={() => setShowGroupModal(false)}>
+                {t('common.cancel')}
+              </Button>
+            </ModalActions>
+          </ModalCard>
+        </ModalRoot>
+      )}
+
+      {showNewCategoryModal && (
+        <ModalRoot
+          onClose={closeNewCategory}
+          ariaLabel={t('elementEditor.category.newTitle')}
+        >
+          <ModalCard width={360}>
+            <ModalHeader
+              title={t('elementEditor.category.newTitle')}
+              onClose={closeNewCategory}
+              closeLabel={t('common.close')}
+            />
+            <ModalBody>
+            <label className="ui-field glass glass--rest glass--field glass--small">
+              <input {...newCategoryInputProps} />
+            </label>
+            </ModalBody>
+            <ModalActions>
+              <Button
+                variant="default"
+                onClick={closeNewCategory}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCreateNewCategory}
+              >
+                {t('elementEditor.category.create')}
+              </Button>
+            </ModalActions>
+          </ModalCard>
+        </ModalRoot>
+      )}
+
+      {imageWorkflow.preview && <ElementImageCandidatePreview {...imageWorkflow.preview} />}
+      {portraitPreviewOpen && portraitPreviewMaterial && (
+        <LibraryItemFullscreenPreview
+          material={portraitPreviewMaterial}
+          onClose={() => setPortraitPreviewOpen(false)}
+        />
+      )}
+    </div>
+  );
+}

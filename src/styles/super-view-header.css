@@ -1,0 +1,1078 @@
+/* ============================================================
+   Shared top header for fullscreen "super views" (StoryGraphView,
+   SuperElementView, SuperMemoMaterialView). Shared native-titlebar-height
+   bar with title +
+   back + left/right slots; left padding clears the macOS native
+   controls when present. Tauri's drag-region script automatically
+   excludes interactive descendants.
+   ============================================================ */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+/* One viewport shell for StoryGraph, SuperElement, and SuperMemoMaterial.
+   Features may attach their own class for local tokens, but fixed geometry
+   and shell behavior stay here so the three surfaces cannot drift apart. */
+.super-view-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--super-view-bottom-inset);
+  z-index: 250;
+  background: hsl(var(--paper));
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans);
+}
+.super-mm-overlay {
+  min-height: 0;
+}
+
+/* Shared body wrapper for SuperElementView (added on the canvas viewport)
+   and SuperMemoMaterialView (wraps the split row + BottomDrawer). It keeps
+   the three full-screen work surfaces on one shared shell.
+   StoryGraphView already has an equivalent .graph-body
+   wrapper and is targeted alongside this class below. */
+.super-view-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Flat full-screen workspace ────────────────────────────────────
+   Header and body meet at one hairline with no inset, gap, radius or
+   elevation. On desktop the inset is 0: the overlay covers the whole window
+   and the workspace under it is inert (useInertUnderSuperView). The paused
+   mobile shell keeps its own inset.
+   ──────────────────────────────────────────────────────────────── */
+.super-view-overlay {
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--super-view-bottom-inset);
+  background: hsl(var(--paper-deep));
+  padding: 0;
+  gap: 0;
+}
+
+/* First-class work surfaces are sharp and unelevated here. */
+.super-view-head,
+.super-view-body {
+  border-radius: 0;
+  box-shadow: none;
+}
+.super-view-body {
+  overflow: hidden;
+}
+
+/* The header belongs to the base plane; the body paints the work surface. */
+.super-view-head {
+  background: hsl(var(--paper-deep));
+  /* Header popovers (e.g. StoryGraphView's edge menu) must stack over the
+     body below. */
+  overflow: visible;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+.super-view-body {
+  background: hsl(var(--paper));
+}
+
+.super-view-head {
+  /* position:relative without z-index keeps this a positioning anchor
+     WITHOUT establishing a stacking context. Earlier this carried
+     `z-index: 2`, which trapped the header's floating popovers (e.g. the
+     graph view's edge-kind manager / unplaced drawer, both z-index: 270)
+     inside a level-2 context — so body content like graph tiles (z-index:
+     3) and the sticky narrative axis (z-index: 25) painted OVER them. The
+     header bar never overlaps the body except through those popovers, so
+     it needs no z-index of its own; letting the popovers resolve against
+     the overlay's stacking context (z-index: 250) puts them above the
+     canvas as designed. */
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--window-titlebar-height);
+  padding: 0 18px;
+  border-bottom: 1px solid hsl(var(--rule));
+  background: hsl(var(--paper-deep));
+  flex-shrink: 0;
+  gap: 16px;
+  font-family: var(--font-sans);
+}
+
+.super-view-head[data-leading-window-controls] {
+  /* The flat overlay starts at the viewport edge. */
+  padding-left: calc(var(--window-header-leading-inset) - var(--window-surface-inline-inset));
+}
+
+.super-view-head__left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.super-view-head__right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.super-view-head__right > :not(.header-chip-strip, .super-view-head__hint) {
+  flex-shrink: 0;
+}
+
+.super-view-head__back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 50%;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.super-view-head__back:hover {
+  color: hsl(var(--ink-1));
+  background: hsl(var(--rule));
+}
+/* Desktop: round glass of the shared size (materials.css). */
+.super-view-head__back.glass--round {
+  width: var(--glass-round-size);
+  height: var(--glass-round-size);
+}
+.super-view-head__back.glass--round > .brush-icon {
+  width: var(--glass-round-icon);
+  height: var(--glass-round-icon);
+}
+.super-view-head__meta {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: var(--ui-font-caption, 10px);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+/* Desktop (砂笔 + 素玻璃): the back button is round glass at the sidebar
+   toggles' size, its resting line only; the views are one of three on the
+   glass slider; the reading is index type, not uppercase. The paused mobile
+   shell keeps the segmented switcher and the filled hover above. */
+html[data-shell-mode] .super-view-head__back.glass {
+  width: 28px;
+  height: 28px;
+  color: hsl(var(--ink-2));
+  transition: color 0.12s;
+}
+
+html[data-shell-mode] .super-view-head__back.glass:hover {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+
+.super-view-head__views {
+  display: inline-flex;
+  align-items: center;
+}
+
+html[data-shell-mode] .super-view-head .glass-slider {
+  height: 26px;
+}
+
+html[data-shell-mode] .super-view-head .glass-slider__option {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  font: var(--ui-font-secondary, 11.5px)/1 var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+html[data-shell-mode] .super-view-head .glass-slider__option[aria-checked='true'] {
+  font-weight: 500;
+}
+
+/* The three views are destinations, like the Panel Tabs: the serif
+   structure face at one weight, the chosen one shown by its glass alone.
+   They sit as the Panel Tabs' row does: the square slab stops 2px short of
+   the header's top and bottom, and the views tile the switcher with no gap
+   between them, so the room beside the chosen name is half the 32px from
+   one name to the next. The switcher reaches 6px into the header's 14px on
+   either side, which keeps the names where 10px options and a 12px gap put
+   them. The views' own modes (书序／叙事时) stay controls in the UI face above. */
+html[data-shell-mode] .super-view-head__views .glass-slider {
+  margin-inline: -6px;
+  height: calc(var(--window-titlebar-height) - 4px);
+}
+
+html[data-shell-mode] .super-view-head__views .glass-slider__option,
+html[data-shell-mode] .super-view-head__views .glass-slider__option[aria-checked='true'] {
+  padding-inline: 16px;
+  font-family: var(--font-structure);
+  font-weight: 400;
+  font-optical-sizing: auto;
+}
+
+/* Ideographs drop onto the Latin line, as in the Panel Tabs, so a Chinese
+   view name centres in the glass slab. */
+html[data-shell-mode] .super-view-head__views [data-script='cjk'] {
+  position: relative;
+  top: 0.15em;
+}
+
+html[data-shell-mode] .super-view-head__meta {
+  font-size: var(--ui-font-caption, 10px);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+/* A short sentence for the mode the canvas is in (picking a relation's
+   other end): unframed index type; the source is its sand mark and name. */
+.super-view-head__hint {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: var(--ui-font-caption, 10px)/1 var(--font-mono);
+  white-space: nowrap;
+}
+
+.super-view-head__hint-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: hsl(var(--ink-1));
+}
+
+.super-view-head__hint-source > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The chip collection is the first header control allowed to yield space.
+   Every chip keeps its natural width for measurement; only complete leading
+   chips are revealed, so the trailing edge never shows a clipped half-chip. */
+.header-chip-strip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 26px;
+  overflow: hidden;
+}
+
+.header-chip-strip__content {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  width: max-content;
+  white-space: nowrap;
+}
+
+.header-chip-strip__item {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.header-chip-strip__item[data-hidden] {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* A chip backed by an edge rising from the bottom Drift Panel. Header chips
+   receive this state only while the panel is open; the complete relation menu
+   preserves it as provenance even while the panel is closed. Its colored
+   border uses the edge layer's 5/7 dash rhythm and 1.8s flow cadence. */
+:is(.header-chip-strip, .relation-kind-menu__chips) .filter-chip--drift-edge {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: transparent;
+  box-shadow: 0 0 5px color-mix(in srgb, var(--filter-chip-marker) 18%, transparent);
+}
+
+:is(.header-chip-strip, .relation-kind-menu__chips) .filter-chip--drift-edge .filter-chip__marker {
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  box-shadow: 0 0 4px color-mix(in srgb, var(--filter-chip-marker) 72%, transparent);
+}
+
+:is(.header-chip-strip, .relation-kind-menu__chips) .filter-chip--drift-edge::after {
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--filter-chip-marker) 0 5px,
+    transparent 5px 12px
+  );
+  background-size: 12px 100%;
+  content: '';
+  opacity: 0.82;
+  filter: drop-shadow(0 0 2px var(--filter-chip-marker));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(.header-chip-strip, .relation-kind-menu__chips) .filter-chip--drift-edge.is-active::after {
+    animation: header-drift-chip-flow 1.8s linear infinite;
+  }
+}
+
+@keyframes header-drift-chip-flow {
+  to {
+    background-position-x: -24px;
+  }
+}
+
+/* One shared trigger/menu for every graph-style relation-type surface. */
+.relation-kind-menu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.relation-kind-menu {
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow: hidden auto;
+  border-color: var(--menu-surface-border);
+  border-radius: var(--menu-surface-radius);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-surface-shadow);
+}
+
+.relation-kind-menu__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+
+.relation-kind-menu__title,
+.relation-kind-menu__section-label {
+  font-size: var(--ui-font-caption, 9.5px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.relation-kind-menu__section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.relation-kind-menu__section-title-row > button {
+  border: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9px);
+  cursor: pointer;
+}
+
+.relation-kind-menu__type-group + .relation-kind-menu__type-group {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid hsl(var(--rule) / 0.72);
+}
+
+.relation-kind-menu__group-label {
+  padding: 2px 4px 3px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 8.5px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.relation-kind-menu__other-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: hsl(var(--ink-1) / 0.035);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-secondary, 11px);
+  cursor: pointer;
+}
+
+.relation-kind-menu__other-toggle:hover,
+.relation-kind-menu__other-toggle[aria-expanded='true'] {
+  background: var(--menu-item-hover-bg);
+  color: hsl(var(--ink-1));
+}
+
+.relation-kind-menu__other-toggle > :last-child {
+  min-width: 18px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9px);
+  text-align: right;
+}
+
+.relation-kind-menu__delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.relation-type-editor {
+  margin: 6px 0;
+  padding: 9px;
+  border-radius: 4px;
+  background: hsl(var(--ink-1) / 0.035);
+}
+
+.relation-type-editor__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.relation-type-editor label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 8px);
+}
+
+.relation-type-editor input,
+.relation-type-editor select {
+  min-width: 0;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 3px;
+  padding: 4px 6px;
+  color: hsl(var(--ink-1));
+  background: hsl(var(--paper));
+  font: var(--ui-font-secondary, 11px)/var(--ui-line-caption, normal) var(--font-sans);
+}
+
+.relation-type-editor__error {
+  margin-top: 7px;
+  color: hsl(var(--danger));
+  font-size: var(--ui-font-caption, 10px);
+}
+
+.relation-type-create-modal {
+  overflow-y: auto;
+}
+
+.relation-kind-menu__title {
+  color: hsl(var(--ink-2));
+}
+
+.relation-kind-menu__summary {
+  margin-top: 3px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-caption, 10px);
+}
+
+.relation-kind-menu__visible-summary {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 1px;
+  background: hsl(var(--ink-1) / 0.06);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-caption, 9px);
+  font-variant-numeric: tabular-nums;
+}
+
+.relation-kind-menu__section {
+  min-width: 0;
+}
+
+.relation-kind-menu__section--manage {
+  padding-top: 8px;
+  border-top: 1px solid hsl(var(--rule));
+}
+
+.relation-kind-menu__section-label {
+  margin: 0 2px 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.relation-kind-menu__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.relation-kind-menu__chips .filter-chip {
+  max-width: 100%;
+}
+
+.relation-kind-menu__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 4px;
+  border-radius: var(--radius-xs);
+  transition: background 100ms;
+}
+
+.relation-kind-menu__row:hover {
+  background: var(--menu-item-hover-bg);
+}
+
+.relation-kind-menu__name {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-body, 12.5px);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button.relation-kind-menu__name:hover {
+  background: hsl(var(--ink-1) / 0.04);
+}
+
+.relation-kind-menu__name.is-static {
+  cursor: default;
+}
+
+.relation-kind-menu__name-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid hsl(var(--accent));
+  border-radius: var(--radius-xs);
+  outline: none;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-1));
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-body, 12.5px);
+}
+
+.relation-kind-menu__count {
+  min-width: 24px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-caption, 9.5px);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.relation-kind-menu__delete {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-heading, 16px);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.relation-kind-menu__delete:hover {
+  background: var(--menu-item-danger-hover-bg);
+  color: var(--menu-item-danger);
+}
+
+.relation-kind-menu__empty {
+  padding: 12px 8px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-secondary, 12px);
+  font-style: italic;
+  text-align: center;
+}
+
+html[data-shell-mode='mobile'] .super-view-overlay {
+  top: var(--safe-area-top);
+  right: var(--safe-area-right);
+  bottom: max(var(--super-view-bottom-inset), var(--safe-area-bottom));
+  left: var(--safe-area-left);
+}
+
+/* ─── Desktop relation-type menu (砂笔 + 素玻璃) ─────────────────────
+   The menu shell with two parts parted by 8px of space, no rules: the
+   canvas filter as Chips, then the type definitions as menu rows (the row
+   under the pointer takes the menu row's glass ring). A type's colour is its
+   sand dash; pressing the dash opens a row of round glass, each holding a
+   seal of that colour, the chosen one its colour's still glass. Labels are
+   index type, not uppercase. Delete shows under the pointer only. The new
+   type is written in place, unboxed. Mobile keeps the menu above. */
+.relation-kind-menu--glass {
+  gap: 0;
+  padding: 10px 0 8px;
+}
+
+.relation-kind-menu--glass .relation-kind-menu__head {
+  padding: 4px 16px 6px;
+  border-bottom: 0;
+}
+
+.relation-kind-menu--glass .relation-kind-menu__title {
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-body, 12.5px);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.relation-kind-menu--glass .relation-kind-menu__summary,
+.relation-kind-menu--glass .relation-kind-menu__visible-summary {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+}
+
+.relation-kind-menu--glass .relation-kind-menu__visible-summary {
+  padding: 3px 0 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+/* The filters and the type definitions are parted by the menu's hairline. */
+.relation-kind-menu--glass .relation-kind-menu__section--manage {
+  margin-top: 5px;
+  padding-top: 0;
+  border-top: 0;
+}
+.relation-kind-menu--glass .relation-kind-menu__section--manage::before {
+  content: '';
+  display: block;
+  height: 0.5px;
+  margin: 0 16px 5px;
+  background: var(--menu-separator);
+}
+
+.relation-kind-menu--glass .relation-kind-menu__section-label,
+.relation-kind-menu--glass .relation-kind-menu__group-label {
+  margin: 0;
+  padding: 8px 16px 4px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.relation-kind-menu--glass .relation-kind-menu__group-label {
+  padding-top: 2px;
+}
+
+.relation-kind-menu--glass .relation-kind-menu__chips {
+  padding: 2px 14px 4px;
+}
+
+.relation-kind-menu--glass .relation-kind-menu__empty {
+  padding: 4px 16px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-secondary, 11.5px);
+}
+
+.relation-kind-menu--glass .relation-kind-menu__section-title-row {
+  padding-right: 8px;
+}
+
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--ghost.relation-kind-menu__create,
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--ghost.relation-kind-menu__create:hover:not(:disabled) {
+  color: hsl(var(--accent));
+}
+
+.relation-kind-menu--glass .relation-kind-menu__type-group + .relation-kind-menu__type-group {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.relation-kind-menu__row--glass {
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+}
+
+.relation-kind-menu__dash {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.relation-kind-menu__row--glass .relation-kind-menu__name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0 2px;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+}
+
+.relation-kind-menu__row--glass button.relation-kind-menu__name:hover {
+  background: transparent;
+}
+
+.relation-kind-menu__row--glass .relation-kind-menu__name:disabled {
+  cursor: default;
+}
+
+.relation-kind-menu__row--glass .relation-kind-menu__name small {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  font-weight: 400;
+}
+
+.relation-kind-menu__row--glass .relation-kind-menu__count {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+}
+
+.relation-kind-menu__row--glass .relation-kind-menu__delete {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.16s ease-out, color 0.12s;
+}
+
+.relation-kind-menu__row--glass:hover .relation-kind-menu__delete,
+.relation-kind-menu__row--glass:focus-within .relation-kind-menu__delete {
+  opacity: 1;
+}
+
+.relation-kind-menu__row--glass .relation-kind-menu__delete:hover:not(:disabled) {
+  color: hsl(var(--danger));
+}
+
+.relation-kind-menu__row--glass .relation-kind-menu__delete:disabled {
+  cursor: not-allowed;
+}
+
+.relation-kind-menu__row--glass:hover .relation-kind-menu__delete:disabled {
+  opacity: 0.35;
+}
+
+.relation-kind-menu__colors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 14px 8px 38px;
+}
+
+.relation-kind-menu__color {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.relation-kind-menu__color > .sand {
+  position: static;
+  width: 11px;
+  height: 11px;
+}
+
+.relation-kind-menu--glass .relation-kind-menu__other-toggle {
+  gap: 6px;
+  justify-content: flex-start;
+  min-height: var(--ui-row-height, 30px);
+  padding: 6px 10px;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 12.5px);
+}
+
+.relation-kind-menu--glass .relation-kind-menu__other-toggle:hover,
+.relation-kind-menu--glass .relation-kind-menu__other-toggle[aria-expanded='true'] {
+  background: transparent;
+}
+
+/* Like any menu row it keeps its colour under the pointer; only opened does it darken. */
+.relation-kind-menu--glass .relation-kind-menu__other-toggle:hover:not([aria-expanded='true']) {
+  color: hsl(var(--ink-2));
+}
+
+.relation-kind-menu--glass .relation-kind-menu__other-toggle > span:nth-child(2) {
+  margin-left: auto;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+}
+
+.relation-kind-menu__chevron {
+  color: hsl(var(--ink-3));
+  transition: transform var(--motion-structural) var(--motion-structural-ease);
+}
+
+.relation-kind-menu__other-toggle[aria-expanded='true'] .relation-kind-menu__chevron {
+  transform: rotate(180deg);
+}
+
+/* The new or renamed type, written in place: labels in index type above
+   single-line fields, direction as one of two, kinds as chips. */
+.relation-type-editor--glass {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 8px;
+  padding: 6px 14px 4px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.relation-type-editor--glass .relation-type-editor__grid {
+  gap: 10px 12px;
+}
+
+.relation-type-editor--glass .relation-type-editor__field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 10px)/1.3 var(--font-mono);
+}
+
+.relation-type-editor--glass .ui-field {
+  min-height: 28px;
+}
+
+.relation-type-editor--glass .ui-field > input {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: var(--ui-font-secondary, 12px)/1.4 var(--font-sans);
+}
+
+.relation-type-editor--glass .glass-slider {
+  align-self: flex-start;
+  min-height: 28px;
+}
+
+.relation-type-editor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.relation-type-editor--glass .relation-type-editor__error {
+  margin-top: 0;
+}
+
+.relation-type-editor__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ─── Switching Super Views ─────────────────────────────────────────
+   DesktopSuperViewStage pushes the open view's block (everything under its
+   header) away like heavy ice and brings the next one in behind it, the way
+   a sidebar pane switches panels. While the strip moves the arriving overlay
+   is clear, so the block it pushes shows through beside its own; the one
+   leaving sits just under it with an empty header and takes no input. Its
+   new block is outlined on all four sides by lines that bleed glass,
+   fading out whole once it rests. Reduced motion skips straight there. */
+.super-view-slide {
+  display: contents;
+}
+
+.super-view-slide--in .super-view-overlay {
+  background: transparent;
+}
+
+.super-view-slide--out .super-view-overlay {
+  z-index: 249;
+  pointer-events: none;
+}
+
+.super-view-slide__outline {
+  position: fixed;
+  z-index: 251;
+  pointer-events: none;
+}
+
+.super-view-slide__outline-top { top: 0; }
+.super-view-slide__outline-bottom { bottom: 0; --flow-gx: -96px; --flow-gy: -60px; }
+.super-view-slide__outline-start { left: 0; --flow-gx: -40px; --flow-gy: -110px; }
+.super-view-slide__outline-end { right: 0; --flow-gx: -120px; --flow-gy: -24px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .super-view-slide--out,
+  .super-view-slide__outline {
+    display: none;
+  }
+
+  .super-view-slide--in .super-view-overlay {
+    background: hsl(var(--paper-deep));
+  }
+}
+
+/* ── The legend of the lines (graph-style Super Views) ──────────── */
+/* In the top-right corner of the content (2026-11-03; the header no longer
+   holds the relation kinds): a small piece of paper with the resting thin
+   glass line, one row per kind of line the canvas draws — the line's own
+   stroke, its name, how many. Pressing a row shows or hides that kind; a
+   hidden kind fades. Only the row under the pointer rings. */
+.super-view-legend {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.super-view-legend > * {
+  pointer-events: auto;
+}
+
+.super-view-legend__rows {
+  display: flex;
+  flex-direction: column;
+  min-width: 148px;
+  max-width: 220px;
+  padding: 4px;
+  border-radius: 12px;
+  background: color-mix(in srgb, hsl(var(--paper)) 92%, transparent);
+}
+
+.super-view-legend__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: 400 var(--ui-font-secondary, 13px)/1 var(--font-sans);
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.super-view-legend__row:hover {
+  color: hsl(var(--ink-1));
+}
+
+/* A shown kind is the ordinary state, not a selection: no still ring. */
+.super-view-legend__row.glass[aria-pressed]:not(:hover, :focus-visible, :active)::before {
+  opacity: 0;
+}
+
+.super-view-legend__stroke {
+  flex: none;
+  width: 14px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--legend-c, hsl(var(--ink-3)));
+  transition: opacity var(--motion-sand-shift, 0.24s) ease-out;
+}
+
+/* 正文同段 (the element overview): the sand lines' grain. */
+.super-view-legend__row.is-sand > .super-view-legend__stroke {
+  height: 4px;
+  background: radial-gradient(circle, hsl(var(--ink-3)) 0.6px, transparent 0.9px) 0 0 / 2.5px 2px;
+}
+
+.super-view-legend__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.super-view-legend__count {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  padding-inline-start: 12px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 11px/1 var(--font-mono);
+}
+
+.super-view-legend__row[aria-pressed='false'] {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.super-view-legend__row[aria-pressed='false'] > .super-view-legend__stroke {
+  opacity: 0.25;
+}
+
+.super-view-legend__row.is-edit {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 11px/1 var(--font-mono);
+}
+
+.super-view-legend__row.is-edit:hover {
+  color: hsl(var(--ink-1));
+}

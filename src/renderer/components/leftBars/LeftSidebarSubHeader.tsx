@@ -1,0 +1,620 @@
+import { useSidebarPanelState, useSidebarPreference } from '../../hooks/useSidebarPanelState';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import loglevel from 'loglevel';
+
+import { useDataStore } from '../../store/data-store';
+import { CHAPTER_ORDER_STRIDE, isChapter, isDrift } from '../../domain/book-node';
+import type { LeftSidebarTab } from '../../lib/sidebar-tabs';
+import { useSidebarPaneId } from '../../lib/sidebar-pane-context';
+import type {
+  DriftSortMode,
+  ChapterGlobalSortMode,
+  ChapterStorylineInnerSortMode,
+  ChapterStorylineOuterSortMode,
+  ElementCategorySortMode,
+  ElementSortMode,
+  NodeCellMeta,
+} from '../../store/ui-store';
+import { useAuthStore } from '../../store/auth';
+import { useBookNode } from '../../usecase/useBookNode';
+import { useStoryline } from '../../usecase/useStoryline';
+import { useElementCategory } from '../../usecase/useElementCategory';
+import { useDriftGroup } from '../../usecase/useDriftGroup';
+import { useSidebarPanelNavigation as useProjectNavigation } from '../../hooks/useSidebarPanelNavigation';
+import { events } from '../../lib/events';
+import { SortMenu, sortMenuGroup, type SortMenuOption } from './SortMenu';
+import { BrushIcon } from '../ui/BrushIcon';
+import { GhostIconButton } from '../ui/GhostIconButton';
+import { useSuperViewPreloadIntent } from '../../features/graph/deferred-graph-modules';
+import { useUiStore } from '../../store/ui-store';
+
+const log = loglevel.getLogger('LeftSidebarSubHeader');
+log.setLevel(loglevel.levels.ERROR);
+
+// 容器宽度低于此值时隐藏左侧 meta 统计文本，把空间让给右侧操作按钮。
+// 之前是 220，导致默认 280 宽度的侧栏看起来正常，但稍微缩窄一点 meta 就消失。
+// 实测 meta 本身只占 ~80px，右侧 4 个 26px 图标占 ~110px，总共 ~200。降到 180
+// 给狭窄场景留点余量；真正窄到 < 180 才放弃 meta。
+const META_HIDE_WIDTH = 180;
+
+export function LeftSidebarSubHeader({ panel: activeLeftPanel }: { panel: LeftSidebarTab }) {
+  const { t } = useTranslation();
+  // The panel's own folded groups (要素 categories, 构想 groups, 章节 storyline
+  // groups): with none folded the press folds them all, so the fan is shown
+  // shut; otherwise it opens them all, and the fan is shown open.
+  const [collapsedGroups] = useSidebarPanelState<Set<string>>('collapsed', () => new Set());
+  const paneId = useSidebarPaneId();
+  const [nodesViewMode, setChapterViewMode] = useSidebarPreference('chapterPanelViewMode');
+
+  const storylines = useDataStore((s) => s.storylines);
+  const bookNodes = useDataStore((s) => s.bookNodes);
+  const bookElements = useDataStore((s) => s.bookElements);
+  const bookElementCategories = useDataStore((s) => s.bookElementCategories);
+
+  const userId = useAuthStore((s) => s.user?.id);
+  const { projectId, openEntity, navigateToAllChapters } = useProjectNavigation();
+  const setActiveSuperView = useUiStore((state) => state.setActiveSuperView);
+  const elementOverviewIntent = useSuperViewPreloadIntent('element');
+
+  const driftCount = useMemo(() => bookNodes.filter(isDrift).length, [bookNodes]);
+  const storylineNodeCount = useMemo(() => bookNodes.filter(isChapter).length, [bookNodes]);
+
+  const { createNode } = useBookNode({
+    projectId: projectId ?? '',
+    userId: userId ?? '',
+  });
+  const { createStoryline } = useStoryline({
+    projectId: projectId ?? '',
+    userId: userId ?? '',
+  });
+  const { createCategory } = useElementCategory({
+    projectId: projectId ?? '',
+    userId: userId ?? '',
+  });
+  const { createGroup } = useDriftGroup({ projectId: projectId ?? '' });
+
+  const handleCreateNode = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      // This entry point carries no storyline context — the new chapter
+      // always lands 未归属. Users curate primary storyline downstream via
+      // the right sidebar / context menu / drag-drop in BottomTimeline.
+      const maxOrder = bookNodes
+        .filter(isChapter)
+        .reduce((max, n) => Math.max(max, n.bookOrder), 0);
+      const nextOrder = maxOrder + CHAPTER_ORDER_STRIDE;
+      const created = await createNode({
+        kind: 'chapter',
+        title: 'New Chapter',
+        bookOrder: nextOrder,
+        mainStorylineId: null,
+      });
+      openEntity({ entityType: 'node', id: created.id }, { preview: false });
+    } catch (error) {
+      log.error('Failed to create node', error);
+    }
+  }, [projectId, bookNodes, createNode, openEntity]);
+
+  const handleCreateStoryline = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const created = await createStoryline({ projectId, name: 'New Storyline' });
+      openEntity({ entityType: 'storyline', id: created.id }, { preview: false });
+    } catch (error) {
+      log.error('Failed to create storyline', error);
+    }
+  }, [projectId, createStoryline, openEntity]);
+
+  const handleCreateDrift = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const created = await createNode({
+        kind: 'drift',
+        title: t('leftSidebar.actions.newDrift'),
+        bookOrder: null,
+        mainStorylineId: null,
+      });
+      openEntity({ entityType: 'node', id: created.id }, { preview: false });
+    } catch (error) {
+      log.error('Failed to create drift node', error);
+    }
+  }, [projectId, createNode, openEntity, t]);
+
+  const handleCreateCategory = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      await createCategory();
+    } catch (error) {
+      log.error('Failed to create category', error);
+    }
+  }, [projectId, createCategory]);
+
+  const handleCreateDriftGroup = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      await createGroup({});
+    } catch (error) {
+      log.error('Failed to create drift group', error);
+    }
+  }, [projectId, createGroup]);
+
+  // The chapter panel's text summary doubles as its view-mode control. Before
+  // the first storyline exists, only the chapter count is meaningful; once a
+  // storyline exists, keep both counts stable across both layouts.
+  // Other panels keep their own meta behavior.
+  const isStorylineView = storylines.length > 0 && nodesViewMode === 'storyline';
+  const meta =
+    activeLeftPanel === 'nodes'
+      ? storylines.length > 0
+        ? t('leftSidebar.viewMode.chapterSummary', {
+            storylines: storylines.length,
+            chapters: storylineNodeCount,
+          })
+        : t('leftSidebar.meta.chapters', { count: storylineNodeCount })
+      : activeLeftPanel === 'elements'
+        ? t('leftSidebar.meta.elements', {
+            categories: bookElementCategories.length,
+            elements: bookElements.length,
+          })
+        : t('leftSidebar.meta.drifts', { count: driftCount });
+
+  // Effective chapter view mode still controls the toggle/title: a project
+  // with zero storylines is forced to 'global' (mirrors ChapterPanel).
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [showMeta, setShowMeta] = useState(true);
+
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = () => setShowMeta(el.clientWidth >= META_HIDE_WIDTH);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    events.emit('left-sidebar:collapse-all', { panel: activeLeftPanel, paneId });
+  }, [activeLeftPanel, paneId]);
+
+  // Sort menu — anchored to the ArrowDownUp button. The set of options
+  // depends on which panel is currently active (and, for chapters, whether
+  // the layout is storyline-grouped). One menu instance is rendered per
+  // panel kind so the SortMenu's typed value/onChange line up with the
+  // matching ui-store field; only the active panel's instance opens.
+  const sortBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
+  const [driftSortMode, setDriftSortMode] = useSidebarPreference('driftSortMode');
+  const [chapterGlobalSortMode, setChapterGlobalSortMode] = useSidebarPreference('chapterGlobalSortMode');
+  const [chapterStorylineInnerSortMode, setChapterStorylineInnerSortMode] = useSidebarPreference('chapterStorylineInnerSortMode');
+  const [chapterStorylineOuterSortMode, setChapterStorylineOuterSortMode] = useSidebarPreference('chapterStorylineOuterSortMode');
+  const [elementSortMode, setElementSortMode] = useSidebarPreference('elementSortMode');
+  const [elementCategorySortMode, setElementCategorySortMode] = useSidebarPreference('elementCategorySortMode');
+  const [elementPanelViewMode, setElementPanelViewMode] = useSidebarPreference('elementPanelViewMode');
+  const [chapterCellMeta, setChapterCellMeta] = useSidebarPreference('chapterCellMeta');
+  const [driftCellMeta, setDriftCellMeta] = useSidebarPreference('driftCellMeta');
+  const [chapterStorylinePrimaryOnly, setChapterStorylinePrimaryOnly] = useSidebarPreference('chapterStorylinePrimaryOnly');
+
+  const driftSortOptions = useMemo<SortMenuOption<DriftSortMode>[]>(
+    () => [
+      { value: 'createdAt', label: t('leftSidebar.sort.createdAt'), icon: 'sprout' },
+      { value: 'updatedAt', label: t('leftSidebar.sort.updatedAt'), icon: 'brush-writing' },
+      { value: 'title', label: t('leftSidebar.sort.title'), icon: 'alpha-down' },
+    ],
+    [t],
+  );
+  const chapterGlobalSortOptions = useMemo<SortMenuOption<ChapterGlobalSortMode>[]>(
+    () => [
+      { value: 'bookOrder', label: t('leftSidebar.sort.bookOrder'), icon: 'open-book' },
+      { value: 'narrativeOrder', label: t('leftSidebar.sort.narrativeOrder'), icon: 'bamboo' },
+      { value: 'createdAt', label: t('leftSidebar.sort.createdAt'), icon: 'sprout' },
+      { value: 'updatedAt', label: t('leftSidebar.sort.updatedAt'), icon: 'brush-writing' },
+    ],
+    [t],
+  );
+  const chapterStorylineInnerSortOptions = useMemo<SortMenuOption<ChapterStorylineInnerSortMode>[]>(
+    () => [
+      { value: 'bookOrder', label: t('leftSidebar.sort.bookOrder'), icon: 'open-book' },
+      { value: 'narrativeOrder', label: t('leftSidebar.sort.narrativeOrder'), icon: 'bamboo' },
+    ],
+    [t],
+  );
+  const chapterStorylineOuterSortOptions = useMemo<SortMenuOption<ChapterStorylineOuterSortMode>[]>(
+    () => [
+      { value: 'storylineOrder', label: t('leftSidebar.sort.storylineOrder'), icon: 'lanes-stagger' },
+      { value: 'alphabet', label: t('leftSidebar.sort.alphabet'), icon: 'alpha-down' },
+    ],
+    [t],
+  );
+  const elementSortOptions = useMemo<SortMenuOption<ElementSortMode>[]>(
+    () => [
+      { value: 'alphabet', label: t('leftSidebar.sort.alphabet'), icon: 'alpha-down' },
+      { value: 'createdAt', label: t('leftSidebar.sort.createdAt'), icon: 'sprout' },
+    ],
+    [t],
+  );
+  const elementCategorySortOptions = useMemo<SortMenuOption<ElementCategorySortMode>[]>(
+    () => [
+      { value: 'alphabet', label: t('leftSidebar.sort.alphabet'), icon: 'alpha-down' },
+      { value: 'createdAt', label: t('leftSidebar.sort.createdAt'), icon: 'sprout' },
+    ],
+    [t],
+  );
+  // Right-edge cell meta toggle — shared by the 章节 and 构想 menus.
+  const nodeCellMetaOptions = useMemo<SortMenuOption<NodeCellMeta>[]>(
+    () => [
+      { value: 'date', label: t('leftSidebar.sort.showDate'), icon: 'ri' },
+      { value: 'wordCount', label: t('leftSidebar.sort.showWordCount'), icon: 'zi' },
+      { value: 'both', label: t('leftSidebar.sort.showBoth'), icon: 'zi-ri' },
+      { value: 'none', label: t('leftSidebar.sort.showNone'), icon: 'wu' },
+    ],
+    [t],
+  );
+  // Storyline-grouped chapter view only: whether a chapter linked to several
+  // storylines shows in every group or just its primary one.
+  const chapterDuplicateOptions = useMemo<SortMenuOption<'all' | 'primary'>[]>(
+    () => [
+      { value: 'all', label: t('leftSidebar.sort.duplicatesAll'), icon: 'seal-fork' },
+      { value: 'primary', label: t('leftSidebar.sort.duplicatesPrimary'), icon: 'seal-main' },
+    ],
+    [t],
+  );
+
+  // Chapter panel splits into two menus depending on layout. Storyline view
+  // keeps chapter order as the primary group and exposes outer storyline order
+  // as an independent radio group in the same menu.
+  const chapterIsStoryline =
+    activeLeftPanel === 'nodes' && nodesViewMode === 'storyline' && storylines.length > 0;
+  const sortMenuTitle =
+    activeLeftPanel === 'drift'
+      ? t('leftSidebar.sort.drifts')
+      : activeLeftPanel === 'elements'
+        ? t('leftSidebar.sort.categoryElements')
+        : chapterIsStoryline
+          ? t('leftSidebar.sort.storylineChapters')
+          : t('leftSidebar.sort.chapters');
+
+  // Chapter-panel view mode is driven by the summary text itself (全书总览 ⇄ 按
+  // storyline 分组). Activating it with zero storylines bootstraps the first
+  // storyline so the grouped view has a lane to show, matching the old switch.
+  const handleToggleChapterViewMode = useCallback(() => {
+    if (isStorylineView) {
+      setChapterViewMode('global');
+      return;
+    }
+    if (storylines.length === 0) {
+      if (!projectId) return;
+      void (async () => {
+        try {
+          await createStoryline({ projectId, name: 'New Storyline' });
+          setChapterViewMode('storyline');
+        } catch (error) {
+          log.error('Failed to create first storyline', error);
+        }
+      })();
+      return;
+    }
+    setChapterViewMode('storyline');
+  }, [isStorylineView, storylines.length, projectId, createStoryline, setChapterViewMode]);
+
+  // Mirror the chapter panel's summary-as-control pattern: the element totals
+  // stay visible in the header while the text itself toggles the persisted
+  // compact index / name list preference. Display mode is not a sort concern.
+  const handleToggleElementViewMode = useCallback(() => {
+    setElementPanelViewMode(elementPanelViewMode === 'compact' ? 'list' : 'compact');
+  }, [elementPanelViewMode, setElementPanelViewMode]);
+
+  const renderPrimaryCreate = () => {
+    let onClick: () => void;
+    let title: string;
+    let icon: React.ReactNode = <BrushIcon name="plus" size={11} />;
+    if (activeLeftPanel === 'nodes') {
+      // Mirror ChapterPanel: when there are no storylines the view collapses to
+      // 'global', so the primary CTA must be "+ 新章节" regardless of the
+      // persisted nodesViewMode value.
+      const effectiveMode = storylines.length === 0 ? 'global' : nodesViewMode;
+      const isStorylineMode = effectiveMode === 'storyline';
+      onClick = isStorylineMode
+        ? () => void handleCreateStoryline()
+        : () => void handleCreateNode();
+      title = isStorylineMode
+        ? t('leftSidebar.actions.newStoryline')
+        : t('leftSidebar.actions.newChapter');
+      if (isStorylineMode) {
+        // A lane with a plus above it, so this reads as "+ storyline" rather
+        // than the bare plus the chapter list uses.
+        icon = <BrushIcon name="new-storyline" size={12} />;
+      }
+    } else if (activeLeftPanel === 'elements') {
+      // Elements panel header only exposes "new category" — each category
+      // cell carries its own "+ new element" button so a hovered category
+      // is the implicit target. Avoids the surprise where the header +
+      // creates an element under whichever category sorts first.
+      onClick = () => void handleCreateCategory();
+      title = t('leftSidebar.actions.newCategory');
+      // The category's own sand corner with a plus beside it, so the
+      // affordance reads as "+ category" rather than the ambiguous bare plus
+      // that users would otherwise mistake for "+ element".
+      icon = <BrushIcon name="new-category" size={12} />;
+    } else {
+      onClick = () => void handleCreateDrift();
+      title = t('leftSidebar.actions.newDrift');
+    }
+    return (
+      <SubIconBtn title={title} onClick={onClick} accent>
+        {icon}
+      </SubIconBtn>
+    );
+  };
+
+  // Each panel opens its whole-book view from here: All Chapters beside the
+  // chapters, the element overview beside the elements. These entries are
+  // round glass; the panel's ordinary buttons (sort, new) stay plain.
+  const renderOverview = () => {
+    if (activeLeftPanel === 'nodes') {
+      return (
+        <GhostIconButton
+          glass="round"
+          className="workspace-super-view-entry"
+          title={t('bottomStatusBar.allChapters')}
+          aria-label={t('bottomStatusBar.allChapters')}
+          onClick={() => {
+            setActiveSuperView('none');
+            navigateToAllChapters();
+          }}
+          icon={<BrushIcon name="ov-folding" />}
+        />
+      );
+    }
+    if (activeLeftPanel === 'elements') {
+      return (
+        <GhostIconButton
+          {...elementOverviewIntent}
+          glass="round"
+          className="workspace-super-view-entry"
+          title={t('bottomStatusBar.elements')}
+          aria-label={t('bottomStatusBar.elements')}
+          onClick={() => setActiveSuperView('element')}
+          icon={<BrushIcon name="ov-iceberg" />}
+        />
+      );
+    }
+    return null;
+  };
+
+  const renderSecondaryCreate = () => {
+    // 构想 panel: a "+ group" affordance next to "+ drift" (each group cell also
+    // carries its own "+ drift in this group" button). Other panels have
+    // nothing to slot here — the element panel's "+ element" lives per-category.
+    if (activeLeftPanel === 'drift') {
+      return (
+        <SubIconBtn
+          title={t('leftSidebar.actions.newDriftGroup')}
+          onClick={() => void handleCreateDriftGroup()}
+        >
+          <BrushIcon name="folder-plus" size={12} />
+        </SubIconBtn>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className="workspace-panel-header-row"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: showMeta ? 'space-between' : 'flex-end',
+        gap: 8,
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--ui-font-caption, 9.5px)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.12em',
+        color: 'var(--ui-text-muted, hsl(var(--ink-3)))',
+        background: 'var(--workspace-ui-bg)',
+        flexShrink: 0,
+      }}
+    >
+      {showMeta && (
+        <span
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+        >
+          {activeLeftPanel === 'nodes' ? (
+            <button
+              type="button"
+              className="left-panel-view-mode-text"
+              onClick={handleToggleChapterViewMode}
+              title={
+                isStorylineView
+                  ? t('leftSidebar.viewMode.storylineTitle')
+                  : t('leftSidebar.viewMode.globalTitle')
+              }
+            >
+              {meta}
+            </button>
+          ) : activeLeftPanel === 'elements' ? (
+            <button
+              type="button"
+              className="left-panel-view-mode-text"
+              onClick={handleToggleElementViewMode}
+              title={
+                elementPanelViewMode === 'compact'
+                  ? t('leftSidebar.viewMode.elementCompactTitle')
+                  : t('leftSidebar.viewMode.elementListTitle')
+              }
+            >
+              {meta}
+            </button>
+          ) : (
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {meta}
+            </span>
+          )}
+        </span>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        {renderOverview()}
+        {/* "展开／折叠全部" applies wherever the panel shows collapsible groups:
+            要素 类目, 构想分组, and 章节 when grouped by storyline (全书总览 is a
+            flat list, so it has nothing to fold).
+            One press opens every group or folds them all, like a folding fan:
+            the fan is drawn as the press will leave it, shut or open. */}
+        {(activeLeftPanel === 'elements' || activeLeftPanel === 'drift' || chapterIsStoryline) && (
+          <SubIconBtn title={t('leftSidebar.actions.collapseAll')} onClick={collapseAll}>
+            <BrushIcon name={collapsedGroups.size === 0 ? 'folding-fan-closed' : 'folding-fan'} size={11} />
+          </SubIconBtn>
+        )}
+        <SubIconBtn
+          title={t('leftSidebar.actions.sort')}
+          onClick={() => setSortMenuOpen((v) => !v)}
+          buttonRef={sortBtnRef}
+          expanded={sortMenuOpen}
+        >
+          <BrushIcon name="sort" size={11} />
+        </SubIconBtn>
+        {renderSecondaryCreate()}
+        {renderPrimaryCreate()}
+      </div>
+
+      {/* One SortMenu instance per panel kind — keeps each menu's typed
+          value/onChange aligned with the matching ui-store field. Only the
+          active panel's instance is rendered open at a time. */}
+      {activeLeftPanel === 'drift' && (
+        <SortMenu<DriftSortMode>
+          triggerRef={sortBtnRef}
+          open={sortMenuOpen}
+          onClose={() => setSortMenuOpen(false)}
+          options={driftSortOptions}
+          value={driftSortMode}
+          onChange={setDriftSortMode}
+          title={sortMenuTitle}
+          groups={[
+            sortMenuGroup({
+              title: t('leftSidebar.sort.cellMetaGroup'),
+              options: nodeCellMetaOptions,
+              value: driftCellMeta,
+              onChange: setDriftCellMeta,
+            }),
+          ]}
+        />
+      )}
+      {activeLeftPanel === 'nodes' && !chapterIsStoryline && (
+        <SortMenu<ChapterGlobalSortMode>
+          triggerRef={sortBtnRef}
+          open={sortMenuOpen}
+          onClose={() => setSortMenuOpen(false)}
+          options={chapterGlobalSortOptions}
+          value={chapterGlobalSortMode}
+          onChange={setChapterGlobalSortMode}
+          title={sortMenuTitle}
+          groups={[
+            sortMenuGroup({
+              title: t('leftSidebar.sort.cellMetaGroup'),
+              options: nodeCellMetaOptions,
+              value: chapterCellMeta,
+              onChange: setChapterCellMeta,
+            }),
+          ]}
+        />
+      )}
+      {activeLeftPanel === 'nodes' && chapterIsStoryline && (
+        <SortMenu<ChapterStorylineInnerSortMode>
+          triggerRef={sortBtnRef}
+          open={sortMenuOpen}
+          onClose={() => setSortMenuOpen(false)}
+          options={chapterStorylineInnerSortOptions}
+          value={chapterStorylineInnerSortMode}
+          onChange={setChapterStorylineInnerSortMode}
+          title={sortMenuTitle}
+          groups={[
+            sortMenuGroup({
+              title: t('leftSidebar.sort.outerStorylinesGroup'),
+              options: chapterStorylineOuterSortOptions,
+              value: chapterStorylineOuterSortMode,
+              onChange: setChapterStorylineOuterSortMode,
+            }),
+            sortMenuGroup({
+              title: t('leftSidebar.sort.duplicatesGroup'),
+              options: chapterDuplicateOptions,
+              value: chapterStorylinePrimaryOnly ? 'primary' : 'all',
+              onChange: (v) => setChapterStorylinePrimaryOnly(v === 'primary'),
+            }),
+            sortMenuGroup({
+              title: t('leftSidebar.sort.cellMetaGroup'),
+              options: nodeCellMetaOptions,
+              value: chapterCellMeta,
+              onChange: setChapterCellMeta,
+            }),
+          ]}
+        />
+      )}
+      {activeLeftPanel === 'elements' && (
+        <SortMenu<ElementSortMode>
+          triggerRef={sortBtnRef}
+          open={sortMenuOpen}
+          onClose={() => setSortMenuOpen(false)}
+          options={elementSortOptions}
+          value={elementSortMode}
+          onChange={setElementSortMode}
+          title={sortMenuTitle}
+          groups={[
+            sortMenuGroup({
+              title: t('leftSidebar.sort.outerCategoriesGroup'),
+              options: elementCategorySortOptions,
+              value: elementCategorySortMode,
+              onChange: setElementCategorySortMode,
+            }),
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+function SubIconBtn({
+  title,
+  onClick,
+  children,
+  accent,
+  disabled,
+  buttonRef,
+  expanded,
+  intent,
+}: {
+  title: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+  accent?: boolean;
+  disabled?: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+  expanded?: boolean;
+  /** Preloads a deferred view on hover/focus. */
+  intent?: ReturnType<typeof useSuperViewPreloadIntent>;
+}) {
+  return (
+    <GhostIconButton
+      {...intent}
+      ref={buttonRef}
+      size="sm"
+      title={title}
+      aria-label={title}
+      aria-expanded={expanded}
+      aria-haspopup={expanded === undefined ? undefined : 'menu'}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={accent ? 'panel-header-new' : undefined}
+      icon={children}
+    />
+  );
+}

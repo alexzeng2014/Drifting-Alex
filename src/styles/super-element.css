@@ -1,0 +1,936 @@
+/* Super Element (要素全景) on the desktop: 砂笔 + 素玻璃
+ * (docs/design-system/components.md, materials.md).
+ *
+ * Every class here is rendered only by the desktop presentation
+ * (DesktopSuperElementView passes `desktop` to the band and the boxes); the
+ * paused mobile shell renders the same components with its own inline look.
+ *
+ * - The chapter band is a small Bottom Timeline: a desk-coloured name rail,
+ *   page-white lanes with a hairline of desk between them, and each chapter
+ *   a glass slab on the page colour with its storyline's rim.
+ * - A category is a dry sand frame of its colour (nine-sliced, as in the
+ *   element panel's compact index), its corner mark and name set into the
+ *   top edge.
+ * - An element is a sand cell: mark and name, no border, no fill. Under the
+ *   pointer a flowing ring of the category's colour; a neighbour of the
+ *   focused card holds a still ring; the source of a new relation holds the
+ *   pressed ring; the card whose popover is open is drawn round (SandFrame).
+ */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+/* ── Chapter band ─────────────────────────────────────────────────── */
+.se-band {
+  position: relative;
+  overflow: hidden;
+  background: hsl(var(--page));
+}
+
+.se-band--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 12px/1.4 var(--font-sans);
+}
+
+.se-band__lane {
+  position: absolute;
+  right: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* A sub-pixel desk-tone rule between adjacent page-white lanes, as on the
+   timeline (bottom-timeline.css `.btl-row + .btl-row .btl-track::before`). */
+.se-band__lane + .se-band__lane::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 0.5px;
+  background: var(--workspace-ui-bg);
+}
+
+.se-band__transits {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.se-band__rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  background: var(--workspace-ui-bg);
+}
+
+/* A storyline's name is a sidebar cell inset in the rail: its sand dash,
+   structure type, a ring of its colour under the pointer. */
+html[data-shell-mode] .se-band__name.sand-cell {
+  position: absolute;
+  box-sizing: border-box;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font: 400 13px/1 var(--font-structure);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.se-band__name > .kind-mark {
+  margin-left: -2px;
+}
+
+.se-band__name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.se-band__name:focus-visible {
+  outline: none;
+}
+
+.se-band__name:focus-visible > .cell-ring {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+/* A chapter: glass on the page colour, its rim in the storyline's colour
+   (`--glass-cc`, inline). Resting line at rest, flowing under the pointer,
+   the held (pressed-strength) rim while it is a new relation's source. */
+.se-band__pill.glass {
+  --glass-edge: 40%;
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: hsl(var(--page));
+  cursor: inherit;
+}
+
+.se-band__pill.is-title-only {
+  justify-content: center;
+}
+
+.se-band__pill.glass.is-held {
+  --glass-g: 1.7;
+  --glass-sp: 1.3;
+}
+
+.se-band__pill.glass.is-held::before {
+  opacity: 1;
+  animation-play-state: paused;
+}
+
+.se-band__pill-title {
+  flex-shrink: 0;
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font: 400 12px/1.2 var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.se-band__pill-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: hsl(var(--ink-3));
+  font: 400 10px/1.3 var(--font-sans);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* ── Category island ──────────────────────────────────────────────── */
+/* A category is an island: a wash of its colour just past its box, its
+   edges feathered so neighbouring islands meet in clear water rather than
+   overlapping. Its name sits inside the top shore. No frame, no texture. */
+.se-category {
+  position: absolute;
+  isolation: isolate;
+}
+
+.se-category::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -8px -10px;
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--se-category-c, hsl(var(--ink-4))) 16%, transparent);
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent),
+    linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 22px), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent),
+    linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 22px), transparent);
+  mask-composite: intersect;
+  pointer-events: none;
+  transition: background var(--motion-sand-fade, 0.3s) ease-out;
+}
+
+/* An element carried over the island: the wash deepens. */
+.se-category.is-drop::before {
+  background: color-mix(in srgb, var(--se-category-c, hsl(var(--ink-4))) 30%, transparent);
+}
+
+/* An island carried by its name rides above the rest until it lands. */
+.se-category.is-carried {
+  z-index: 6;
+  cursor: grabbing;
+}
+
+/* The island's name, inside its top shore. Carried, it moves the island. */
+.se-category__legend {
+  position: absolute;
+  box-sizing: border-box;
+  top: 6px;
+  left: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 8px);
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font: 400 13px/1.25 var(--font-structure);
+  white-space: nowrap;
+  cursor: grab;
+}
+
+.se-category__pinned {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 10px/1 var(--font-mono);
+}
+
+.se-category__legend > .kind-mark {
+  margin-left: -2px;
+}
+
+.se-category__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.se-category__count {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 12px/1 var(--font-mono);
+}
+
+/* A group inside a category: index type, then a hairline to the edge. */
+.se-category__group {
+  position: absolute;
+  right: 6px;
+  left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 11px/1 var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.se-category__group > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.se-category__group::after {
+  content: '';
+  flex: 1;
+  height: 0.5px;
+  background: var(--workspace-local-border);
+}
+
+.se-category__empty {
+  position: absolute;
+  inset: 14px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 12px/1 var(--font-sans);
+  pointer-events: none;
+}
+
+/* ── Element card (sand cell) ─────────────────────────────────────── */
+.se-card.sand-cell {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.se-card__title {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: hsl(var(--ink-1));
+  font: 400 12px/1.15 var(--font-sans);
+  white-space: nowrap;
+}
+
+.se-card__title > .kind-mark {
+  margin-left: -2px;
+}
+
+.se-card__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.se-card__summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: hsl(var(--ink-3));
+  font: 400 10px/1.3 var(--font-sans);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* A neighbour of the focused card: the selected ring, still. */
+.se-card.sand-cell.is-on > .cell-ring {
+  opacity: 1;
+  animation-play-state: paused;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cell-line) 95%, transparent),
+    inset 0 0 6px 1px color-mix(in srgb, var(--cell-line) 40%, transparent);
+  transition: opacity var(--motion-glass-bleed) ease-out, box-shadow var(--motion-glass-settle) ease-out;
+}
+
+/* The source of a new relation: the pressed ring, denser and still. */
+.se-card.sand-cell.is-held > .cell-ring {
+  opacity: 1;
+  animation-play-state: paused;
+  box-shadow:
+    inset 0 0 0 1.5px var(--cell-line),
+    inset 0 0 10px 2px color-mix(in srgb, var(--cell-line) 55%, transparent);
+  transition: opacity var(--motion-glass-bleed) ease-out, box-shadow var(--motion-glass-press) ease-out;
+}
+
+/* ── Nothing to show ──────────────────────────────────────────────── */
+.se-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* ── Distance ─────────────────────────────────────────────────────── */
+/* From far the islands are a star map: each element only its mark, as large
+   as it is mentioned (--se-weight, 0–1), and each island's name large enough
+   to read. From the middle distance each mark has its name; close up each
+   is a card with its summary. */
+.super-view-body[data-se-lod] .se-card__summary {
+  display: none;
+}
+
+.super-view-body[data-se-lod='near'] .se-card__summary {
+  display: -webkit-box;
+}
+
+.super-view-body[data-se-lod='mid'] .se-card.sand-cell {
+  justify-content: center;
+}
+
+.super-view-body[data-se-lod='far'] .se-card.sand-cell {
+  align-items: center;
+  justify-content: center;
+}
+
+.super-view-body[data-se-lod='far'] .se-card__name {
+  display: none;
+}
+
+.super-view-body[data-se-lod='far'] .se-card__title > .kind-mark {
+  margin: 0;
+  transform: scale(calc(1.4 + var(--se-weight, 0) * 2.2));
+}
+
+.super-view-body[data-se-lod='far'] .se-category__legend {
+  top: -12px;
+  height: 36px;
+  font-size: 26px;
+}
+
+.super-view-body[data-se-lod='far'] .se-category__count {
+  font-size: 22px;
+}
+
+/* ── Focus, search and carrying ───────────────────────────────────── */
+.se-card.sand-cell {
+  transition: opacity var(--motion-sand-shift, 0.24s) ease-out;
+}
+
+/* Outside the focused element's neighbourhood, or not what the search found. */
+.se-card.sand-cell.is-dim {
+  opacity: 0.2;
+}
+
+/* Left out while only one element's neighbourhood is shown. */
+.se-card.sand-cell.is-gone {
+  visibility: hidden;
+}
+
+/* Its place while it is carried to another island. */
+.se-card.sand-cell.is-lifted {
+  opacity: 0.3;
+}
+
+/* Never mentioned in the prose: the mark is faint, the name a step lighter. */
+.se-card.sand-cell.is-unmentioned .se-card__title > .kind-mark {
+  opacity: 0.4;
+}
+
+.se-card.sand-cell.is-unmentioned .se-card__name {
+  color: hsl(var(--ink-4));
+}
+
+/* The element in the hand: a lifted slip that follows the pointer. */
+.se-carried {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: -14px 0 0 -16px;
+  padding: 0 10px;
+  border-radius: 3px;
+  background: hsl(var(--page));
+  box-shadow: var(--menu-surface-shadow);
+  color: hsl(var(--ink-1));
+  font: 600 13px/1 var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── Lines from the prose ─────────────────────────────────────────── */
+/* World-sized canvas under the marks; its colour is the sand it draws in. */
+.se-isle-lines {
+  position: absolute;
+  color: hsl(var(--ink-2));
+  pointer-events: none;
+  transition: opacity var(--motion-sand-fade, 0.3s) ease-out;
+}
+
+/* While the 关系 layout moves the lines step aside; they are drawn again
+   where it comes to rest. */
+.se-isle-lines.is-moving {
+  opacity: 0;
+  transition-duration: var(--motion-sand-shift, 0.24s);
+}
+
+/* ── Leaving the islands, coming back ─────────────────────────────── */
+/* Changing layout, the washes and names fade while the elements travel;
+   the elements themselves are the 关系 layout's cells by then. */
+.se-category.is-leaving {
+  pointer-events: none;
+}
+
+.se-category.is-leaving .se-card {
+  visibility: hidden;
+}
+
+.se-category.is-leaving::before,
+.se-category.is-leaving > .se-category__legend,
+.se-category.is-leaving > .se-category__group {
+  animation: se-isle-out var(--motion-sand-fade, 0.3s) ease-out forwards;
+}
+
+.se-category.is-arriving::before,
+.se-category.is-arriving > .se-category__legend,
+.se-category.is-arriving > .se-category__group {
+  animation: se-isle-in var(--motion-sand-fade, 0.3s) ease-out;
+}
+
+@keyframes se-isle-out {
+  to { opacity: 0; }
+}
+
+@keyframes se-isle-in {
+  from { opacity: 0; }
+}
+
+/* ── The 关系 layout ──────────────────────────────────────────────── */
+/* Each element is the island's sand cell without its fixed width: mark and
+   name, centred on its point (written per frame by SuperElementRelateLayer).
+   Its paper is the canvas's own, so a line ends at the cell rather than
+   running under the name. The summary stays on the hover card. */
+.se-card.sand-cell.se-card--free {
+  top: 0;
+  left: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  max-width: 160px;
+  height: 26px;
+  padding: 0 8px;
+  background: hsl(var(--paper));
+  white-space: nowrap;
+  will-change: transform;
+}
+
+/* From far, 关系 keeps the names of the most-mentioned elements and of the
+   one in focus with its neighbours, drawn large enough to read. */
+.super-view-body[data-se-lod='far'] .se-card--free:is(.is-major, .is-selected, .is-on, .is-held) .se-card__name {
+  display: inline;
+  font-size: calc(12px * var(--se-far-scale, 1));
+}
+
+.se-card.sand-cell.se-card--free.is-dragged {
+  z-index: 3;
+  cursor: grabbing;
+}
+
+/* Relation lines: the islands' flat lines in the relation type's colour,
+   a slight arc, under the cells. Role names sit on the line in a knockout
+   of the paper, in the line's colour darkened toward the ink. */
+.se-relate-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.se-relate-line__hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.se-relate-line__stroke {
+  fill: none;
+  stroke: var(--se-line-c);
+  opacity: 0.78;
+  pointer-events: none;
+  transition: opacity var(--motion-sand-shift, 0.24s) ease-out;
+}
+
+.se-relate-line.is-selected .se-relate-line__stroke {
+  opacity: 1;
+}
+
+.se-relate-line.is-receded .se-relate-line__stroke {
+  opacity: 0.14;
+}
+
+.se-relate-role {
+  pointer-events: none;
+  transition: opacity var(--motion-sand-shift, 0.24s) ease-out;
+}
+
+.se-relate-role > rect {
+  fill: hsl(var(--paper));
+}
+
+.se-relate-role > text {
+  fill: color-mix(in srgb, var(--se-line-c) 58%, hsl(var(--ink-1)));
+  font: 400 11.5px/1 var(--font-sans);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+/* ── The layout switch ───────────────────────────────────────────── */
+/* In the header, before 「x 类 · x 要素」: 群岛 / 关系 (the header gives
+   its sliders their height). The legend of the lines is in the canvas's
+   top-right corner (super-view-header.css, .super-view-legend). */
+.se-layout-switch {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* With the switch in it, the left group can outgrow a narrow window (the
+   English labels are long). The right group's controls keep their size and
+   the counts give way, ending in an ellipsis rather than running under the
+   search field. */
+.super-element-overlay .super-view-head__left {
+  flex: 0 1 auto;
+}
+
+.super-element-overlay .super-view-head__left > * {
+  flex-shrink: 0;
+}
+
+.super-element-overlay .super-view-head__right {
+  flex: 1 0 auto;
+}
+
+.super-element-overlay .super-view-head__left > .super-view-head__meta {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* While the floating island is open the legend steps left of it. */
+.super-element-overlay .super-view-legend {
+  transition: right var(--motion-structural) var(--motion-structural-ease);
+}
+
+/* ── The floating island ──────────────────────────────────────────── */
+/* The prototype's B: a lifted piece of desk inset from the canvas's edges,
+   rounded, no glass. A small card at the top right; grown, a full-height
+   sheet holding the workspace's own editor, its left edge dragged for width
+   (SuperElementIsland). */
+.se-island {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 15;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  max-height: calc(100% - 32px);
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--menu-surface-bg);
+  box-shadow:
+    0 0 0 0.5px hsl(var(--ink-1) / 0.14),
+    0 28px 60px -26px hsl(var(--shadow-ink) / 0.5);
+  /* The canvas grabs and never selects; the island's editor does both. */
+  cursor: auto;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.se-island--sheet {
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  max-height: none;
+  border-radius: 14px;
+}
+
+.se-island.is-resizing {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The left edge: a hairline that bleeds glass while it is dragged. */
+.se-island__edge {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: -4px;
+  z-index: 3;
+  width: 9px;
+  cursor: col-resize;
+}
+
+.se-island__edge-flow {
+  left: 4px;
+  --flow-gx: -40px;
+}
+
+.se-island__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 10px 0 16px;
+  color: hsl(var(--ink-1));
+  font: 600 14px/1 var(--font-sans);
+  white-space: nowrap;
+}
+
+.se-island__head > .kind-mark {
+  flex: none;
+}
+
+.se-island__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.se-island__kind {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 11px/1 var(--font-mono);
+}
+
+.se-island.is-compact .se-island__kind,
+.se-island.is-compact .se-island__open {
+  display: none;
+}
+
+.se-island__spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.se-island__close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  cursor: pointer;
+}
+
+.se-island__close:hover {
+  color: hsl(var(--ink-1));
+}
+
+/* The overview's own facts above the editor; folds away to one line. */
+.se-island__strip {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0 16px 12px;
+}
+
+.se-island__strip.is-folded {
+  padding-bottom: 6px;
+}
+
+.se-island__fold {
+  position: absolute;
+  top: -2px;
+  right: 12px;
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 12px/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.se-island__strip.is-folded .se-island__fold {
+  position: static;
+  align-self: flex-end;
+}
+
+.se-island__fold:hover {
+  color: hsl(var(--ink-1));
+}
+
+.se-strip__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding-right: 48px;
+}
+
+.se-strip__ticks {
+  flex: 1;
+  min-width: 0;
+  min-height: 16px;
+}
+
+.se-strip__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.se-strip__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: 400 12px/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.se-strip__chip:hover {
+  color: hsl(var(--ink-1));
+}
+
+/* The workspace's own editor, on its paper, filling the rest. */
+.se-island__body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 8px 8px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: hsl(var(--paper));
+  box-shadow: 0 0 0 0.5px hsl(var(--ink-1) / 0.1);
+}
+
+/* The small card: the hover card's own card (ui-controls.css
+   .hover-card-surface, 2026-10-31), as narrow, rounded and edged in resting
+   glass; its content is laid out as a hover card is. */
+.se-island.se-island--peek {
+  width: 248px;
+  border-radius: 16px;
+  box-shadow: var(--hover-card-shadow);
+}
+
+.se-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.se-detail .hover-card__actions:last-child {
+  padding-bottom: 6px;
+}
+
+/* The strip's words and counts (above the grown sheet's editor). */
+.se-detail__meta {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 11px/1.5 var(--font-mono);
+}
+
+.se-detail__label {
+  margin-top: 4px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 11px/1 var(--font-mono);
+}
+
+/* In 关系, an element dragged into place: 已固定 after its category, as on a pinned island. */
+.se-detail__pinned {
+  margin-inline-start: 8px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 10px/1 var(--font-mono);
+}
+
+.se-detail__row-count {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: 400 11px/1 var(--font-mono);
+  white-space: nowrap;
+}
+
+/* One stroke of sand per chapter, in book order: the storyline's colour,
+   as dense as the element is mentioned there. */
+.se-detail__ticks {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  min-height: 26px;
+}
+
+.se-detail .se-detail__ticks {
+  padding: 0 14px;
+}
+
+.se-detail__ticks.is-dense {
+  gap: 1px;
+}
+
+.se-detail__tick {
+  flex: 0 1 7px;
+  min-width: 1px;
+  height: var(--tick-h);
+  border-radius: 1px;
+  background: var(--tick-c);
+  opacity: var(--tick-o);
+  mix-blend-mode: var(--pigment-blend);
+}
+
+.se-detail__tick.is-absent {
+  height: 3px;
+  background: hsl(var(--ink-5));
+  opacity: 0.6;
+  mix-blend-mode: normal;
+}
+
+/* ── Header ───────────────────────────────────────────────────────── */
+.se-find {
+  width: 168px;
+  min-height: 26px;
+}
+
+.se-line-threshold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.se-line-threshold__label {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 12px);
+}
+
+.se-line-threshold__popover {
+  width: 224px;
+  padding: 12px;
+}
+
+.se-line-threshold__popover .ui-field {
+  margin-top: 8px;
+}
+
+.se-line-threshold__hint {
+  margin: 6px 0 12px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-caption, 11px);
+}
+
+.se-line-threshold__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 正文同段 in the relation menu (全部): the automatic lines' switch, what
+   they draw in a line below. Their threshold sits in the header. */
+.se-lines-section__hint {
+  padding: 2px 14px 8px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-secondary, 12px);
+}

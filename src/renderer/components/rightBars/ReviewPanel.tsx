@@ -1,0 +1,433 @@
+import { useSidebarPreference, useSidebarPanelState } from '../../hooks/useSidebarPanelState';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import {
+  commentBelongsToEntity,
+  commentIdsRelatedToEntity,
+  createPlainCommentDoc,
+  type Comment,
+  type CommentTargetKind,
+} from '../../domain/comment';
+import { genericAssociationRelationTypeId } from '../../domain/entity-relation-type';
+import { isCommentTargetKind, isStructuralEntityKind } from '../../domain/entity-kinds';
+import { ReviewItemCard } from '../../features/comments/ReviewItemCard';
+import {
+  groupReviewItems,
+  reviewGroupTitle,
+  reviewTargetColor,
+  type ReviewGroup,
+  type ReviewGroupData,
+} from '../../features/comments/review-groups';
+import { ComposeTodoDialog } from '../../features/library/LibraryDialogs';
+import type { FocusedEntity } from '../../features/library/LibraryPanel';
+import { useWorkspaceNavigator } from '../../features/workspace/navigation/WorkspaceNavigationContext';
+import { KindMark } from '../ui/KindMark';
+import { kindMarkOfTarget } from '../ui/kind-mark';
+import { useAuthStore } from '../../store/auth';
+import { useDataStore } from '../../store/data-store';
+import { type ReviewGroupMode, type ReviewScope, type ReviewSortMode } from '../../store/ui-store';
+import { useComment } from '../../usecase/useComment';
+import { useEntityRelations } from '../../usecase/useEntityRelations';
+import { EmptyState } from '../ui/EmptyState';
+import { useEmptyStateHints } from '../../hooks/useEmptyStateHints';
+import { GlassSlider } from '../ui/GlassSlider';
+import { ScopeToggle } from '../ui/ScopeToggle';
+import { GhostIconButton } from '../ui/GhostIconButton';
+import { SortMenu, sortMenuGroup } from '../leftBars/SortMenu';
+import type { RelationTarget } from './EntityRelationPicker';
+import { BrushIcon } from '../ui/BrushIcon';
+
+type ReviewTypeFilter = 'all' | 'comment' | 'todo';
+type ComposeKind = 'note' | 'todo';
+
+interface ReviewPanelProps {
+  focused: FocusedEntity;
+  onOpenAgentTask?: () => string | void;
+  /** Opens the project-wide Review & Materials view (desktop), whose TODO and
+   *  comment rails hold what this panel lists. */
+  onOpenWorkbench?: () => void;
+}
+
+const OPENABLE_GROUP_KINDS = new Set<CommentTargetKind>(['node', 'element', 'storyline', 'category', 'library_item']);
+
+export function ReviewPanel({ focused, onOpenAgentTask, onOpenWorkbench }: ReviewPanelProps) {
+  const { t } = useTranslation();
+  const emptyHints = useEmptyStateHints();
+  const navigator = useWorkspaceNavigator();
+  const projectId = navigator.projectId;
+  const userId = useAuthStore((state) => state.user?.id) ?? 'local';
+  const comments = useDataStore((state) => state.comments);
+  const entityRelations = useDataStore((state) => state.entityRelations);
+  const commentUsecases = useComment({ projectId, userId });
+  const relationUsecases = useEntityRelations({ projectId, userId });
+  const [typeFilter, setTypeFilter] = useSidebarPanelState<ReviewTypeFilter>('typeFilter', 'all');
+  const [scope, setScope] = useSidebarPreference('reviewScope');
+  const [sortMode, setSortMode] = useSidebarPreference('reviewSortMode');
+  const [groupMode, setGroupMode] = useSidebarPreference('reviewGroupMode');
+  const [collapsedGroups, setCollapsedGroups] = useSidebarPanelState<string[]>('collapsedGroups', []);
+  const bookNodes = useDataStore((state) => state.bookNodes);
+  const bookElements = useDataStore((state) => state.bookElements);
+  const storylines = useDataStore((state) => state.storylines);
+  const bookElementCategories = useDataStore((state) => state.bookElementCategories);
+  const libraryItems = useDataStore((state) => state.libraryItems);
+  const primaryStorylineByNode = useDataStore((state) => state.primaryStorylineByNode);
+  // Group marks carry their thing's colour, as in the left sidebar.
+  const groupData = useMemo<ReviewGroupData>(
+    () => ({ bookNodes, bookElements, storylines, bookElementCategories, libraryItems }),
+    [bookElementCategories, bookElements, bookNodes, libraryItems, storylines],
+  );
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortButtonRef = useRef<HTMLButtonElement>(null);
+  const [resolvedExpanded, setResolvedExpanded] = useSidebarPanelState('resolvedExpanded', true);
+  const [composeKind, setComposeKind] = useState<ComposeKind | null>(null);
+  const toolbarRef = useRef<HTMLElement | null>(null);
+  const [compactToolbar, setCompactToolbar] = useState(false);
+  const [typeFiltersWidth, setTypeFiltersWidth] = useState(0);
+  const [collapseTypeFilters, setCollapseTypeFilters] = useState(false);
+  // A material tab scopes to its region comments, which target it directly.
+  const hasCurrentScope = isCommentTargetKind(focused.kind) && Boolean(focused.id);
+  const effectiveScope: ReviewScope = hasCurrentScope ? scope : 'project';
+
+  useEffect(() => {
+    const node = toolbarRef.current;
+    if (!node) return;
+    const update = () => setCompactToolbar(node.clientWidth < 330);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  // The header never breaks onto a second line: once the type filters no
+  // longer fit beside the scope toggle and the actions, they fold into one
+  // tab that opens on hover. The room is what the row has left after the
+  // other controls and the gaps; the filters report their full width.
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar || !typeFiltersWidth) return undefined;
+    const update = () => {
+      const style = getComputedStyle(toolbar);
+      const items = [...toolbar.children];
+      const others = items
+        .filter((item) => !item.matches('.review-panel__type-filters, .review-panel__toolbar-spacer'))
+        .reduce((width, item) => width + item.getBoundingClientRect().width, 0);
+      const room = toolbar.clientWidth
+        - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+        - (parseFloat(style.columnGap) || 0) * (items.length - 1)
+        - others;
+      setCollapseTypeFilters(typeFiltersWidth > room + 0.5);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(toolbar);
+    for (const item of toolbar.children) observer.observe(item);
+    return () => observer.disconnect();
+  }, [typeFiltersWidth]);
+
+  const genericRelationTypeId = genericAssociationRelationTypeId(projectId);
+  const genericRelations = useMemo(
+    () =>
+      entityRelations.filter(
+        (relation) => relation.relationTypeId === genericRelationTypeId,
+      ),
+    [entityRelations, genericRelationTypeId],
+  );
+  const refsByComment = useMemo(() => {
+    const map = new Map<string, typeof genericRelations>();
+    for (const relation of genericRelations) {
+      if (relation.fromKind !== 'comment') continue;
+      const list = map.get(relation.fromId) ?? [];
+      list.push(relation);
+      map.set(relation.fromId, list);
+    }
+    return map;
+  }, [genericRelations]);
+  const relatedIds = useMemo(
+    () =>
+      commentIdsRelatedToEntity(
+        genericRelations,
+        projectId,
+        isStructuralEntityKind(focused.kind) ? focused.kind : null,
+        focused.id,
+      ),
+    [focused.id, focused.kind, genericRelations, projectId],
+  );
+
+  const matchesType = useCallback(
+    (comment: Comment) =>
+      typeFilter === 'all' ||
+      (typeFilter === 'todo' ? comment.kind === 'todo' : comment.kind !== 'todo'),
+    [typeFilter],
+  );
+  const matchesScope = useCallback(
+    (comment: Comment) => {
+      if (effectiveScope === 'project' || !isCommentTargetKind(focused.kind) || !focused.id) {
+        return true;
+      }
+      return commentBelongsToEntity(comment, focused.kind, focused.id, relatedIds);
+    },
+    [effectiveScope, focused.id, focused.kind, relatedIds],
+  );
+  const filtered = useMemo(
+    () =>
+      comments
+        .filter(
+          (comment) =>
+            comment.projectId === projectId &&
+            comment.status !== 'converted' &&
+            matchesType(comment) &&
+            matchesScope(comment),
+        )
+        .sort((a, b) => {
+          const time = b[sortMode].localeCompare(a[sortMode]);
+          return time || a.id.localeCompare(b.id);
+        }),
+    [comments, matchesScope, matchesType, projectId, sortMode],
+  );
+  const openItems = filtered.filter((comment) => comment.status === 'open');
+  const resolvedItems = filtered.filter((comment) => comment.status === 'resolved');
+
+  const createItem = async (body: string, relations: RelationTarget[]) => {
+    if (!composeKind) return;
+    // Materials cannot be relation targets, so both notes and TODOs about a
+    // material target it directly (a comment on the whole image or PDF).
+    const directTarget =
+      focused.id &&
+      ((composeKind === 'note' && isStructuralEntityKind(focused.kind)) || focused.kind === 'library_item')
+        ? { targetKind: focused.kind as CommentTargetKind, targetId: focused.id }
+        : {};
+    const created = await commentUsecases.createComment({
+      ...directTarget,
+      kind: composeKind,
+      bodyJson: createPlainCommentDoc(body),
+    });
+    for (const relation of relations) {
+      if (
+        created.targetKind === relation.kind &&
+        created.targetId === relation.id
+      ) {
+        continue;
+      }
+      await relationUsecases.addGenericAssociation(
+        'comment',
+        created.id,
+        relation.kind,
+        relation.id,
+      );
+    }
+    setComposeKind(null);
+  };
+
+  const renderCard = (comment: Comment) => {
+    const relations = refsByComment.get(comment.id) ?? [];
+    return (
+      <ReviewItemCard
+        key={comment.id}
+        comment={comment}
+        projectId={projectId}
+        onOpenAgentTask={onOpenAgentTask}
+        relations={relations.map((relation) => ({
+          id: relation.id,
+          toKind: relation.toKind,
+          toId: relation.toId,
+        }))}
+        onAddRelation={(target) =>
+          relationUsecases.addGenericAssociation('comment', comment.id, target.kind, target.id)
+        }
+        onRemoveRelation={(target) => {
+          const relation = relations.find(
+            (candidate) =>
+              candidate.toKind === target.kind && candidate.toId === target.id,
+          );
+          if (relation) void relationUsecases.removeRelation(relation.id);
+        }}
+      />
+    );
+  };
+
+  const renderGroup = (group: ReviewGroup, section: 'open' | 'resolved') => {
+    const collapseKey = `${section}:${group.key}`;
+    const collapsed = collapsedGroups.includes(collapseKey);
+    const named = group.targetKind && group.targetId ? reviewGroupTitle(groupData, group.targetKind, group.targetId) : null;
+    const title = !group.targetKind
+      ? t('reviewPanel.groups.floating')
+      : named
+        ? named.title || t('common.untitled')
+        : t(group.targetKind === 'patch' ? 'reviewPanel.groups.patch' : 'reviewPanel.groups.deleted');
+    const mark =
+      group.targetKind && group.targetKind !== 'patch'
+        ? <KindMark
+            kind={kindMarkOfTarget(group.targetKind, named?.isDrift)}
+            seed={group.targetId ?? ''}
+            color={group.targetId
+              ? reviewTargetColor(groupData, primaryStorylineByNode, group.targetKind, group.targetId)
+              : 'hsl(var(--ink-3))'}
+          />
+        : <BrushIcon name="enso" size={12} />;
+    const openable = Boolean(named && group.targetKind && OPENABLE_GROUP_KINDS.has(group.targetKind));
+    const toggle = () =>
+      setCollapsedGroups(collapsed ? collapsedGroups.filter((key) => key !== collapseKey) : [...collapsedGroups, collapseKey]);
+    return (
+      <div key={collapseKey} className="review-group review-group--glass">
+        <div className="review-group__header">
+          <button
+            type="button"
+            className={`review-group__toggle${collapsed ? '' : ' review-group__toggle--open'}`}
+            aria-expanded={!collapsed}
+            aria-label={t(collapsed ? 'reviewPanel.groups.expand' : 'reviewPanel.groups.collapse', { name: title })}
+            onClick={toggle}
+          >
+            <BrushIcon name="chevron-right" size={11} />
+          </button>
+          <button
+            type="button"
+            className="review-group__title"
+            disabled={!openable}
+            title={openable ? t('reviewPanel.groups.open', { name: title }) : undefined}
+            onClick={() => {
+              if (openable && group.targetKind && group.targetId && group.targetKind !== 'patch') {
+                navigator.open({ entityType: group.targetKind, id: group.targetId });
+              }
+            }}
+          >
+            <span className="review-group__glyph" aria-hidden="true">{mark}</span>
+            <span className="review-group__name">{title}</span>
+          </button>
+          <span className="review-group__count">{group.items.length}</span>
+        </div>
+        {!collapsed && <div className="review-group__items">{group.items.map(renderCard)}</div>}
+      </div>
+    );
+  };
+
+  const renderItems = (items: Comment[], section: 'open' | 'resolved') => {
+    if (groupMode === 'flat') return items.map(renderCard);
+    const groups = groupReviewItems(items, groupData);
+    // One target needs no header (e.g. the current-entity scope).
+    if (groups.length === 1) return groups[0]!.items.map(renderCard);
+    return groups.map((group) => renderGroup(group, section));
+  };
+
+  return (
+    <section className="review-panel" aria-label={t('reviewPanel.title')}>
+      <header ref={toolbarRef} className="review-panel__toolbar workspace-panel-header-row">
+        <GlassSlider
+          className="review-panel__type-filters"
+          ariaLabel={t('reviewPanel.type')}
+          value={typeFilter}
+          onChange={setTypeFilter}
+          collapsed={collapseTypeFilters}
+          onNaturalWidth={setTypeFiltersWidth}
+          options={(['all', 'comment', 'todo'] as const).map((filter) => ({
+            value: filter,
+            label: t(`reviewPanel.${compactToolbar ? 'filtersCompact' : 'filters'}.${filter}`),
+          }))}
+        />
+
+        <ScopeToggle
+          className="review-panel__scope-toggle"
+          pressed={effectiveScope === 'current'}
+          disabled={!hasCurrentScope}
+          onToggle={() => setScope(effectiveScope === 'current' ? 'project' : 'current')}
+        />
+
+        <span className="review-panel__toolbar-spacer" />
+        <div className="review-panel__create-actions">
+          {onOpenWorkbench && (
+            <GhostIconButton
+              glass="round"
+              className="workspace-super-view-entry"
+              title={t('bottomStatusBar.todoLibrary')}
+              aria-label={t('bottomStatusBar.todoLibrary')}
+              onClick={onOpenWorkbench}
+              icon={<BrushIcon name="lib-curio" />}
+            />
+          )}
+          <GhostIconButton
+            ref={sortButtonRef}
+            className="review-panel__sort-button"
+            size="sm"
+            icon={<BrushIcon name="sort" size={12} />}
+            onClick={() => setSortMenuOpen((open) => !open)}
+            title={t('leftSidebar.actions.sort')}
+            aria-label={t('leftSidebar.actions.sort')}
+            aria-haspopup="menu"
+            aria-expanded={sortMenuOpen}
+          />
+          <GhostIconButton
+            size="sm"
+            icon={<BrushIcon name="comment-plus" size={12} />}
+            onClick={() => setComposeKind('note')}
+            title={t('reviewPanel.newComment')}
+            aria-label={t('reviewPanel.newComment')}
+          />
+          <GhostIconButton
+            size="sm"
+            icon={<BrushIcon name="checklist-plus" size={12} />}
+            onClick={() => setComposeKind('todo')}
+            title={t('todoPanel.newTodo')}
+            aria-label={t('todoPanel.newTodo')}
+          />
+        </div>
+      </header>
+
+      <SortMenu<ReviewSortMode>
+        triggerRef={sortButtonRef}
+        open={sortMenuOpen}
+        onClose={() => setSortMenuOpen(false)}
+        title={t('leftSidebar.actions.sort')}
+        options={[
+          { value: 'createdAt', label: t('leftSidebar.sort.createdAt'), icon: 'sprout' },
+          { value: 'updatedAt', label: t('leftSidebar.sort.updatedAt'), icon: 'brush-writing' },
+        ]}
+        value={sortMode}
+        onChange={setSortMode}
+        groups={[
+          sortMenuGroup<ReviewGroupMode>({
+            title: t('reviewPanel.groupBy.title'),
+            options: [
+              { value: 'target', label: t('reviewPanel.groupBy.target'), icon: 'locate' },
+              { value: 'flat', label: t('reviewPanel.groupBy.flat'), icon: 'view-list' },
+            ],
+            value: groupMode,
+            onChange: setGroupMode,
+          }),
+        ]}
+      />
+
+      <div className="review-panel__list scroll-no-bar workspace-list">
+        {openItems.length === 0 && (
+          <EmptyState
+            density="compact"
+            message={t('reviewPanel.empty')}
+            hints={[emptyHints.todo]}
+          />
+        )}
+        {renderItems(openItems, 'open')}
+        {resolvedItems.length > 0 && (
+          <details
+            className="review-panel__resolved review-panel__resolved--glass"
+            open={resolvedExpanded}
+            onToggle={(event) => setResolvedExpanded(event.currentTarget.open)}
+          >
+            <summary>
+              <BrushIcon name="chevron-right" size={11} className="review-panel__resolved-chevron" />
+              {t('reviewPanel.resolved', { count: resolvedItems.length })}
+            </summary>
+            <div className="review-panel__resolved-list">{renderItems(resolvedItems, 'resolved')}</div>
+          </details>
+        )}
+      </div>
+
+      {composeKind && (
+        <ComposeTodoDialog
+          focused={focused}
+          kind={composeKind}
+          onCancel={() => setComposeKind(null)}
+          onCreate={createItem}
+        />
+      )}
+    </section>
+  );
+}

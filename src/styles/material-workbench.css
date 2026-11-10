@@ -1,0 +1,2065 @@
+/* ============================================================
+   Material workbench — material tabs, media stages, note pages.
+   See docs/material-workbench.md.
+   ============================================================ */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+.material-editor__missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: hsl(var(--ink-4));
+  font-size: 13px;
+}
+
+.material-editor__title {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+}
+.material-editor__title::placeholder {
+  color: hsl(var(--ink-4));
+}
+.material-editor__note-page .material-editor__title {
+  font-size: 34px;
+}
+
+.material-editor__provenance {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: hsl(var(--ink-4));
+}
+.material-editor__provenance-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.material-editor__provenance-toggle:hover {
+  color: hsl(var(--ink-2));
+}
+.material-editor__generation {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: hsl(var(--paper-deep));
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  letter-spacing: 0;
+  color: hsl(var(--ink-2));
+}
+.material-editor__generation dt {
+  color: hsl(var(--ink-4));
+}
+.material-editor__generation dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.material-editor__description {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  resize: none;
+  outline: 0;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.material-editor__description:hover {
+  background: hsl(var(--paper-deep) / 0.6);
+}
+.material-editor__description:focus {
+  border-color: hsl(var(--rule-strong));
+  background: hsl(var(--surface));
+}
+
+.material-editor__relations {
+  margin-top: 8px;
+}
+
+/* ---- Image / PDF tab: compact header over a full-bleed stage ---- */
+
+.material-editor__media-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: hsl(var(--paper-deep));
+}
+.material-editor__header {
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 18px 28px 12px;
+  border-bottom: 1px solid hsl(var(--rule));
+  background: hsl(var(--page));
+}
+
+.material-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+.material-stage--tab {
+  flex: 1;
+  min-height: 0;
+  outline: 0;
+}
+.material-stage[data-zoomed='true'] {
+  cursor: grab;
+}
+.material-stage[data-dragging='true'] {
+  cursor: grabbing;
+}
+.material-stage__fit {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  outline: 0;
+}
+.material-stage__media {
+  position: relative;
+  box-shadow: 0 1px 3px hsl(var(--shadow-ink) / 0.12);
+}
+.material-stage__media--pdf {
+  background: hsl(var(--surface));
+}
+.material-stage__message {
+  font-size: 14px;
+  color: hsl(var(--ink-3));
+}
+.material-stage__tools {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 4px;
+  background: hsl(var(--paper) / 0.92);
+}
+.material-stage__tools button {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.material-stage__tools button:hover {
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-1));
+}
+
+/* Fullscreen lightbox (element portrait「查看大图」, tab ⤢). */
+.material-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-context-menu);
+  display: flex;
+  background: hsl(var(--ink-1) / 0.58);
+}
+.material-lightbox > .material-stage {
+  width: 100%;
+  height: 100%;
+}
+.material-lightbox .material-stage__media {
+  box-shadow: none;
+}
+
+/* ---- Note tab ---- */
+
+.material-editor__note-page {
+  padding-top: 40px;
+}
+.material-editor__link {
+  display: inline-block;
+  margin-top: 24px;
+  color: hsl(var(--accent));
+  overflow-wrap: anywhere;
+}
+
+/* ---- Note editor (`note` profile) ---- */
+
+.material-editor__note-body {
+  margin-top: 28px;
+}
+.note-prose {
+  min-height: 50vh;
+  outline: none;
+  font-family: var(--font-sans);
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: hsl(var(--ink-1));
+  text-wrap: pretty;
+}
+.note-prose > * + * {
+  margin-top: 0.6em;
+}
+.note-prose p {
+  margin: 0;
+}
+.note-prose h1,
+.note-prose h2,
+.note-prose h3 {
+  margin: 1.2em 0 0.3em;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+}
+.note-prose h1 { font-size: 24px; }
+.note-prose h2 { font-size: 19px; }
+.note-prose h3 { font-size: 16.5px; }
+.note-prose ul,
+.note-prose ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+.note-prose ul { list-style: disc; }
+.note-prose ol { list-style: decimal; }
+.note-prose li > p { margin: 0; }
+.note-prose li + li { margin-top: 0.15em; }
+
+.note-prose ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.note-prose ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55em;
+}
+.note-prose ul[data-type='taskList'] li > label {
+  flex-shrink: 0;
+  margin-top: 0.32em;
+  user-select: none;
+}
+.note-prose ul[data-type='taskList'] li > label input {
+  width: 14px;
+  height: 14px;
+  accent-color: hsl(var(--accent));
+  cursor: pointer;
+}
+.note-prose ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+.note-prose ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: hsl(var(--ink-4));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--ink-4) / 0.6);
+}
+
+.note-prose blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0 0.1em 1em;
+  color: hsl(var(--ink-2));
+  border-left: 0;
+  background: hsl(var(--paper-deep) / 0.5);
+  border-radius: 4px;
+}
+/* Code reads in the ink colour: Tailwind's prose styles assume a dark code
+   block (light text), and the UI "mono" token is a sans face. */
+.note-prose code {
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-1));
+  font-family: var(--font-prose-mono, ui-monospace, monospace);
+  font-size: 0.88em;
+}
+.note-prose pre {
+  margin: 0.6em 0;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-1));
+  font-family: var(--font-prose-mono, ui-monospace, monospace);
+  overflow-x: auto;
+}
+.note-prose pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.note-prose mark {
+  padding: 0 0.12em;
+  border-radius: 2px;
+  background: hsl(48 96% 64% / 0.45);
+  color: inherit;
+}
+.note-prose hr {
+  margin: 1.2em 0;
+  border: 0;
+  border-top: 1px solid hsl(var(--rule));
+}
+
+/* Callout: a washed aside. AGENTS.md: no inset vertical accent bar. */
+.note-prose .note-callout {
+  margin: 0.8em 0;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: hsl(var(--accent) / 0.09);
+  border: 1px solid hsl(var(--accent) / 0.18);
+}
+.note-prose .note-callout > p + p {
+  margin-top: 0.4em;
+}
+
+.note-prose table {
+  width: 100%;
+  margin: 0.8em 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 14.5px;
+}
+.note-prose th,
+.note-prose td {
+  padding: 6px 9px;
+  border: 1px solid hsl(var(--rule-strong));
+  vertical-align: top;
+  min-width: 3em;
+}
+.note-prose th {
+  background: hsl(var(--paper-deep) / 0.7);
+  font-weight: 600;
+  text-align: left;
+}
+.note-prose td > p,
+.note-prose th > p {
+  margin: 0;
+}
+.note-prose .selectedCell {
+  background: hsl(var(--accent) / 0.12);
+}
+.note-prose .tableWrapper {
+  overflow-x: auto;
+}
+
+/* Checklist and table actions float over the note (NoteFloatingBar); this
+   paper bar is the paused mobile shell's, the desktop's is glass (below). */
+@keyframes note-floating-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+/* Embedded materials in notes. */
+.note-embed {
+  margin: 0.8em 0;
+  border-radius: 6px;
+}
+.note-embed--selected {
+  outline: 2px solid hsl(var(--accent) / 0.5);
+  outline-offset: 2px;
+}
+.note-embed__image {
+  display: block;
+  max-width: 100%;
+  max-height: 520px;
+  margin: 0 auto;
+  border-radius: 4px;
+  cursor: zoom-in;
+}
+.note-embed__caption {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 12px;
+}
+.note-embed__caption button {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-4));
+  font: inherit;
+  cursor: pointer;
+}
+.note-embed__caption button:hover {
+  color: hsl(var(--ink-2));
+}
+.note-embed__card {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 6px;
+  background: hsl(var(--paper));
+  text-align: left;
+  cursor: pointer;
+}
+.note-embed__card:hover {
+  background: hsl(var(--paper-deep) / 0.6);
+}
+.note-embed__card img,
+.note-embed__glyph {
+  grid-row: span 2;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  background: hsl(var(--paper-deep));
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: hsl(var(--ink-4));
+}
+.note-embed__card-title {
+  font-size: 14px;
+  color: hsl(var(--ink-1));
+}
+.note-embed__card-kind {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: hsl(var(--ink-4));
+}
+.note-embed__missing {
+  padding: 12px;
+  border: 1px dashed hsl(var(--rule-strong));
+  border-radius: 6px;
+  color: hsl(var(--ink-4));
+  font-size: 13px;
+  text-align: center;
+}
+
+.note-embed-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.note-embed-picker__error {
+  color: hsl(var(--destructive));
+  font-size: 12px;
+}
+.note-embed-picker__empty {
+  color: hsl(var(--ink-4));
+  font-size: 13px;
+}
+.note-embed-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+}
+.note-embed-picker__tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 6px;
+  background: hsl(var(--paper));
+  cursor: pointer;
+}
+.note-embed-picker__tile:hover {
+  background: hsl(var(--paper-deep) / 0.6);
+}
+.note-embed-picker__tile img,
+.note-embed-picker__tile > span:first-child {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-4));
+  font-size: 11px;
+}
+.note-embed-picker__tile-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: hsl(var(--ink-2));
+}
+
+/* Note excerpt on library cards: the Agent reply typography, compact. */
+.note-excerpt {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: hsl(var(--ink-2));
+  word-break: break-word;
+  cursor: pointer;
+}
+.note-excerpt > :first-child { margin-top: 0; }
+.note-excerpt > :last-child { margin-bottom: 0; }
+.note-excerpt p,
+.note-excerpt ul,
+.note-excerpt ol,
+.note-excerpt pre,
+.note-excerpt table,
+.note-excerpt blockquote {
+  margin: 0 0 0.4em;
+}
+.note-excerpt h1,
+.note-excerpt h2,
+.note-excerpt h3 {
+  margin: 0 0 0.3em;
+  font-size: 13px;
+  font-weight: 600;
+}
+.note-excerpt table {
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+.note-excerpt th,
+.note-excerpt td {
+  padding: 2px 6px;
+  border: 1px solid hsl(var(--rule));
+}
+.note-excerpt mark {
+  background: hsl(48 96% 64% / 0.45);
+  color: inherit;
+}
+.note-excerpt--clamped {
+  max-height: 140px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
+}
+/* Inside a library card (TODO & Materials) the excerpt follows the interface
+   text size like the TODO and comment cards beside it; the fallbacks are the
+   compact sizes the smallest setting keeps. The clamp scales with the text. */
+.library-item-card__excerpt .note-excerpt {
+  font-size: var(--ui-font-body, 12.5px);
+}
+.library-item-card__excerpt .note-excerpt :is(h1, h2, h3) {
+  font-size: var(--ui-font-body, 13px);
+}
+.library-item-card__excerpt .note-excerpt table {
+  font-size: var(--ui-font-secondary, 11.5px);
+}
+.library-item-card__excerpt .note-excerpt--clamped {
+  max-height: 11.2em;
+}
+.note-excerpt__empty {
+  color: hsl(var(--ink-4));
+  font-style: italic;
+}
+
+/* ---- Region comments on images and PDFs ---- */
+
+.material-editor__media-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.material-editor__media-body > .material-stage--tab {
+  flex: 1;
+  min-width: 0;
+}
+.material-stage[data-drawing='true'] {
+  cursor: crosshair;
+}
+.material-stage__tools button.is-active {
+  background: hsl(var(--accent) / 0.16);
+  color: hsl(var(--ink-1));
+}
+.material-stage__hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: hsl(var(--ink-1) / 0.72);
+  color: hsl(var(--paper));
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.material-regions {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.material-regions--drawing {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+.material-region {
+  position: absolute;
+  padding: 0;
+  border: 1.5px solid hsl(var(--accent) / 0.85);
+  border-radius: 2px;
+  background: hsl(var(--accent) / 0.1);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.material-regions--drawing .material-region:not(.material-region--draft) {
+  pointer-events: none;
+}
+.material-region--todo {
+  border-color: hsl(32 85% 48% / 0.9);
+  background: hsl(32 85% 55% / 0.1);
+}
+.material-region--resolved {
+  border-style: dashed;
+  opacity: 0.55;
+}
+.material-region--selected {
+  border-width: 2px;
+  background: hsl(var(--accent) / 0.2);
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.18);
+}
+.material-region--draft {
+  border-style: dashed;
+  pointer-events: none;
+}
+.material-region__badge {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: hsl(var(--accent));
+  color: hsl(var(--paper));
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 18px;
+  text-align: center;
+}
+.material-region--todo .material-region__badge {
+  background: hsl(32 85% 45%);
+}
+
+.material-comments {
+  width: 300px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 10px;
+  border-left: 1px solid hsl(var(--rule));
+  background: hsl(var(--paper));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.material-comments__empty {
+  padding: 12px 4px;
+  color: hsl(var(--ink-4));
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.material-comments__item {
+  border-radius: 6px;
+}
+.material-comments__item--selected {
+  background: hsl(var(--accent) / 0.08);
+  box-shadow: 0 0 0 1px hsl(var(--accent) / 0.25);
+}
+.material-comments__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: hsl(var(--ink-4));
+}
+.material-comments__index {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: hsl(var(--accent));
+  color: hsl(var(--paper));
+  text-align: center;
+  line-height: 16px;
+}
+
+.comment-composer {
+  position: fixed;
+  z-index: var(--z-context-menu);
+  width: 280px;
+  padding: 8px;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: 8px;
+  background: hsl(var(--surface));
+  box-shadow: 0 16px 36px -18px hsl(var(--shadow-ink) / 0.45);
+}
+.comment-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  padding: 6px 8px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 5px;
+  outline: 0;
+  resize: vertical;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.comment-composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: hsl(var(--ink-2));
+}
+.comment-composer__actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.comment-composer__spacer {
+  flex: 1;
+}
+.comment-composer:not(.comment-composer--float) .comment-composer__actions button {
+  padding: 3px 9px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 4px;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-1));
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* A note task item linked to a TODO: the TODO status drives its checkbox. */
+.note-prose ul[data-type='taskList'] li[data-todo-id] > div > p:first-child::after {
+  content: 'TODO';
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: hsl(32 85% 55% / 0.16);
+  color: hsl(32 70% 36%);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  vertical-align: 2px;
+  text-decoration: none;
+}
+.note-floating-bar__status {
+  padding: 3px 6px;
+  font-size: 12px;
+  color: hsl(var(--ink-3));
+  white-space: nowrap;
+}
+
+/* ── Material folders (panel tree, picker) ────────────────────────────── */
+
+.material-tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.material-tree__rows {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 120px;
+  padding: 6px 12px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.material-tree__rows--drop {
+  background: hsl(var(--accent) / 0.06);
+}
+
+.material-tree__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 26px;
+  padding-right: 8px;
+  border-radius: var(--radius-sm);
+  color: hsl(var(--ink-2));
+  font-size: 12.5px;
+  cursor: default;
+  user-select: none;
+}
+
+.material-tree__row:hover {
+  background: var(--workspace-cell-hover-bg);
+}
+
+.material-tree__row:focus-visible {
+  outline: 1px solid hsl(var(--accent) / 0.5);
+  outline-offset: -1px;
+}
+
+.material-tree__row--current,
+.material-tree__row--active {
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+}
+
+.material-tree__row--selected {
+  background: hsl(var(--accent) / 0.1);
+  color: hsl(var(--ink-1));
+}
+
+.material-tree__row--drop {
+  background: hsl(var(--accent) / 0.14);
+  color: hsl(var(--ink-1));
+}
+
+.material-tree__row svg,
+.material-tree__row .brush-icon {
+  flex-shrink: 0;
+  color: hsl(var(--ink-4));
+}
+
+.material-tree__chevron {
+  transition: transform 120ms ease;
+}
+
+.material-tree__chevron--open {
+  transform: rotate(90deg);
+}
+
+.material-tree__chevron-space {
+  display: grid;
+  width: 14px;
+  flex-shrink: 0;
+  place-items: center;
+}
+
+/* Material rows are sand cells (materials.css): no wash under the pointer,
+   a hairline glass ring instead; the open one has its frame drawn from the
+   slip mark. */
+.material-tree__row--item.sand-cell:hover,
+.material-tree__row--item.sand-cell.material-tree__row--active {
+  background: transparent;
+}
+
+/* Folders organize the materials, as categories organize elements: their
+   names are set in the serif structure face, materials in the entity face. */
+.material-tree__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-structure);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-tree__count,
+.material-tree__kind {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 9.5px) / 1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.material-tree__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-xs, 3px);
+  background: transparent;
+  color: hsl(var(--ink-3));
+}
+
+.material-tree__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 3px;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-1));
+  font: inherit;
+  outline: none;
+}
+
+/* Materials are taller cells with a preview; folders stay thin rows. */
+.material-tree__row--item {
+  align-items: flex-start;
+  min-height: 44px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.material-tree__cell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.material-tree__cell-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.material-tree__thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 3px;
+  background: hsl(var(--paper-deep) / 0.5);
+}
+
+.material-tree__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.material-tree__cell-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.material-tree__title {
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-tree__untitled {
+  color: hsl(var(--ink-4));
+  font-style: italic;
+  font-weight: 400;
+}
+
+.material-tree__excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  color: hsl(var(--ink-3));
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.material-tree__meta {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 9.5px) / 1.4 var(--font-mono);
+  letter-spacing: 0.06em;
+}
+
+.material-tree__preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-xs, 3px);
+  background: transparent;
+  color: hsl(var(--ink-4));
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.material-tree__row--item:hover .material-tree__preview-toggle,
+.material-tree__row--item:focus-within .material-tree__preview-toggle,
+.material-tree__preview-toggle--open {
+  opacity: 1;
+}
+
+.material-tree__preview-toggle:hover {
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-1));
+}
+
+.material-tree__preview-toggle .brush-icon {
+  transition: transform 120ms ease;
+}
+
+.material-tree__preview-toggle--open .brush-icon {
+  transform: rotate(90deg);
+}
+
+.material-tree__cell-extra {
+  min-width: 0;
+  cursor: auto;
+  user-select: text;
+}
+
+.material-tree__image {
+  display: grid;
+  width: 100%;
+  max-height: 220px;
+  padding: 0;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 4px;
+  background: hsl(var(--paper-deep) / 0.35);
+  cursor: zoom-in;
+}
+
+.material-tree__image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: contain;
+}
+
+.material-tree__breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px 2px;
+  color: hsl(var(--ink-3));
+  font-size: 12px;
+}
+
+.material-tree__breadcrumb span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.material-tree__breadcrumb button {
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.material-tree__breadcrumb > span:last-of-type button {
+  color: hsl(var(--ink-1));
+}
+
+.material-tree__breadcrumb-new {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.material-folder-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+}
+
+.material-folder-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.material-folder-picker__row:disabled {
+  color: hsl(var(--ink-4));
+  cursor: not-allowed;
+}
+
+.material-folder-picker__row:hover:not(:disabled) {
+  background: var(--workspace-cell-hover-bg);
+}
+
+.material-folder-picker__row--current {
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+}
+
+.material-folder-picker__row .brush-icon {
+  flex-shrink: 0;
+  color: hsl(var(--ink-4));
+}
+
+.material-folder-picker__new {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--workspace-subtle-border, hsl(var(--rule)));
+}
+
+.material-folder-picker__new:not(.material-folder-picker__new--glass) input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 4px;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-1));
+  font: inherit;
+  font-size: 13px;
+}
+
+.material-folder-picker__new:not(.material-folder-picker__new--glass) button {
+  padding: 5px 10px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 4px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.material-folder-picker__new:not(.material-folder-picker__new--glass) button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.material-folder-picker__error {
+  margin-top: 6px;
+  color: hsl(var(--danger, 0 60% 45%));
+  font-size: 12px;
+}
+
+/* ══ Desktop: sand and glass ═════════════════════════════════════════
+   docs/design-system/components.md (素材). Everything above stays the
+   paused mobile shell's look: on the desktop the components add glass and
+   sand classes of their own, and the washes the shared classes carry are
+   taken off here. What the author pressed is glass; what the author left
+   on a material (a region comment, a highlight) is sand. */
+
+:root {
+  --material-comment-c: hsl(var(--comment));
+  --material-todo-c: color-mix(in srgb, hsl(var(--story-4)) 82%, hsl(var(--ink-1)));
+}
+
+/* ── Image / PDF tab: the header is written on the desk; the image or PDF
+   page is the one sheet lifted off it. ── */
+
+:root[data-shell-mode] .material-editor__header {
+  padding: 20px 28px 6px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+:root[data-shell-mode] .material-editor__generation {
+  max-width: 560px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.material-editor__provenance-toggle .brush-icon {
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: -1px;
+  transition: transform 120ms ease;
+}
+
+.material-editor__provenance-toggle[aria-expanded='true'] .brush-icon {
+  transform: rotate(90deg);
+}
+
+/* The description is a field with no line at rest: the pointer brings the
+   glass, the caret holds it still. */
+.material-editor__description-field {
+  display: block;
+  max-width: 720px;
+  margin: 8px 0 0 -8px;
+  border-radius: 2px;
+}
+
+.material-editor__description-field > .material-editor__description,
+.material-editor__description-field > .material-editor__description:hover,
+.material-editor__description-field > .material-editor__description:focus {
+  margin-top: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+:root[data-shell-mode] .material-stage__media {
+  border-radius: 2px;
+  box-shadow: var(--page-elevation);
+}
+
+:root[data-shell-mode] .material-stage__media--pdf {
+  background: hsl(var(--page));
+}
+
+/* Zoom, region drawing and fullscreen: one glass pill of round glass
+   buttons at the stage's upper right, like the manuscript's toolbar. */
+.material-stage__toolbar {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.material-stage__zoom {
+  min-width: 46px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: 10.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.material-stage__caption {
+  padding-right: 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* PDF paging: its own pill at the bottom of the stage. */
+.material-stage__pager-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 1;
+  transform: translateX(-50%);
+}
+
+.material-stage__page {
+  min-width: 44px;
+  color: hsl(var(--ink-2));
+  font: 10.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Fullscreen: the desk comes up over the workspace; the image is the one
+   lifted sheet, a round glass button closes it. */
+.material-lightbox--desk {
+  background: color-mix(in srgb, hsl(var(--paper-deep)) 96%, transparent);
+}
+
+.material-lightbox__close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+}
+
+/* ── Region comments: a dry frame drawn round the region (canvas, see
+   MaterialRegionLayer), numbered with a round sand seal. Pointing at a
+   region deepens its sand and lets its card in the column flow; selected,
+   the frame is drawn again. ── */
+
+.material-region.material-region--sand {
+  --region-c: var(--material-comment-c);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.material-region--sand.material-region--todo {
+  --region-c: var(--material-todo-c);
+}
+
+.material-region--sand.material-region--resolved {
+  opacity: 1;
+}
+
+.material-region--sand:focus-visible {
+  outline: 1px solid hsl(var(--accent) / 0.5);
+  outline-offset: 4px;
+}
+
+.material-region__frame {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: calc(100% + 10px);
+  height: calc(100% + 10px);
+  pointer-events: none;
+  color: color-mix(in srgb, var(--region-c), #ffffff var(--pigment-lift));
+  mix-blend-mode: var(--pigment-blend);
+  opacity: 0.5;
+  transition: opacity 0.3s ease-out;
+}
+
+.material-region--sand:hover > .material-region__frame,
+.material-region--sand.material-region--linked > .material-region__frame {
+  opacity: 0.8;
+}
+
+.material-region--sand.material-region--selected > .material-region__frame {
+  opacity: 0.95;
+}
+
+.material-region--sand.material-region--resolved > .material-region__frame {
+  opacity: 0.28;
+}
+
+.material-region--sand.material-region--resolved:hover > .material-region__frame,
+.material-region--sand.material-region--resolved.material-region--linked > .material-region__frame {
+  opacity: 0.5;
+}
+
+/* The rectangle being drawn: faint sand until the pointer lets go. */
+.material-region--sand.material-region--draft::before {
+  content: '';
+  position: absolute;
+  inset: -4px -5px;
+  background: color-mix(in srgb, var(--region-c), #ffffff var(--pigment-lift));
+  -webkit-mask-box-image: url('../assets/design/sand/frame-box.png') 24 / 12px round;
+  mask-border: url('../assets/design/sand/frame-box.png') 24 / 12px round;
+  mix-blend-mode: var(--pigment-blend);
+  opacity: 0.32;
+}
+
+.material-region__badge.material-region__badge--seal,
+.material-seal {
+  isolation: isolate;
+  background: transparent;
+  color: hsl(var(--page));
+  font-weight: 600;
+}
+
+.material-region__badge--seal::before,
+.material-seal::before {
+  content: '';
+  position: absolute;
+  inset: -2px -1px;
+  z-index: -1;
+  background: color-mix(in srgb, var(--region-c), #ffffff var(--pigment-lift));
+  -webkit-mask: url('../assets/design/sand/blob-2.png') center / 100% 100% no-repeat;
+  mask: url('../assets/design/sand/blob-2.png') center / 100% 100% no-repeat;
+  opacity: 0.9;
+}
+
+.material-region--resolved .material-region__badge--seal,
+.material-seal--resolved {
+  opacity: 0.5;
+}
+
+.material-seal {
+  --region-c: var(--material-comment-c);
+  position: relative;
+  display: inline-grid;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  place-items: center;
+  font: 600 10px/16px var(--font-mono);
+}
+
+.material-seal--todo {
+  --region-c: var(--material-todo-c);
+}
+
+/* The column of region comments lies flat on the desk. */
+.material-comments.material-comments--flat {
+  border-left: 0;
+  background: transparent;
+  box-shadow: inset 0.5px 0 0 var(--workspace-local-border);
+}
+
+.material-comments--flat .material-comments__item--selected {
+  background: transparent;
+  box-shadow: none;
+}
+
+.material-comments--flat .material-comments__item--selected .review-card.glass,
+.material-comments--flat .material-comments__item--linked .review-card.glass {
+  --glass-g: 1;
+  --glass-sp: 1;
+}
+
+.material-comments--flat .material-comments__item--selected .review-card.glass::before {
+  opacity: 1;
+  animation-play-state: paused;
+}
+
+.material-comments--flat .material-comments__item--linked:not(.material-comments__item--selected) .review-card.glass::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+/* The composer for a new anchored note or TODO (a region just drawn, a
+   passage selected in the prose) is a floating layer: the desk lifted out,
+   square, a hairline and the floating shadow. */
+.comment-composer.comment-composer--float {
+  padding: 8px;
+  border: 0;
+  border-radius: var(--menu-surface-radius, 0);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-surface-shadow);
+}
+
+.comment-composer--float .comment-composer__field > textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.comment-composer--float .comment-composer__actions {
+  margin-top: 8px;
+}
+
+/* ── Note page: no second layer of colour on the sheet. ── */
+
+:root[data-shell-mode] .note-prose blockquote {
+  padding-left: 1.4em;
+  border-radius: 0;
+  background: transparent;
+}
+
+:root[data-shell-mode] .note-prose code {
+  padding: 0 0.1em;
+  background: transparent;
+  color: hsl(var(--ink-2));
+}
+
+:root[data-shell-mode] .note-prose pre code {
+  padding: 0;
+}
+
+/* Callouts and code blocks are read-only cards: no fill, the resting line
+   of clear glass, which stays still under the pointer. */
+:root[data-shell-mode] .note-prose pre,
+:root[data-shell-mode] .note-prose .note-callout {
+  position: relative;
+  isolation: isolate;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+
+:root[data-shell-mode] .note-prose pre::before,
+:root[data-shell-mode] .note-prose .note-callout::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-clear) 50%, transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  -webkit-mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+}
+
+/* A highlight is a dry swash of the highlighter, drawn again on every line
+   it runs over (sand/hl-mark.png, tinted: a background is the only thing
+   drawn once per line fragment). */
+:root[data-shell-mode] .note-prose mark,
+:root[data-shell-mode] .note-excerpt mark {
+  padding: 0 0.14em;
+  border-radius: 0;
+  background: url('../assets/design/sand/hl-mark.png') center / 100% 100% no-repeat;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+:root.dark[data-shell-mode] .note-prose mark,
+:root.dark[data-shell-mode] .note-excerpt mark {
+  background-image: url('../assets/design/sand/hl-mark-dark.png');
+}
+
+:root[data-shell-mode] .note-prose th {
+  background: transparent;
+}
+
+:root[data-shell-mode] .note-prose th,
+:root[data-shell-mode] .note-prose td {
+  border-color: hsl(var(--ink-1) / 0.14);
+}
+
+/* Selected cells take the text selection's blue, not a state wash. */
+:root[data-shell-mode] .note-prose .selectedCell {
+  background: rgba(56, 132, 255, 0.16);
+}
+
+/* A checklist box is drawn in sand like the Agent's task list: an empty
+   box, a tick in the box once done. */
+:root[data-shell-mode] .note-prose ul[data-type='taskList'] li > label {
+  margin-top: 0.3em;
+}
+
+:root[data-shell-mode] .note-prose ul[data-type='taskList'] li > label input {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 0;
+  background: hsl(var(--ink-3));
+  -webkit-mask: url('../assets/design/icons/task-todo.png') center / contain no-repeat;
+  mask: url('../assets/design/icons/task-todo.png') center / contain no-repeat;
+  transition: background-color 0.12s ease-out;
+}
+
+:root[data-shell-mode] .note-prose ul[data-type='taskList'] li > label input:hover {
+  background: hsl(var(--ink-1));
+}
+
+:root[data-shell-mode] .note-prose ul[data-type='taskList'] li > label input:checked {
+  -webkit-mask-image: url('../assets/design/icons/task-done.png');
+  mask-image: url('../assets/design/icons/task-done.png');
+}
+
+:root[data-shell-mode] .note-prose ul[data-type='taskList'] li > label input:focus-visible {
+  outline: 1px solid hsl(var(--accent) / 0.5);
+  outline-offset: 2px;
+}
+
+/* A line linked to a TODO: the word in the TODO colour, no chip. */
+:root[data-shell-mode] .note-prose ul[data-type='taskList'] li[data-todo-id] > div > p:first-child::after {
+  margin-left: 7px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--material-todo-c);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* Checklist and table actions on the desktop: the prose selection bar's glass
+   long pill (`.editor-selection-bar` in comments-review.css) — its resting
+   line, the floating fill, no shadow — each action one of its short pills,
+   glass only under the pointer. The TODO's part and the table's are parted
+   by space (`.editor-selection-bar__sep`), not a line. */
+.note-floating-bar--glass {
+  max-width: calc(100vw - 16px);
+}
+
+.note-floating-bar--glass .note-floating-bar__status {
+  padding: 0 4px 0 12px;
+  color: hsl(var(--ink-3));
+  font-size: inherit;
+  line-height: 28px;
+}
+
+/* 「转为 TODO」 on an empty line: faded, and no glass comes under the pointer. */
+.note-floating-bar--glass .editor-selection-bar__item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.note-floating-bar--glass .editor-selection-bar__item:disabled::before {
+  opacity: 0;
+}
+
+/* Materials embedded in a note: an image stands on its own and takes
+   glass only under the pointer or when selected; a PDF is a card with the
+   resting line of glass. */
+.note-embed.note-embed--glass {
+  padding: 4px;
+  border-radius: 2px;
+}
+
+.note-embed--glass.note-embed--selected {
+  outline: 0;
+}
+
+.note-embed__card.note-embed__card--glass,
+.note-embed__card.note-embed__card--glass:hover {
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.note-embed__card--glass img {
+  border-radius: 1px;
+  background: transparent;
+  box-shadow: 0 0 0 0.5px var(--workspace-local-border);
+}
+
+.note-embed__card--glass .note-embed__glyph {
+  background: transparent;
+}
+
+.note-embed__missing.note-embed__missing--quiet {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 0;
+  border: 0;
+}
+
+.note-embed-picker__tile.note-embed-picker__tile--glass,
+.note-embed-picker__tile.note-embed-picker__tile--glass:hover {
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.note-embed-picker__tile--glass img,
+.note-embed-picker__tile--glass > span:first-child {
+  border-radius: 1px;
+  background: transparent;
+}
+
+/* ── Library cards (TODO and materials view): a material is a sand cell,
+   a TODO a card with the resting line of glass; neither has a fill. ── */
+
+.library-item-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 2px;
+}
+
+.library-item-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.library-item-card__thumb {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  padding: 0;
+  overflow: hidden;
+  place-items: center;
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: pointer;
+}
+
+.library-item-card__thumb--pdf {
+  width: 36px;
+  height: 46px;
+  box-shadow: 0 0 0 0.5px var(--workspace-local-border);
+}
+
+.library-item-card__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.library-item-card__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.library-item-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.library-item-card__title-row > .kind-mark {
+  margin-right: 4px;
+}
+
+.library-item-card__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font: 500 var(--ui-font-body, 13px)/1.35 var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.library-item-card__title--untitled {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-style: italic;
+  font-weight: 400;
+}
+
+.library-item-card__title-field {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  border-radius: 2px;
+  background: hsl(var(--page));
+}
+
+.library-item-card__title-field > input {
+  display: block;
+  width: 100%;
+  padding: 1px 6px;
+  border: 0;
+  outline: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font: 500 var(--ui-font-body, 13px)/1.5 var(--font-sans);
+}
+
+.library-item-card__meta {
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 18px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-secondary, 10px)/1.4 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hover-only actions: plain brush icons, no frame. */
+.library-item-card__actions {
+  display: flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.library-item-card:hover .library-item-card__actions,
+.library-item-card:focus-within .library-item-card__actions {
+  opacity: 1;
+}
+
+.library-item-card__actions .ghost-icon-button:hover:not(:disabled) {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+
+.library-item-card__chevron--open {
+  transform: rotate(90deg);
+}
+
+.library-item-card__image {
+  display: grid;
+  width: 100%;
+  max-height: 220px;
+  margin-top: 8px;
+  padding: 0;
+  overflow: hidden;
+  place-items: center;
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.library-item-card__image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: contain;
+}
+
+.library-item-card__excerpt {
+  margin-top: 6px;
+  padding-left: 18px;
+}
+
+.library-item-card__extra {
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.todo-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 5px;
+  padding: 7px 10px;
+  border-radius: 2px;
+}
+
+.todo-card--glass .todo-card__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-secondary, 9px)/1.2 var(--font-mono);
+}
+
+.todo-card__kind {
+  color: var(--material-todo-c);
+  font-weight: 600;
+}
+
+.todo-card--glass .todo-card__kind {
+  font-weight: 400;
+}
+
+.todo-card--glass .todo-card__header .ghost-icon-button:hover:not(:disabled) {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+
+.todo-card__delete {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.todo-card:hover .todo-card__delete,
+.todo-card:focus-within .todo-card__delete {
+  opacity: 1;
+}
+
+.todo-card--glass .todo-card__body {
+  color: hsl(var(--ink-1));
+  font: var(--ui-font-body, 13px)/1.4 var(--font-sans);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.todo-card--resolved .todo-card__body {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--ink-4) / 0.6);
+}
+
+.todo-card--glass .todo-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ── Sidebar material tree: folders are cells too. The pointer brings a
+   ring of flowing glass; a ⌘-selection holds it still; a drag over a folder
+   (or the list, for the root) makes it flow. ── */
+
+.material-tree--desktop .material-tree__row:hover,
+.material-tree--desktop .material-tree__row--current,
+.material-tree--desktop .material-tree__row--active,
+.material-tree--desktop .material-tree__row--selected,
+.material-tree--desktop .material-tree__row--drop,
+.material-tree--desktop .material-tree__rows--drop {
+  background: transparent;
+}
+
+.material-tree--desktop .material-tree__row--selected,
+.material-tree--desktop .material-tree__row--drop {
+  color: hsl(var(--ink-1));
+}
+
+.material-tree--desktop .material-tree__row--selected:not(.is-selected) > .cell-ring,
+.material-tree--desktop .material-tree__row--drop > .cell-ring {
+  opacity: 1;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cell-line) 95%, transparent),
+    inset 0 0 8px 1px color-mix(in srgb, var(--cell-line) 42%, transparent);
+}
+
+.material-tree--desktop .material-tree__row--selected:not(.is-selected) > .cell-ring {
+  animation-play-state: paused;
+}
+
+.material-tree--desktop .material-tree__row--drop > .cell-ring {
+  animation-play-state: running;
+}
+
+.material-tree__rows {
+  position: relative;
+}
+
+.material-tree__drop-ring {
+  --cell-line: color-mix(in srgb, hsl(var(--ink-3)) 50%, var(--glass-clear));
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cell-line) 95%, transparent),
+    inset 0 0 8px 1px color-mix(in srgb, var(--cell-line) 42%, transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  --glass-gx: var(--glass-dense-gx);
+  --glass-gy: var(--glass-dense-gy);
+  opacity: 0;
+  animation: glass-flow var(--motion-glass-drift) linear infinite paused;
+  transition: opacity 0.24s ease-out;
+}
+
+.material-tree__rows--drop > .material-tree__drop-ring {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .material-tree__drop-ring {
+    animation: none;
+  }
+}
+
+.material-tree--desktop .material-tree__thumb {
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+}
+
+.material-tree--desktop .material-tree__thumb--pdf {
+  width: 26px;
+  height: 34px;
+  margin: 0 3px;
+  box-shadow: 0 0 0 0.5px var(--workspace-local-border);
+}
+
+.material-tree--desktop .material-tree__preview-toggle:hover {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+
+.material-tree--desktop .material-tree__image {
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+}
+
+.material-tree__rename-field {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  border-radius: 2px;
+  background: hsl(var(--page));
+}
+
+.material-tree__rename-field > .material-tree__rename {
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+/* ── Pickers and dialogs: fields are the shared `.ui-field` (a paper slip
+   with the resting line of glass); rows have no fill, the current one holds
+   still glass. ── */
+
+.material-folder-picker--glass .material-folder-picker__row:hover:not(:disabled),
+.material-folder-picker--glass .material-folder-picker__row--current {
+  background: transparent;
+}
+
+.material-folder-picker--glass .material-folder-picker__row--current {
+  color: hsl(var(--ink-1));
+  font-weight: 600;
+}
+
+.material-folder-picker--glass .material-folder-picker__row:disabled::before {
+  opacity: 0;
+}
+
+.material-folder-picker__new--glass {
+  border-top: 0;
+}
+
+.material-folder-picker__new--glass > .ui-field {
+  flex: 1;
+}
+
+.library-dialog__field + .library-dialog__field {
+  margin-top: 8px;
+}
+
+/* Feedback while importing, and errors: ink and a brush icon, no fill. */
+.material-import-feedback.material-import-feedback--quiet {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+}
+
+.material-import-feedback--quiet.material-import-feedback--error {
+  align-items: center;
+  gap: 6px;
+}

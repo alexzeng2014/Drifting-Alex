@@ -1,0 +1,424 @@
+import type { McpServerPlatformApi } from './mcp-server-contract';
+import type {
+  AILogWriteResult,
+  MarkdownFolderSettings,
+  MarkdownProjectionInfo,
+  MarkdownProjectionNamedFolder,
+  MarkdownProjectionAsset,
+  MarkdownProjectionDocument,
+  MarkdownProjectionEntry,
+  MarkdownProjectionReadRequest,
+  MarkdownProjectionReadResult,
+  MarkdownProjectionWriteResult,
+  AppUpdateDownloadEvent,
+  AppUpdateMetadata,
+  AppInfo,
+  ArchiveSaveResult,
+  ManuscriptCoverPickResult,
+  AssetStoreDeleteResult,
+  AssetStorePathResult,
+  AssetStoreWriteResult,
+  AssetVariant,
+  CodexLoginProjection,
+  CodexModelCatalogResponse,
+  ByokModelCatalogResponse,
+  ByokModelProvider,
+  CodexImagesGenerateInput,
+  CodexImagesGenerateResult,
+  CodexSubscriptionStatus,
+  DeleteImportResult,
+  ImageInboxCandidate,
+  FilePickerKind,
+  ImageVariantResult,
+  InspectImageResult,
+  McpStdioRequestInput,
+  McpStdioNotifyInput,
+  McpStdioStartInput,
+  McpStdioStartResult,
+  McpStdioStatusResult,
+  McpHttpRequestInput,
+  McpHttpResponseResult,
+  OpenResult,
+  PickFileResult,
+  PlatformCapabilities,
+  PrepareImageOptions,
+  PrepareImageResult,
+  SystemFontFamily,
+  SyncLocalObjectResult,
+  SyncObjectGcResult,
+  SyncPreparedAssetSourceResult,
+  SyncVerifiedAssetSourceResult,
+  NativeBytes,
+  ThumbnailResult,
+  NativeCrashReport,
+} from './contracts';
+
+export type Unsubscribe = () => void;
+
+export interface LifecycleFlushRequest {
+  requestId: number | null;
+  reason: 'shutdown' | 'suspended';
+  deadlineMs: number | null;
+  confirmationRequired: boolean;
+}
+
+export interface OAuthCallback {
+  token: string | null;
+  error: string | null;
+}
+
+export interface AppPlatformApi {
+  /** Non-secret native installation marker; never requests Keychain access. */
+  getInstallationIdentity(): Promise<string>;
+  getInfo(): Promise<AppInfo>;
+  getVersion(): Promise<string>;
+  getPath(name: string): Promise<string>;
+  getCapabilities(): Promise<PlatformCapabilities>;
+}
+
+/** Who a library belongs to; null only for the pre-registry library until claimed. */
+export type LibraryOwner = { kind: 'local' } | { kind: 'account'; subject: string };
+
+export interface LibraryState {
+  /** The library this process runs on; it never changes without a relaunch. */
+  activeId: string;
+  activeOwner: LibraryOwner | null;
+  libraries: Array<{ id: string; owner: LibraryOwner | null }>;
+}
+
+export interface LibraryActivation {
+  libraryId: string;
+  /** The App is relaunching onto that library through the quit flush barrier. */
+  restarting: boolean;
+}
+
+/**
+ * Account-isolated libraries: each owns a whole native data root. Desktop
+ * switches by relaunching; mobile cannot relaunch and rejects activation.
+ */
+export interface LibraryPlatformApi {
+  state(): Promise<LibraryState>;
+  /** Record the owner of the running, still unclaimed library. */
+  claimOwner(owner: LibraryOwner): Promise<LibraryState>;
+  activate(owner: LibraryOwner): Promise<LibraryActivation>;
+}
+
+export interface WindowPlatformApi {
+  minimize(): Promise<void>;
+  toggleMaximize(): Promise<boolean>;
+  close(): Promise<void>;
+  isMaximized(): Promise<boolean>;
+  /** macOS desktop only. Other targets reject as unsupported. */
+  setTrafficLightPosition(position: { x: number; y: number }): Promise<void>;
+  /** macOS desktop only: immersive writing hides the traffic lights. */
+  setTrafficLightsHidden(hidden: boolean): Promise<void>;
+  /** While enabled, the window's close button asks to return to the shelf. */
+  setCloseReturnsToShelf(enabled: boolean): Promise<void>;
+  /** Windows only: the native title bar follows Drifting's light or dark theme. */
+  setTheme(theme: 'light' | 'dark'): Promise<void>;
+  /** Windows only: the notification-area menu in the interface language. */
+  setTrayLabels(labels: { open: string; quit: string }): Promise<void>;
+  onCloseToShelf(callback: () => void): Unsubscribe;
+}
+
+export interface LifecyclePlatformApi {
+  onFlushBeforeQuit(callback: (request: LifecycleFlushRequest) => void): Unsubscribe;
+  /** Native cold-ready/resume wake-up used by foreground-only SyncEngine polling. */
+  onReadyOrResume(callback: (event: 'ready' | 'resumed') => void): Unsubscribe;
+  confirmFlushBeforeQuit(requestId: number): Promise<boolean>;
+}
+
+export interface AuthPlatformApi {
+  openOAuthBrowser(provider: string): Promise<void>;
+  onOAuthCallback(callback: (data: OAuthCallback) => void): Unsubscribe;
+}
+
+/** Operating-system `drifting://open/...` location links (docs/location-links.md). */
+export interface LocationLinkPlatformApi {
+  onOpen(callback: (url: string) => void): Unsubscribe;
+}
+
+export interface KeychainPlatformApi {
+  /** Renderer-managed values only; native SyncEngine/provider namespaces reject. */
+  get(key: string): Promise<string | null>;
+  /** Existence-only status. It must not release or decrypt a secret to JS. */
+  has(key: string): Promise<boolean>;
+  /** Renderer-managed values only; native SyncEngine/provider namespaces reject. */
+  set(key: string, value: string): Promise<boolean>;
+  /** Renderer-managed values only; native SyncEngine/provider namespaces reject. */
+  delete(key: string): Promise<boolean>;
+}
+
+export interface SyncObjectStorePlatformApi {
+  /** Stages small protocol bytes and returns an opaque native file reference. */
+  stageBytes(bytes: ArrayBuffer | Uint8Array): Promise<SyncLocalObjectResult>;
+  /** Copies the canonical app-owned source without exposing its path to provider code. */
+  stageAssetSource(projectId: string, assetId: string, ext: string): Promise<SyncLocalObjectResult>;
+  /** Best-effort cleanup for an opaque native staging object. */
+  discardLocal?(sourceRef: string): Promise<void>;
+  /** Removes only current-format native objects absent from the durable SQLite inventory. */
+  gcOrphans(input: {
+    retainedSourceRefs: readonly string[];
+    olderThanMs: number;
+  }): Promise<SyncObjectGcResult>;
+  /** Reads bounded protocol bytes from a root-validated opaque local object. */
+  readProtocolBytes(sourceRef: string, maxBytes: number): Promise<NativeBytes>;
+}
+
+export interface SyncAssetStorePlatformApi {
+  captureSource(input: {
+    projectId: string;
+    assetId: string;
+    expectedSourceSha256: string;
+    expectedSizeBytes: number;
+    expectedMimeType: string;
+  }): Promise<SyncVerifiedAssetSourceResult>;
+  prepareRestoreSource(input: {
+    attemptId: string;
+    targetProjectId: string;
+    assetId: string;
+    blobId: string;
+    sourceRef: string;
+    expectedSourceSha256: string;
+    expectedSizeBytes: number;
+    expectedMimeType: string;
+    /** Receipt v2: preserve an existing canonical destination for rollback. */
+    preserveExistingDestination?: boolean;
+  }): Promise<SyncPreparedAssetSourceResult>;
+  activateRestoreSources(input: {
+    attemptId: string;
+    targetProjectId: string;
+    stagingRefs: readonly string[];
+  }): Promise<string>;
+  abandonRestoreAttempt(attemptId: string): Promise<void>;
+  finalizeRestoreAttempt(attemptId: string): Promise<void>;
+  gcRestoreAttempts(input: {
+    retainedAttemptIds: readonly string[];
+    olderThanMs: number;
+  }): Promise<{ removedAttempts: number }>;
+}
+
+export interface TypographyPlatformApi {
+  listSystemFonts(): Promise<SystemFontFamily[]>;
+}
+
+export interface MaterialPlatformApi {
+  /** Convert an absolute native path into a URL that the current WebView may load. */
+  toLocalResourceUrl(filePath: string): string | null;
+  openLocal(filePath: string): Promise<OpenResult>;
+  openExternal(url: string): Promise<OpenResult>;
+  pickFile(kind?: FilePickerKind): Promise<PickFileResult>;
+  /** Stages pasted or dropped image/PDF bytes as a picker-equivalent import. */
+  stageImportBytes(bytes: ArrayBuffer | Uint8Array, name: string): Promise<PickFileResult>;
+  deleteImport(filePath: string): Promise<DeleteImportResult>;
+  thumbnail(filePath: string, size?: number): Promise<ThumbnailResult>;
+  readBytes(
+    filePath: string,
+  ): Promise<{ ok: true; bytes: ArrayBuffer } | { ok: false; error: string }>;
+  inspectImage(filePath: string): Promise<InspectImageResult>;
+  prepareImage(
+    filePath: string,
+    options?: Partial<PrepareImageOptions>,
+  ): Promise<
+    | (Omit<Extract<PrepareImageResult, { ok: true }>, 'display' | 'thumbnail'> & {
+        display: Omit<Extract<ImageVariantResult, { ok: true }>, 'bytes'> & {
+          bytes: ArrayBuffer;
+        };
+        thumbnail: Omit<Extract<ImageVariantResult, { ok: true }>, 'bytes'> & {
+          bytes: ArrayBuffer;
+        };
+      })
+    | Extract<PrepareImageResult, { ok: false }>
+  >;
+  createImageVariant(
+    filePath: string,
+    maxLongEdge: number,
+    quality: number,
+  ): Promise<
+    | (Omit<Extract<ImageVariantResult, { ok: true }>, 'bytes'> & { bytes: ArrayBuffer })
+    | Extract<ImageVariantResult, { ok: false }>
+  >;
+  createThumbnailVariant(
+    filePath: string,
+    size: number,
+    quality: number,
+  ): Promise<
+    | (Omit<Extract<ImageVariantResult, { ok: true }>, 'bytes'> & { bytes: ArrayBuffer })
+    | Extract<ImageVariantResult, { ok: false }>
+  >;
+}
+
+export interface AssetStorePlatformApi {
+  beginImport(projectId: string, assetId: string): Promise<void>;
+  commitImport(projectId: string, assetId: string): Promise<void>;
+  gcOrphanImports(
+    retainedAssets: import('./contracts').AssetStoreRetainedAsset[],
+  ): Promise<import('./contracts').AssetStoreGcResult>;
+  getPath(
+    projectId: string,
+    assetId: string,
+    variant: AssetVariant,
+    ext: string,
+  ): Promise<AssetStorePathResult>;
+  writeBytes(
+    projectId: string,
+    assetId: string,
+    variant: AssetVariant,
+    ext: string,
+    bytes: ArrayBuffer | Uint8Array,
+  ): Promise<AssetStoreWriteResult>;
+  copyFile(
+    projectId: string,
+    assetId: string,
+    variant: AssetVariant,
+    ext: string,
+    sourcePath: string,
+  ): Promise<AssetStoreWriteResult>;
+  deleteAsset(projectId: string, assetId: string): Promise<AssetStoreDeleteResult>;
+}
+
+export interface ArchivePlatformApi {
+  createTextZip(entries: { path: string; text: string }[]): Promise<Uint8Array>;
+  /** Save an app-generated ZIP through the native document picker. */
+  save(filename: string, bytes: ArrayBuffer | Uint8Array): Promise<ArchiveSaveResult>;
+}
+
+/** `.driftingbook` files (docs/book-transfer.md), through the native document pickers. */
+export interface BookTransferPlatformApi {
+  save(fileName: string, bytes: Uint8Array): Promise<{ saved: boolean }>;
+  /** The picked file's bytes, or null when the picker was canceled. */
+  open(): Promise<Uint8Array | null>;
+}
+
+export interface AILogPlatformApi {
+  write(filename: string, content: string): Promise<AILogWriteResult>;
+  openDir(): Promise<string>;
+  getDir(): Promise<string>;
+}
+
+export interface UpdatePlatformApi {
+  check(): Promise<AppUpdateMetadata | null>;
+  download(onEvent: (event: AppUpdateDownloadEvent) => void): Promise<number>;
+  install(): Promise<void>;
+  dismiss(): Promise<void>;
+}
+
+export interface McpStdioPlatformApi {
+  start(input: McpStdioStartInput): Promise<McpStdioStartResult>;
+  request(input: McpStdioRequestInput): Promise<string>;
+  notify(input: McpStdioNotifyInput): Promise<void>;
+  stop(processId: string): Promise<boolean>;
+  status(processId: string): Promise<McpStdioStatusResult>;
+}
+
+export interface McpHttpPlatformApi {
+  request(input: McpHttpRequestInput): Promise<McpHttpResponseResult>;
+  cancel(requestId: string): Promise<boolean>;
+}
+
+export interface OpenAIResponsesPlatformApi {
+  /** Native fixed-origin Responses transport; the API key never enters JS. */
+  request(body: string, signal: AbortSignal): Promise<Response>;
+}
+
+/**
+ * Experimental ChatGPT subscription route. The OAuth tokens live only in
+ * native secure storage; the renderer drives sign-in and reads status.
+ */
+export interface CodexSubscriptionPlatformApi extends OpenAIResponsesPlatformApi {
+  /** Native Codex-backend Responses transport authorized by the ChatGPT sign-in. */
+  request(body: string, signal: AbortSignal): Promise<Response>;
+  status(): Promise<CodexSubscriptionStatus>;
+  listModels(): Promise<CodexModelCatalogResponse>;
+  /** Starts a device-code sign-in; poll `status()` until the attempt is terminal. */
+  startLogin(): Promise<CodexLoginProjection>;
+  cancelLogin(): Promise<boolean>;
+  logout(): Promise<boolean>;
+}
+
+export interface ByokModelsPlatformApi {
+  /** The provider's own model list, read natively with the stored API key. */
+  list(provider: ByokModelProvider): Promise<ByokModelCatalogResponse>;
+}
+
+export type ImageInboxEntry = ImageInboxCandidate & {
+  /** Webview-loadable URL for the candidate image. */
+  fileUrl: string;
+};
+
+export type ImageGenerationResult = Omit<CodexImagesGenerateResult, 'candidates'> & {
+  candidates: ImageInboxEntry[];
+};
+
+/**
+ * Experimental image generation through the ChatGPT subscription sign-in.
+ * Results are local, unsynced inbox candidates until the author keeps one.
+ */
+export interface ImageGenerationPlatformApi {
+  generate(
+    input: Omit<CodexImagesGenerateInput, 'requestId'>,
+    signal?: AbortSignal,
+  ): Promise<ImageGenerationResult>;
+  listInbox(projectId: string): Promise<ImageInboxEntry[]>;
+  discard(projectId: string, candidateId: string): Promise<void>;
+  /** Copies a candidate into the picker import area for the ordinary asset import. */
+  stageImport(projectId: string, candidateId: string): Promise<string>;
+}
+
+export interface PlatformApi {
+  readonly app: AppPlatformApi;
+  /** Absent outside the native App: browser and test hosts have one library. */
+  readonly library?: LibraryPlatformApi;
+  readonly window: WindowPlatformApi;
+  readonly lifecycle: LifecyclePlatformApi;
+  readonly auth: AuthPlatformApi;
+  readonly locationLinks: LocationLinkPlatformApi;
+  readonly keychain: KeychainPlatformApi;
+  readonly hostedSync: {
+    request(input: { origin: string; token: string; path: string; method: 'GET' | 'PUT' | 'DELETE' | 'POST';
+      sourceRef?: string; destinationRef?: string; objectKind?: string; storedSha256?: string; sizeBytes?: number;
+      jsonBody?: unknown; signal?: AbortSignal }): Promise<unknown>;
+  };
+  readonly syncObjectStore: SyncObjectStorePlatformApi;
+  readonly syncAssetStore: SyncAssetStorePlatformApi;
+  readonly typography: TypographyPlatformApi;
+  readonly material: MaterialPlatformApi;
+  readonly assetStore: AssetStorePlatformApi;
+  readonly archive: ArchivePlatformApi;
+  readonly bookTransfer: BookTransferPlatformApi;
+  readonly sharing: {
+    saveMarkdown(filename: string, markdown: string): Promise<ArchiveSaveResult>;
+    /** Pick a destination, then lay out and write an EPUB, PDF or Word manuscript. */
+    saveManuscript(format: 'epub' | 'pdf' | 'docx', filename: string, payload: string): Promise<ArchiveSaveResult>;
+    pickManuscriptCover(): Promise<ManuscriptCoverPickResult>;
+  };
+  readonly updater: UpdatePlatformApi;
+  readonly diagnostics: {
+    /** Native panic records since the last call; each is returned once. */
+    takeNativeCrashReports(): Promise<NativeCrashReport[]>;
+  };
+  readonly aiLog: AILogPlatformApi;
+  readonly markdownProjection: {
+    remove(projectId: string): Promise<void>;
+    info(projectId: string): Promise<MarkdownProjectionInfo>;
+    pickOutputRoot(title: string): Promise<string | null>;
+    setOutputRoot(projectId: string, customRoot: string | null): Promise<MarkdownProjectionInfo>;
+    /** Names the project's folder for its book, renaming the folder already written. */
+    nameFolder(projectId: string, title: string): Promise<MarkdownProjectionNamedFolder>;
+    folder(): Promise<MarkdownFolderSettings>;
+    /** Chooses where projects without a location of their own are written. */
+    setDefaultRoot(location: string): Promise<MarkdownFolderSettings>;
+    setEnabled(enabled: boolean): Promise<MarkdownFolderSettings>;
+    /** Shows the project's folder in Finder, or with no project the folder holding them. */
+    open(projectId: string | null): Promise<void>;
+    write(projectId: string, generatedAt: string, entries: MarkdownProjectionEntry[], assets: MarkdownProjectionAsset[], documents: MarkdownProjectionDocument[]): Promise<MarkdownProjectionWriteResult>;
+    read(projectId: string, requests: MarkdownProjectionReadRequest[]): Promise<MarkdownProjectionReadResult[]>;
+  };
+  readonly mcpServer: McpServerPlatformApi;
+  readonly mcpStdio: McpStdioPlatformApi;
+  readonly mcpHttp: McpHttpPlatformApi;
+  readonly openAIResponses: OpenAIResponsesPlatformApi;
+  readonly codexSubscription: CodexSubscriptionPlatformApi;
+  readonly byokModels: ByokModelsPlatformApi;
+  readonly imageGeneration: ImageGenerationPlatformApi;
+}

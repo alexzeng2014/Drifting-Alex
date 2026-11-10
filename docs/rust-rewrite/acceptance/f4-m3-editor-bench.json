@@ -1,0 +1,166 @@
+{
+  "schema": "dr-testkit/evidence/1",
+  "name": "editor-bench",
+  "milestone": "f4-m3",
+  "generatedBy": "cargo run --release -p dr-editor --example editor-bench -- --write",
+  "inputs": {
+    "crates/dr-doc": "379328868d7efb39d391515b5655ff4438456eb5a8fcffa483425f7ac3598635",
+    "crates/dr-editor": "1b5c624ce375471a2f86c15ef1ce0fc2e2f183087693fd916fcd1b63924d09e1",
+    "crates/dr-store": "691facbf77899ae62a8013e758b0df17a96909ccb6b16e3f2c13660ada41d8ec",
+    "crates/dr-testkit/src/seed": "a01def93a860c30e8b9ab3d7371b1766a53a14bf5c3e885821324d5c222caa6f",
+    "crates/dr-workspace": "0978d5b2438ec5be356987c346a7578730f18b3388b2abdeb561d4496e47f19a",
+    "crates/gpui-prose": "c997db126cb05dfd816abd3eeaa415291ba12c16ffdbda808b8669ae32ed8f23"
+  },
+  "corpus": {
+    "preset": "lite",
+    "seed": "0x5eed0f08",
+    "books": 1,
+    "documents": 81,
+    "bodies": {
+      "categories": {
+        "count": 6,
+        "totalWords": 1800,
+        "minWords": 100,
+        "maxWords": 600,
+        "medianWords": 247.5,
+        "p95Words": 600,
+        "corpusSha256": "b4d038060e2319ac2e679ae80040d6f627fc92942505eee5f0f18bfd247a89eb"
+      },
+      "chapters": {
+        "count": 20,
+        "totalWords": 150000,
+        "minWords": 2000,
+        "maxWords": 20000,
+        "medianWords": 6212.0,
+        "p95Words": 10929,
+        "corpusSha256": "cba936a06d8035d3bf3706bfd8af50543955382ee805fded76597dd2b8008a0d"
+      },
+      "comments": {
+        "count": 8,
+        "totalWords": 1200,
+        "minWords": 40,
+        "maxWords": 300,
+        "medianWords": 169.5,
+        "p95Words": 300,
+        "corpusSha256": "6f355d72d11c1f609e08306e0454703c9907201a8a2dbc19cace9b9bf3953ca3"
+      },
+      "elements": {
+        "count": 30,
+        "totalWords": 50000,
+        "minWords": 100,
+        "maxWords": 10000,
+        "medianWords": 720.0,
+        "p95Words": 5792,
+        "corpusSha256": "5b089b5289763dff34f79564d1388080ee1d514d373eded53de4b65976030f55"
+      },
+      "ideas": {
+        "count": 10,
+        "totalWords": 20000,
+        "minWords": 1000,
+        "maxWords": 5000,
+        "medianWords": 1738.0,
+        "p95Words": 5000,
+        "corpusSha256": "dac06429dbf59454c4cbe62b87fcec59385aa538f3a55da09c46f4f98c8a1c1b"
+      },
+      "materialNotes": {
+        "count": 12,
+        "totalWords": 20000,
+        "minWords": 500,
+        "maxWords": 4000,
+        "medianWords": 1725.5,
+        "p95Words": 4000,
+        "corpusSha256": "72dd7607ade32c927efd36d95b741efd5bd8e44521a88867c44fc48d86227702"
+      },
+      "storylines": {
+        "count": 2,
+        "totalWords": 8000,
+        "minWords": 1500,
+        "maxWords": 6500,
+        "medianWords": 4000.0,
+        "p95Words": 6500,
+        "corpusSha256": "5b6fff68cac1603534d742103127334fc909049e7a6db66a0272656f6e5f5a9a"
+      },
+      "todos": {
+        "count": 12,
+        "totalWords": 1200,
+        "minWords": 40,
+        "maxWords": 240,
+        "medianWords": 89.5,
+        "p95Words": 240,
+        "corpusSha256": "d1c25faf2fadca18cf5453a1b5a5b2a7adb3645b2872d0531d727b8f6ad5c810"
+      }
+    },
+    "chapters": 20,
+    "elements": 30,
+    "relations": 40,
+    "acts": 3,
+    "writingDays": 43,
+    "entityLinks": 1924,
+    "headings": [
+      35,
+      106,
+      56
+    ],
+    "tasks": 36,
+    "corpusFingerprint": "4c3aa1566c98be7334032ca77090b496eae2b8dc0045ac9a6bd5bf5c4c6eed1a"
+  },
+  "machine": {
+    "cpu": "Apple M3 Pro",
+    "cores": 12,
+    "memoryBytes": 38654705664,
+    "os": "macos",
+    "osVersion": "27.0.1",
+    "arch": "aarch64",
+    "loadAverage1m": 3.96,
+    "profile": "release"
+  },
+  "results": {
+    "chapters": 20,
+    "book_chars": 165316,
+    "open_chapter_cold": {
+      "n": 20,
+      "p50": 0.88,
+      "p95": 1.345,
+      "max": 2.978,
+      "mean": 0.921
+    },
+    "open_chapter_warm": {
+      "n": 20,
+      "p50": 0.154,
+      "p95": 0.25,
+      "max": 0.409,
+      "mean": 0.172
+    },
+    "largest_chapter_chars": 22005,
+    "keystroke": {
+      "n": 400,
+      "p50": 0.053,
+      "p95": 0.081,
+      "max": 1.138,
+      "mean": 0.059
+    },
+    "keystroke_budget_p50_ms": 2.0,
+    "undo_step": {
+      "n": 60,
+      "p50": 1.039,
+      "p95": 1.103,
+      "max": 1.181,
+      "mean": 1.042
+    },
+    "agent_command": {
+      "n": 60,
+      "p50": 1.942,
+      "p95": 2.194,
+      "max": 2.548,
+      "mean": 1.987
+    },
+    "agent_change_folded": {
+      "n": 60,
+      "p50": 0.005,
+      "p95": 0.009,
+      "max": 0.013,
+      "mean": 0.006
+    },
+    "open_book_ms": 16.046
+  }
+}

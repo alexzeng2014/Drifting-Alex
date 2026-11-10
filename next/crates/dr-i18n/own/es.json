@@ -1,0 +1,93 @@
+{
+  "import": {
+    "v1": {
+      "blocked": {
+        "title": "Puede que a algunos textos les falten los últimos segundos de escritura",
+        "no_handoff": "Esta biblioteca aún no se ha abierto en la última versión 0.1",
+        "unproven_one": "No se puede confirmar que {{count}} texto sea el más reciente; aparece abajo",
+        "unproven_other": "No se puede confirmar que {{count}} textos sean los más recientes; aparecen abajo",
+        "stale_one": "{{count}} capítulo es más antiguo que lo que usted escribió",
+        "stale_other": "{{count}} capítulos son más antiguos que lo que usted escribió",
+        "changed_after_handoff_one": "{{count}} texto cambió después de la comprobación del traspaso",
+        "changed_after_handoff_other": "{{count}} textos cambiaron después de la comprobación del traspaso",
+        "sync": "La sincronización tiene conflictos sin resolver",
+        "get_last_release": "Descargue la última versión 0.1, abra esta biblioteca una vez, ciérrela y vuelva a importar"
+      },
+      "action": {
+        "download_last_release": "Descargar la última versión 0.1",
+        "import_anyway": "Importar de todos modos"
+      },
+      "summary": {
+        "already_imported": "Ya se importó en este dispositivo; se omitió",
+        "already_in_library": "Ya está en la biblioteca; se dejó como está",
+        "from_caches_one": "{{count}} texto vino de su caché y puede que le falten los últimos segundos",
+        "from_caches_other": "{{count}} textos vinieron de su caché y puede que les falten los últimos segundos",
+        "account_libraries_left_one": "{{count}} biblioteca de cuenta de la carpeta espera a que haya cuentas",
+        "account_libraries_left_other": "{{count}} bibliotecas de cuenta de la carpeta esperan a que haya cuentas",
+        "carries_on": "Sin terminar; importe de nuevo esta biblioteca para continuar"
+      },
+      "notice": {
+        "unfinished": "«{{name}}» no terminó de importarse",
+        "carry_on": "Reanudar la importación"
+      }
+    }
+  },
+  "settings": {
+    "editor": {
+      "justify": "Justificar"
+    },
+    "sync": {
+      "backup": {
+        "errors": {
+          "legacy": "Es una copia de seguridad de Drifting 0.1 y esta versión no puede restaurarla directamente. Restáurala en Drifting 0.1 y después importa esa biblioteca con «Importar · Drifting 0.1» en la estantería."
+        }
+      }
+    },
+    "update": {
+      "restart": "Reiniciar para actualizar",
+      "ready_on_quit": "Drifting {{version}} está descargado y su firma verificada. Se instala al salir.",
+      "older_offered": "Ya tienes la última versión. El servicio de actualizaciones ofrece {{version}}, que es anterior a esta, así que no se instalará.",
+      "refused_signature": "La actualización descargada no superó la verificación de firma y se descartó. Esta versión sigue funcionando.",
+      "refused_version": "La actualización descargada no es la versión que dice ser, quizá una anterior, y se rechazó. Esta versión sigue funcionando.",
+      "refused_app": "La actualización descargada no es Drifting y se descartó. Esta versión sigue funcionando.",
+      "interrupted": "La actualización no terminó de descargarse y se descartó. Se volverá a descargar en la próxima comprobación.",
+      "server_error": "El servicio de actualizaciones tiene un problema ahora. Inténtalo más tarde. Esta versión sigue funcionando.",
+      "local_error": "No se pudo guardar la actualización en este equipo y se detuvo. Esta versión sigue funcionando.",
+      "install_failed": "No se pudo instalar Drifting {{version}} al salir la última vez. Esta versión no ha cambiado; se volverá a intentar al salir.",
+      "install_failed_admin": "No se pudo instalar Drifting {{version}} al salir la última vez: no se puede escribir en la carpeta donde está Drifting. Esta versión no ha cambiado."
+    }
+  },
+  "findPanel": {
+    "replacePlaceholder": "Reemplazar con…",
+    "replace": "Reemplazar",
+    "replaceAll": "Reemplazar todo"
+  },
+  "positionLink": {
+    "copied": "Enlace de posición copiado"
+  },
+  "projectPicker": {
+    "bookTransfer": {
+      "legacy": "Este libro se exportó con Drifting 0.1. Impórtalo allí y luego pasa esa biblioteca a esta versión."
+    }
+  },
+  "importDialog": {
+    "targets": {
+      "idea": {
+        "label": "Idea",
+        "desc": "Tarjeta de idea flotante, independiente de las tramas."
+      }
+    },
+    "warnings": {
+      "imagesDropped_one": "No se importó {{count}} imagen",
+      "imagesDropped_other": "No se importaron {{count}} imágenes",
+      "notUtf8": "No es texto UTF-8; se reemplazaron algunos caracteres"
+    }
+  },
+  "notifications": {
+    "markdownFolder": {
+      "issue": {
+        "owned": "Otra instalación de Drifting gestiona esta carpeta; no se leyó ni se escribió nada"
+      }
+    }
+  }
+}

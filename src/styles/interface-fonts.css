@@ -1,0 +1,164 @@
+@import '@fontsource-variable/newsreader';
+@import '@fontsource-variable/noto-serif-sc';
+@import '@fontsource-variable/source-sans-3';
+@import '@fontsource-variable/noto-sans-sc';
+
+@font-face {
+  font-family: 'Sarasa Mono SC';
+  src: url('../assets/fonts/sarasa-mono-sc/SarasaMonoSC-Regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* Drifting-Alex writes and reads in Sarasa Gothic SC (更纱黑体), bundled from
+   the upstream OFL release. Four faces cover the manuscript's regular and bold
+   prose, including italic emphasis. */
+@font-face {
+  font-family: 'Sarasa Gothic SC';
+  src: url('../assets/fonts/sarasa-gothic-sc/SarasaGothicSC-Regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarasa Gothic SC';
+  src: url('../assets/fonts/sarasa-gothic-sc/SarasaGothicSC-Italic.woff2') format('woff2');
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarasa Gothic SC';
+  src: url('../assets/fonts/sarasa-gothic-sc/SarasaGothicSC-Bold.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarasa Gothic SC';
+  src: url('../assets/fonts/sarasa-gothic-sc/SarasaGothicSC-BoldItalic.woff2') format('woff2');
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  /* One family for the whole product: UI labels, structure headings and the
+     manuscript. The CJK fallbacks only cover glyphs Sarasa leaves out. */
+  --font-sarasa-gothic: 'Sarasa Gothic SC', 'Noto Sans SC Variable', 'PingFang SC',
+    'Microsoft YaHei', system-ui, sans-serif;
+}
+
+/* UI roles are independent of the author's --editor-* / --font-content axis.
+   Mobile keeps its existing UI family until its design migration resumes. */
+html[data-shell-mode='desktop'] {
+  --font-structure: var(--font-sarasa-gothic);
+  --font-ui: var(--font-sarasa-gothic);
+  --font-sans: var(--font-ui);
+  --font-mono: 'Sarasa Mono SC', monospace;
+}
+
+/* Structure: panel destinations and the headings that organize entities,
+   including the section headers of the structured editors on the paper. */
+html[data-shell-mode='desktop'] :is(
+  .workspace-panel-tab-row .app-panel-tab,
+  .workspace-panel-tab-row [data-panel-tab-label],
+  .left-sb-group-header__name,
+  .left-sb-group-header__frame-label,
+  .btl-rail__name,
+  .page__section-title,
+  .refs-section__title,
+  .dash-sec__title
+) {
+  font-family: var(--font-structure);
+  font-style: normal;
+  font-weight: 400;
+  font-optical-sizing: auto;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* Newsreader sets the tab's line, and Noto Serif SC ideographs centre about
+   0.15em higher on it than Latin words do. A Chinese tab label drops by that
+   much, so the words sit on the window-control line (y = 21px) with the
+   traffic lights and the sidebar toggles. */
+html[data-shell-mode='desktop'] .workspace-panel-tab-row [data-panel-tab-label][data-script='cjk'] {
+  position: relative;
+  top: 0.15em;
+}
+
+/* Latin labels read high beside them: Newsreader's capitals (0.68em) centre
+   about 0.1em above the line's middle. In the right row Review and Agent sit
+   next to 素材库 and 统计, so they drop 0.1em and the middle of the capitals
+   meets the same 21px line as the ideographs' ink. */
+html[data-shell-mode='desktop'] .workspace-panel-tab-row [data-panel-tab-label]:not([data-script='cjk']) {
+  position: relative;
+  top: 0.1em;
+}
+
+/* GroupHeaderCell's inline styles are retained as the mobile fallback. */
+html[data-shell-mode='desktop'] .left-sb-group-header__name {
+  font-family: var(--font-structure) !important;
+  font-size: var(--ui-font-body, 12.5px) !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}
+
+/* Index: subheaders, filters, secondary groups and their metadata. */
+html[data-shell-mode='desktop'] :is(
+  .workspace-panel-header-row,
+  .left-sb-inline-group-header,
+  .left-sb-group-header__count,
+  .review-group__count,
+  .review-card__kind,
+  .review-card__status,
+  .review-card__time
+) {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+html[data-shell-mode='desktop'] :is(.workspace-panel-header-row, .glass-slider-popover, .left-sb-inline-group-header) :is(button, span) {
+  font-family: var(--font-mono);
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+/* Entity names and review prose use the ordinary UI family, including
+   storyline-scoped review groups whose labels name a specific entity. */
+html[data-shell-mode='desktop'] :is(
+  .sand-cell,
+  .element-panel-item-label,
+  .review-card__body,
+  .review-card__quote,
+  .review-group__name
+) {
+  font-family: var(--font-sans);
+  font-style: normal;
+  letter-spacing: normal;
+}
+
+/* Prefer the selected writing system's glyph forms over SC fallbacks.
+   Latin roles and the author's independent manuscript font stay unchanged. */
+html[data-shell-mode='desktop']:lang(zh-TW) {
+  --font-structure: var(--font-sarasa-gothic);
+  --font-ui: var(--font-sarasa-gothic);
+  --font-mono: ui-monospace, 'Sarasa Mono SC', 'PingFang TC', 'Noto Sans Mono CJK TC', monospace;
+}
+html[data-shell-mode='desktop']:lang(ja) {
+  --font-structure: var(--font-sarasa-gothic);
+  --font-ui: var(--font-sarasa-gothic);
+  --font-mono: ui-monospace, 'Sarasa Mono SC', 'Hiragino Kaku Gothic ProN', monospace;
+}
+html[data-shell-mode='desktop']:lang(ko) {
+  --font-structure: var(--font-sarasa-gothic);
+  --font-ui: var(--font-sarasa-gothic);
+  --font-mono: ui-monospace, 'Sarasa Mono SC', 'Apple SD Gothic Neo', monospace;
+}

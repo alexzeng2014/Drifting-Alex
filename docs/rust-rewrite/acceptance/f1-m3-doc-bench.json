@@ -1,0 +1,183 @@
+{
+  "schema": "dr-testkit/evidence/1",
+  "name": "doc-bench",
+  "milestone": "f1-m3",
+  "generatedBy": "cargo run --release -p dr-testkit --bin bench -- doc --milestone f1-m3",
+  "inputs": {
+    "crates/dr-doc": "379328868d7efb39d391515b5655ff4438456eb5a8fcffa483425f7ac3598635",
+    "crates/dr-model": "17979521927159aaccaaabb488525d9d9b6a44308e3192917751683b2160428e",
+    "crates/dr-testkit/src/bench.rs": "4b942709d574501ecf7915c844268c528e9b0c4f5310f1ee08a641531e739ae1",
+    "crates/dr-testkit/src/bin/bench.rs": "4b197da40bd52f5bb7f64ab6b716967eae8598af6dd312cbff8b00208ba3b148",
+    "crates/dr-testkit/src/rng.rs": "eb878d8e485f01a901cb1742074c9de455d51871985ddf836e599e86baf353e3",
+    "crates/dr-testkit/src/seed": "a01def93a860c30e8b9ab3d7371b1766a53a14bf5c3e885821324d5c222caa6f",
+    "crates/dr-testkit/src/text.rs": "d639486e1178aadb3f7a41cdd4f563e74564f4f3d719de21cc4c183e5f6cb5b8"
+  },
+  "corpus": {
+    "corpusFingerprint": "5b319924c784252a98d35588c557a642ff4fb6b347f3a3603a9f1696a54bfb48",
+    "preset": "heavy",
+    "seed": "0x5eed0f08"
+  },
+  "machine": {
+    "arch": "aarch64",
+    "cores": 12,
+    "cpu": "Apple M3 Pro",
+    "loadAverage1m": 4.7,
+    "memoryBytes": 38654705664,
+    "os": "macos",
+    "osVersion": "27.0.1",
+    "profile": "release"
+  },
+  "results": {
+    "cases": {
+      "bookRead": {
+        "ms": {
+          "chapters": {
+            "max": 1.574,
+            "mean": 1.412,
+            "n": 20,
+            "p50": 1.407,
+            "p95": 1.46
+          },
+          "comments": {
+            "max": 3.488,
+            "mean": 3.252,
+            "n": 20,
+            "p50": 3.244,
+            "p95": 3.334
+          },
+          "entityExists": {
+            "max": 0.016,
+            "mean": 0.001,
+            "n": 10000,
+            "p50": 0.001,
+            "p95": 0.001
+          },
+          "load": {
+            "max": 1.191,
+            "mean": 1.114,
+            "n": 20,
+            "p50": 1.105,
+            "p95": 1.179
+          },
+          "needsRepair": {
+            "max": 2.27,
+            "mean": 2.107,
+            "n": 20,
+            "p50": 2.106,
+            "p95": 2.212
+          },
+          "relations": {
+            "max": 2.441,
+            "mean": 2.241,
+            "n": 20,
+            "p50": 2.226,
+            "p95": 2.359
+          },
+          "relationsOf": {
+            "max": 1.333,
+            "mean": 1.209,
+            "n": 20,
+            "p50": 1.212,
+            "p95": 1.251
+          },
+          "repairPlan": {
+            "max": 2.18,
+            "mean": 2.082,
+            "n": 20,
+            "p50": 2.086,
+            "p95": 2.148
+          }
+        },
+        "shape": {
+          "chapters": 100,
+          "comments": 200,
+          "elements": 300,
+          "lookups": 500,
+          "needsRepair": false,
+          "relations": 400,
+          "reps": 20
+        },
+        "what": "the book document: load from its snapshot, list chapters, relations, comments, relations of one element, existence checks, the repair check and plan"
+      },
+      "chapterRead": {
+        "ms": {
+          "entityLinks": {
+            "max": 0.472,
+            "mean": 0.406,
+            "n": 20,
+            "p50": 0.403,
+            "p95": 0.434
+          },
+          "load": {
+            "max": 0.519,
+            "mean": 0.416,
+            "n": 20,
+            "p50": 0.414,
+            "p95": 0.439
+          },
+          "paragraphAt": {
+            "max": 0.28,
+            "mean": 0.119,
+            "n": 10000,
+            "p50": 0.114,
+            "p95": 0.214
+          },
+          "paragraphIn": {
+            "max": 0.031,
+            "mean": 0.01,
+            "n": 10000,
+            "p50": 0.009,
+            "p95": 0.012
+          },
+          "posRoundTrip": {
+            "max": 0.011,
+            "mean": 0.002,
+            "n": 10000,
+            "p50": 0.002,
+            "p95": 0.002
+          },
+          "readAllFirst": {
+            "max": 2.457,
+            "mean": 2.339,
+            "n": 20,
+            "p50": 2.349,
+            "p95": 2.45
+          },
+          "readAllWarm": {
+            "max": 0.439,
+            "mean": 0.403,
+            "n": 20,
+            "p50": 0.403,
+            "p95": 0.43
+          }
+        },
+        "shape": {
+          "chars": 22031,
+          "entityLinks": 222,
+          "lookups": 500,
+          "paragraphs": 124,
+          "reps": 20
+        },
+        "what": "the longest chapter: load from its snapshot, read every paragraph (first and warm), paragraph_at / paragraph_in, a position round trip, the entity links"
+      },
+      "keystrokeEdit": {
+        "ms": {
+          "edit": {
+            "max": 1.87,
+            "mean": 0.006,
+            "n": 2000,
+            "p50": 0.005,
+            "p95": 0.007
+          }
+        },
+        "shape": {
+          "enters": 80,
+          "writes": 2000
+        },
+        "what": "ProseDoc::edit of a one-character insert mid-chapter (every 25th an Enter), with the commit's update bytes for storage"
+      }
+    },
+    "mode": "full",
+    "suite": "doc"
+  }
+}

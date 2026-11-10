@@ -1,0 +1,1939 @@
+/* Comments, review lanes, inline review cards and snapshot surfaces. */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+/* Comment anchors drawn in sand (lib/comment-sand.ts). Each anchor is
+   the dry highlighter swash laid along every line it runs over, on a layer of
+   its own after the page inside .editor__spread. The layer lies over the words
+   and blends with them like pigment (--prose-sand-layer-blend: multiply in
+   light themes, screen in dark), so every word keeps its colour and a link's
+   own sand shows through; it must not form a stacking context (no z-index,
+   containment or opacity), or the blend would see nothing beneath. Notes in the comment colour, TODOs in the TODO
+   yellow; a Copilot proposal has no resting stroke and shows in its blue only
+   while its card is pointed at. Pointing at a card (or selecting the comment)
+   hands the stroke over to a sparser swash of the same grains, a little
+   stronger, so the words still read through it; selecting a comment draws its
+   stroke again along the lines (the painter animates each line's clip); a
+   comment that goes fades out. */
+.comment-sand-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.comment-sand {
+  --comment-sand-c: hsl(var(--comment));
+  --comment-sand-rest: 0.27;
+  --comment-sand-hot: 0.61;
+  opacity: calc(var(--comment-sand-rest) * var(--prose-sand-strength));
+  mix-blend-mode: var(--prose-sand-layer-blend);
+  transition: opacity var(--motion-sand-shift) ease-out;
+  animation: comment-sand-arrive var(--motion-sand-fade) ease-out backwards;
+}
+.comment-sand--todo {
+  --comment-sand-c: color-mix(in srgb, hsl(var(--story-4)), #000000 var(--prose-sand-deepen));
+  --comment-sand-rest: 0.29;
+  --comment-sand-hot: 0.66;
+}
+.comment-sand--copilot {
+  --comment-sand-c: color-mix(in srgb, hsl(var(--story-2)), #000000 var(--prose-sand-deepen));
+  --comment-sand-rest: 0;
+}
+.comment-sand[data-state='hot'] {
+  opacity: calc(var(--comment-sand-hot) * var(--prose-sand-strength));
+}
+.comment-sand[data-state='gone'] {
+  opacity: 0;
+  transition-duration: var(--motion-sand-fade);
+}
+@keyframes comment-sand-arrive { from { opacity: 0; } }
+/* One line of the swash. The painter places it and picks how the stroke fits:
+   cut from its start (--comment-sand-size the natural width, --comment-sand-x
+   a seeded offset, --comment-sand-tail 12px thinning out) or stretched. The
+   line holds the swash twice, the resting one (hl.png) and the sparser one
+   shown while its card is pointed at (hl-hot.png, a subset of the same grains
+   along the same path), and cross-fades between them. */
+.comment-sand__line {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.comment-sand__line::before,
+.comment-sand__line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--comment-sand-c), #ffffff var(--pigment-lift));
+  -webkit-mask-size: var(--comment-sand-size, 100%) 100%, 100% 100%;
+  mask-size: var(--comment-sand-size, 100%) 100%, 100% 100%;
+  -webkit-mask-position: var(--comment-sand-x, 0px) 0, 0 0;
+  mask-position: var(--comment-sand-x, 0px) 0, 0 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  transition: opacity var(--motion-sand-shift) ease-out;
+}
+.comment-sand__line::before {
+  -webkit-mask-image: url('../assets/design/sand/hl.png'),
+    linear-gradient(to left, transparent, #000 var(--comment-sand-tail, 0px));
+  mask-image: url('../assets/design/sand/hl.png'),
+    linear-gradient(to left, transparent, #000 var(--comment-sand-tail, 0px));
+}
+.comment-sand__line::after {
+  -webkit-mask-image: url('../assets/design/sand/hl-hot.png'),
+    linear-gradient(to left, transparent, #000 var(--comment-sand-tail, 0px));
+  mask-image: url('../assets/design/sand/hl-hot.png'),
+    linear-gradient(to left, transparent, #000 var(--comment-sand-tail, 0px));
+  opacity: 0;
+}
+.comment-sand[data-state='hot'] .comment-sand__line::before {
+  opacity: 0;
+}
+.comment-sand[data-state='hot'] .comment-sand__line::after {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .comment-sand,
+  .comment-sand__line::before,
+  .comment-sand__line::after {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* Whole-book Cmd+F find highlights (通览全书) — painted across live + static +
+   offscreen chapter rows via the CSS Custom Highlight API (lib/all-chapters-
+   find.ts). Reuses the editor find-bar tints so it reads as the same find
+   feature. ::highlight() only honours background-color/color/text-decoration, so
+   the current match leans on a stronger background (no ring possible here). */
+::highlight(book-find) {
+  background-color: var(--search-find-match-bg, hsl(42 60% 58% / 0.35));
+}
+::highlight(book-find-current) {
+  background-color: var(--search-find-match-cur-bg, hsl(28 85% 52% / 0.55));
+  color: hsl(var(--ink-1));
+}
+
+/* ============================================================
+   Review markers overlay the right native scrollbar. The transparent map lets
+   ordinary scrollbar interaction pass through; only the Comment/Agent ticks
+   themselves retain pointer events for their existing jump behaviour.
+
+   Every tick is a sand seal multiplied into the paper: a note (comment, TODO,
+   Copilot note) is one small round seal across the track, an Agent change a
+   smaller seal in its own lane (new / changed / deleted). Each seal is
+   pressed once — one of the six seals, turned any way, both fixed by the
+   tick's key (scrollMarkerSeal) — so it never changes on reload. The pointer
+   deepens it; a new tick arrives as sand does, and a tick that goes (a change
+   the author has seen) fades out whole (.is-leaving).
+   ============================================================ */
+.editor__scrollmap {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  bottom: 8px;
+  /* Match the WebKit scrollbar width declared for `.editor-scroll`. */
+  width: 8px;
+  z-index: 9;
+  pointer-events: none;
+}
+.editor__scrollmap-tick {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  height: 8px;
+  margin-top: -4px; /* center the tick on its fractional position */
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.editor__scrollmap-tick::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: var(--seal-x, 50%);
+  width: var(--seal-d, 6px);
+  height: var(--seal-d, 6px);
+  margin: calc(var(--seal-d, 6px) / -2) 0 0 calc(var(--seal-d, 6px) / -2);
+  background: color-mix(in srgb, var(--tick-c, hsl(var(--ink-3))), #ffffff var(--pigment-lift));
+  mix-blend-mode: var(--pigment-blend);
+  opacity: var(--tick-ink, var(--pigment));
+  transform: rotate(var(--seal-turn, 0deg));
+  -webkit-mask: var(--seal-mask, url('../assets/design/sand/blob-0.png')) center / contain no-repeat;
+  mask: var(--seal-mask, url('../assets/design/sand/blob-0.png')) center / contain no-repeat;
+  transition:
+    opacity 0.3s ease-out,
+    filter 0.16s ease-out;
+  animation: scrollmap-seal-arrive 0.34s ease-out backwards;
+}
+@keyframes scrollmap-seal-arrive {
+  from { opacity: 0; transform: rotate(var(--seal-turn, 0deg)) scale(0.8); filter: blur(1.6px); }
+}
+.editor__scrollmap-tick:hover::before {
+  opacity: 1;
+  filter: brightness(0.8) saturate(1.2);
+}
+.dark .editor__scrollmap-tick:hover::before {
+  filter: brightness(1.25) saturate(1.1);
+}
+.editor__scrollmap-tick.is-leaving {
+  pointer-events: none;
+}
+.editor__scrollmap-tick.is-leaving::before {
+  opacity: 0;
+}
+.editor__scrollmap-tick--seal-0 { --seal-mask: url('../assets/design/sand/blob-0.png'); }
+.editor__scrollmap-tick--seal-1 { --seal-mask: url('../assets/design/sand/blob-1.png'); }
+.editor__scrollmap-tick--seal-2 { --seal-mask: url('../assets/design/sand/blob-2.png'); }
+.editor__scrollmap-tick--seal-3 { --seal-mask: url('../assets/design/sand/blob-3.png'); }
+.editor__scrollmap-tick--seal-4 { --seal-mask: url('../assets/design/sand/blob-4.png'); }
+.editor__scrollmap-tick--seal-5 { --seal-mask: url('../assets/design/sand/blob-5.png'); }
+/* Three lanes for agent ticks (VSCode-git layout): new = left, changed =
+   middle, deleted = right; each a smaller seal centred in its lane. */
+.editor__scrollmap-tick--lane0 { --seal-d: 3.4px; --seal-x: 2.6px; }
+.editor__scrollmap-tick--lane1 { --seal-d: 3.4px; --seal-x: 5px; }
+.editor__scrollmap-tick--lane2 { --seal-d: 3.4px; --seal-x: 7.4px; }
+/* Comment ticks: one seal across all three lanes, above agent ticks. */
+.editor__scrollmap-tick--span {
+  z-index: 2;
+}
+
+/* Agent-edit op colours: new = 苔绿 moss green, changed = the purple its
+   rewritten words take, deleted = muted violet. Blue belongs to edits made in
+   another editor (docs/markdown-mirror.md): one blue for every lane. Each
+   fades once its block's reveal has played. */
+.editor__scrollmap-tick--agent-new { --tick-c: hsl(var(--story-3)); }
+.editor__scrollmap-tick--agent-changed { --tick-c: hsl(var(--agent-chg-ink)); }
+.editor__scrollmap-tick--agent-deleted { --tick-c: hsl(var(--story-1)); }
+.editor__scrollmap-tick--external { --tick-c: hsl(var(--external-ink)); }
+
+/* Comment family colours. */
+.editor__scrollmap-tick--c-manual { --tick-c: hsl(var(--comment)); /* 胭脂 rouge */ }
+.editor__scrollmap-tick--c-copilot { --tick-c: hsl(var(--story-2)); /* 群青 abyss blue */ }
+.editor__scrollmap-tick--c-todo { --tick-c: hsl(var(--story-4)); /* 赭黄 ochre */ }
+@media (prefers-reduced-motion: reduce) {
+  .editor__scrollmap-tick::before { animation: none; transition: none; }
+}
+
+/* The block jumped to (scrollbar tick / patch card / block-anchored TODO) is
+   flashed via the Web Animations API in lib/scroll-to-block.ts (flashBlock) —
+   a CSS class can't be used because ProseMirror strips externally-added classes
+   off the blocks it manages. */
+
+/* ============================================================
+   Agent-change highlight — a faint background tint (NO left accent bar; the
+   design forbids vertical stripes) on blocks (and the summary) the agent edited,
+   fading once the user reads them.
+   ============================================================ */
+.agent-change-block,
+.agent-change-summary {
+  background-color: hsl(var(--story-3) / 0.07);
+  border-radius: 3px;
+  transition: background-color 0.5s ease;
+}
+.agent-change-block--seen,
+.agent-change-summary--seen {
+  background-color: transparent;
+}
+
+/* ============================================================
+   Agent-edit reveal (#4) — the agent's edit already landed in the doc;
+   this overlay crossfades the OLD text (deletions tinted red) into the
+   NEW text (insertions tinted green) over the real block, then fades to
+   reveal it. The layer lives inside .editor__spread so native scrolling
+   composites it with the prose instead of leaving a fixed-layer trail.
+   Plus the approve-mode inline ✓ / ✗ controls (#3).
+   ============================================================ */
+.agent-edit-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+/* Agent prose is durable before auto reveal, for existing edits as well as
+   newly created files. It must not paint its completed body underneath the
+   typewriter. A ProseMirror node decoration owns this class so reconciliation
+   cannot strip the mask. Opacity preserves exact block geometry for overlay
+   anchoring and long-document scroll. */
+.agent-auto-reveal-pending {
+  opacity: 0 !important;
+}
+
+/* A failed projection must never expose unreviewed canonical text. */
+.ProseMirror[data-agent-projection-blocked="true"] {
+  visibility: hidden !important;
+}
+.agent-reveal {
+  display: block;
+  z-index: 61;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+  transition: opacity 0.3s ease;
+}
+.agent-reveal--fade {
+  opacity: 0;
+}
+/* Deleted chars erase off a red ground (struck so they read as removed);
+   inserted chars type onto a green one. */
+.agent-reveal__del {
+  color: hsl(var(--story-1));
+  background: hsl(var(--story-1) / 0.18);
+  border-radius: 2px;
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--story-1) / 0.7);
+}
+.agent-reveal__ins {
+  color: hsl(var(--story-3));
+  background: hsl(var(--story-3) / 0.18);
+  border-radius: 2px;
+}
+.agent-reveal__unshown {
+  visibility: hidden;
+}
+/* The caret paints at the reveal boundary without adding width or an inline
+   break opportunity. Its appearance cannot push a completed line over the edge. */
+.agent-reveal__caret {
+  position: absolute;
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  transform: translateX(1px);
+  background: hsl(var(--ink-2));
+  animation: agentRevealCaret 0.9s steps(1) infinite;
+}
+@keyframes agentRevealCaret {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Desktop: what the Agent writes is coloured ink. During the reveal, changed
+   runs also carry a faint matching ground; it leaves with the overlay. The reveal
+   plays each changed place in place (AgentRevealText, `overwrite`): added
+   words come in green, rewritten words purple, and the old words are deleted
+   or overwritten without a mark of their own. When the reveal hands over to
+   the real paragraph, the same words stay coloured (::highlight(agent-recent-*),
+   lib/agent-recent-highlight.ts) until the author's pointer touches them —
+   moving onto them, or them scrolling under a still pointer — then ease back
+   to ink in two steps. The in-place review decorations, kept in
+   the code for old receipts, use the same inks. The faint wash on a whole
+   changed block is gone: the colours already say where the Agent wrote. The
+   inks are the story green and purple, deep enough to read on the paper. */
+:root {
+  --agent-new-ink: 148 42% 34%;
+  --agent-chg-ink: 258 42% 52%;
+  /* Edits made in another editor: a deep 群青, darker than the story blue. */
+  --external-ink: 214 62% 40%;
+}
+.dark {
+  --agent-new-ink: 148 40% 66%;
+  --agent-chg-ink: 252 60% 78%;
+  --external-ink: 210 72% 74%;
+}
+.agent-reveal__new {
+  color: hsl(var(--agent-new-ink));
+  background: hsl(var(--agent-new-ink) / 0.18);
+  border-radius: 2px;
+}
+.agent-reveal__chg {
+  color: hsl(var(--agent-chg-ink));
+  background: hsl(var(--agent-chg-ink) / 0.18);
+  border-radius: 2px;
+}
+.agent-reveal__new,
+.agent-reveal__chg {
+  transition: background-color var(--agent-reveal-ground-fade-duration, 180ms) ease-out;
+}
+.agent-reveal--settle .agent-reveal__new,
+.agent-reveal--settle .agent-reveal__chg {
+  background-color: transparent;
+}
+.agent-reveal--external .agent-reveal__new,
+.agent-reveal--external .agent-reveal__chg {
+  color: hsl(var(--external-ink));
+  background: none;
+}
+.agent-reveal--external .agent-reveal__ins {
+  color: hsl(var(--external-ink));
+  background: hsl(var(--external-ink) / 0.14);
+}
+::highlight(agent-recent-ext) { color: hsl(var(--external-ink)); }
+::highlight(agent-recent-ext-1) { color: color-mix(in srgb, hsl(var(--external-ink)) 62%, hsl(var(--ink-1))); }
+::highlight(agent-recent-ext-2) { color: color-mix(in srgb, hsl(var(--external-ink)) 28%, hsl(var(--ink-1))); }
+::highlight(agent-recent-new) { color: hsl(var(--agent-new-ink)); }
+::highlight(agent-recent-new-1) { color: color-mix(in srgb, hsl(var(--agent-new-ink)) 62%, hsl(var(--ink-1))); }
+::highlight(agent-recent-new-2) { color: color-mix(in srgb, hsl(var(--agent-new-ink)) 28%, hsl(var(--ink-1))); }
+::highlight(agent-recent-chg) { color: hsl(var(--agent-chg-ink)); }
+::highlight(agent-recent-chg-1) { color: color-mix(in srgb, hsl(var(--agent-chg-ink)) 62%, hsl(var(--ink-1))); }
+::highlight(agent-recent-chg-2) { color: color-mix(in srgb, hsl(var(--agent-chg-ink)) 28%, hsl(var(--ink-1))); }
+:root[data-shell-mode] .agent-change-block,
+:root[data-shell-mode] .agent-change-block--seen {
+  background-color: transparent;
+}
+
+/* ============================================================
+   Agent NON-PROSE field review (#3 fields) — summary / kv / template kv edits.
+   A form field can't carry ProseMirror decorations, so the change renders as a
+   PLAIN diff line (no card/border) where the field would be — red/green token
+   diff sharing the prose-reveal palette, plus a small ✓/✗ in approve mode. The
+   diff itself carries the meaning (a new kv reads as a green "key：value"), so
+   there's no explanatory label. auto mode lingers briefly then types in.
+   ============================================================ */
+.field-review-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 6px;
+}
+.field-review {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.field-review__body {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: hsl(var(--ink-2));
+}
+.field-review__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.field-review__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  color: hsl(var(--ink-4));
+}
+.field-review__btn--ok:hover {
+  background: hsl(var(--story-3) / 0.16);
+  color: hsl(var(--story-3));
+}
+.field-review__btn--no:hover {
+  background: hsl(var(--story-1) / 0.16);
+  color: hsl(var(--story-1));
+}
+/* The kv key prefix (neutral when the value merely changed; the op class tints
+   it green/red for new/deleted so the whole "key：value" reads as one diff). */
+.field-kv-key {
+  color: hsl(var(--ink-3));
+}
+
+/* Token diff — same red(del)/green(ins) language as the prose reveal. */
+.field-diff {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.field-diff__del {
+  color: hsl(var(--story-1));
+  background: hsl(var(--story-1) / 0.14);
+  border-radius: 2px;
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--story-1) / 0.7);
+}
+.field-diff__ins {
+  color: hsl(var(--story-3));
+  background: hsl(var(--story-3) / 0.14);
+  border-radius: 2px;
+  text-decoration: none;
+}
+
+/* ============================================================
+   Snapshot inspection modal
+   ============================================================ */
+.snapshot-modal__overlay {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  background: hsl(var(--ink-1) / 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: var(--z-popover);
+}
+.snapshot-modal {
+  box-sizing: border-box;
+  width: min(560px, 100%);
+  min-width: 0;
+  max-width: 100%;
+  max-height: 80vh;
+  background: hsl(var(--page));
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: 2px;
+  padding: 14px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 24px 60px -20px hsl(var(--shadow-ink) / 0.45);
+}
+.snapshot-modal__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: hsl(var(--ink-4));
+}
+/* Close: a plain icon button with its brush cross; the paused mobile shell
+   keeps the outlined square it had. */
+.snapshot-modal__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  cursor: pointer;
+}
+.snapshot-modal__close:hover {
+  color: hsl(var(--ink));
+  border-color: hsl(var(--ink-4));
+}
+html[data-shell-mode='desktop'] .snapshot-modal__close,
+html[data-shell-mode='desktop'] .snapshot-modal__close:hover {
+  border-color: transparent;
+}
+.snapshot-modal__body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: hsl(var(--ink));
+  white-space: pre-wrap;
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* One paragraph per snapshotted block. Multi-block comments list each in order. */
+.snapshot-modal__block {
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+.snapshot-modal__block:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+/* A block that's since been edited away / deleted from the live doc. */
+.snapshot-modal__block--gone {
+  color: hsl(var(--ink-3));
+}
+.snapshot-modal__flag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+  border-radius: 2px;
+  background: hsl(var(--ink-5) / 0.14);
+  color: hsl(var(--ink-4));
+}
+.snapshot-modal__empty {
+  color: hsl(var(--ink-4));
+  font-style: italic;
+}
+/* The editing actions for a text selection (EditorSelectionBar;
+   right-clicking is left to the system menu): one glass long pill floating
+   over the selected text, like the manuscript's toolbar — its resting line,
+   the floating fill, no shadow — each action a short pill whose glass shows
+   only under the pointer. 「格式」 unfolds a second long pill of round glass
+   buttons, each a sand glyph, on the far side of the bar. The two pills are
+   siblings on the body, never one inside the other: the pointer, the drift
+   and the press belong to whichever is under the pointer, and a long pill is
+   a container that never thickens when something in it is pressed
+   (`.glass--surface`). An applied format, and 「格式」 while its pill is out,
+   is the still selected glass. The bar floats in once the selection settles;
+   the formats unfold over 150ms and fold back in 110ms. A material note's
+   checklist and table actions (NoteFloatingBar) are the same long pill. */
+.editor-selection-bar {
+  position: fixed;
+  z-index: var(--z-context-menu);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  padding: var(--glass-tray-padding);
+  border-radius: 20px;
+  --glass-rim: 12px;
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(1.6px);
+  backdrop-filter: blur(1.6px);
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 12.5px);
+  line-height: 18px;
+  white-space: nowrap;
+  animation: editor-selection-bar-in 0.16s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+.editor-selection-bar.glass.glass--surface {
+  --glass-gx: -168px;
+  --glass-gy: -18px;
+}
+@keyframes editor-selection-bar-in {
+  from { opacity: 0; translate: 0 3px; }
+}
+.editor-selection-bar__formats {
+  z-index: calc(var(--z-context-menu) + 1);
+  visibility: hidden;
+  opacity: 0;
+  translate: 0 4px;
+  animation: none;
+  transition:
+    opacity 0.11s ease-in,
+    translate 0.11s ease-in,
+    visibility 0s linear 0.11s;
+}
+.editor-selection-bar__formats.is-open {
+  visibility: visible;
+  opacity: 1;
+  translate: 0 0;
+  transition:
+    opacity 0.15s ease-out,
+    translate 0.15s ease-out,
+    visibility 0s;
+}
+.editor-selection-bar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--glass-pill-height);
+  padding: 0 12px;
+  border: 0;
+  border-radius: calc(var(--glass-pill-height) / 2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: color 0.12s ease-out;
+}
+/* A pill under the pointer or the keys is marked by its glass alone; its words
+   keep the bar's one colour. Only 「格式」 while its pill is out reads darker. */
+.editor-selection-bar__item[aria-expanded='true'] {
+  color: hsl(var(--ink-1));
+}
+.editor-selection-bar__format {
+  display: grid;
+  place-items: center;
+  width: var(--glass-round-size);
+  height: var(--glass-round-size);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  cursor: pointer;
+  transition: color 0.12s ease-out;
+}
+/* Likewise a glyph: the same colour as the bar's words under the pointer;
+   only an applied format reads darker. */
+.editor-selection-bar__format[aria-pressed='true'] {
+  color: hsl(var(--ink-1));
+}
+.editor-comment-menu__chevron {
+  opacity: 0.45;
+}
+/* Between block formats and inline marks: a little space. */
+.editor-selection-bar__sep {
+  flex: none;
+  width: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .editor-selection-bar { animation: none; }
+  .editor-selection-bar__formats,
+  .editor-selection-bar__formats.is-open { transition: none; }
+}
+
+/* ============================================================
+   Semantic TOC rail — manuscript structure + viewport highlighting
+
+   Labels remain attached to measured document positions. The renderer only
+   spreads colliding glyph boxes and progressively drops density: all rows →
+   current root descendants → a window with hoverable omission handles.
+   ============================================================ */
+.editor__toc-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(190px, calc(100% - 8px));
+  display: block;
+  z-index: 7;
+  overflow: visible;
+  background: transparent;
+  pointer-events: none;
+  user-select: none;
+}
+.editor__toc-labels {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 0.44;
+  transition: opacity 0.16s ease;
+}
+.editor__toc-rail.is-active .editor__toc-labels,
+.editor__toc-rail:focus-within .editor__toc-labels {
+  opacity: 1;
+}
+.editor__toc-tag,
+.editor__toc-omission {
+  position: absolute;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  max-width: calc(100% - 14px);
+  min-height: 15px;
+  margin: 0;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--ink-4));
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translateY(-50%);
+  transition:
+    top 0.18s ease,
+    color 0.12s ease,
+    background 0.12s ease,
+    opacity 0.12s ease;
+}
+.editor__toc-tag:hover,
+.editor__toc-tag:focus-visible,
+.editor__toc-omission:hover,
+.editor__toc-omission:focus-visible {
+  z-index: 12;
+  color: hsl(var(--ink-1));
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.editor__toc-tag-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor__toc-tag-num {
+  flex: none;
+  color: hsl(var(--ink-4));
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+/* The outline's levels (act, chapter, H1–H3) stay uniform across every editor. Their compact rail
+   treatment preserves the existing "deeper = quieter" hierarchy; acts are set
+   in the serif structure face. */
+.editor__toc-tag--l1 {
+  font-family: var(--font-structure, var(--font-sans));
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: hsl(var(--ink-3));
+}
+.editor__toc-tag--l2 {
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: hsl(var(--ink-3));
+}
+.editor__toc-tag--l3 {
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  font-weight: 400;
+  color: hsl(var(--ink-3));
+}
+.editor__toc-tag--l4 {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-style: normal;
+  color: hsl(var(--ink-4));
+}
+.editor__toc-tag--l5 {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.01em;
+  color: hsl(var(--ink-5));
+}
+
+/* Viewport intersection is expressed through text colour. The reading
+   location and every level above it on its path are bold ink; nothing else
+   marks it — no sand, chip, frame or wash. Out of view, a chapter is as quiet
+   as an act or an H1, so the whole book's chapter list (All Chapters) does
+   not stand out until it is read. */
+.editor__toc-tag.is-visible {
+  color: hsl(var(--ink-2));
+}
+.editor__toc-tag.is-active-path,
+.editor__toc-tag.is-primary {
+  color: hsl(var(--ink-1));
+  font-weight: 600;
+}
+.editor__toc-tag.is-primary {
+  z-index: 5;
+}
+.editor__toc-omission {
+  min-width: 22px;
+  justify-content: center;
+  padding-inline: 5px;
+  color: hsl(var(--ink-4));
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+.editor__toc-omission.is-revealing {
+  opacity: 0;
+}
+.editor__toc-empty {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  max-width: calc(100% - 14px);
+  color: hsl(var(--ink-5));
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1.35;
+  text-align: right;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The TOC rail occupies the editor area's left edge independently from the
+   ordinary scrollbar on the right. */
+.editor__toc-rail--edge .editor__toc-tag,
+.editor__toc-rail--edge .editor__toc-omission {
+  right: auto;
+  left: 12px;
+  max-width: calc(100% - 14px);
+  justify-content: flex-start;
+  text-align: left;
+}
+.editor__toc-rail--edge .editor__toc-empty {
+  right: auto;
+  left: 12px;
+  max-width: calc(100% - 14px);
+  text-align: left;
+}
+/* On the desktop the paper runs up under the window-control row, where the
+   dock's pills sit centred on the traffic-light line. The rail starts at the
+   pills' lower edge, so its first entry sits right under them instead of on
+   their line. */
+html[data-shell-mode='desktop'] .editor__toc-rail--edge {
+  top: calc((var(--window-titlebar-height) + var(--glass-pill-height)) / 2);
+}
+/* Not enough room beside the paper (2026-11-02; hidden, not folded, since
+   2026-11-04). OutlineViewportController measures the editor column's own
+   gutter — `.editor-body`'s left edge to the paper's text — never the window,
+   and sets data-fit="hidden" once the label lane would reach the text
+   (outline-rail-model.ts holds the thresholds and their hysteresis). The rail
+   then shows nothing and takes no pointer or focus; the TOC preference stays
+   on, and the labels return once the column has room again. The paused mobile
+   shell keeps its in-paper overlay. */
+html[data-shell-mode] .editor__toc-rail[data-fit='hidden'] .editor__toc-labels {
+  display: none;
+}
+/* A distant omission restores nearby real TOC tags on hover/focus. This is a
+   compact traversal aid, not a magnification animation or the retired panel:
+   a compact menu surface (a lifted piece of desk) of rail-sized rows, whose
+   hovered row bleeds the menu row's ring of flowing glass. */
+.editor__toc-omission-reveal {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  z-index: calc(var(--z-context-menu) + 2);
+}
+.editor__toc-omission-reveal .editor__toc-reveal-item {
+  display: block;
+  min-height: 0;
+  padding: 4px 10px;
+  overflow: hidden;
+  color: hsl(var(--ink-3));
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor__toc-reveal-item--l1 {
+  font-family: var(--font-structure, var(--font-sans));
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+}
+.editor__toc-reveal-item--root,
+.editor__toc-reveal-item--l2 {
+  color: hsl(var(--ink-2));
+  font-weight: 550;
+}
+.editor__toc-reveal-item--l4 {
+  font-size: 9.5px;
+  font-style: normal;
+}
+.editor__toc-reveal-item--l5 {
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+/* Section headers — render inside .page__body for non-chapter editors,
+   and as anchors for static section TOCs in element/storyline/category. */
+.page__section {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: hsl(var(--ink-3));
+  margin: 36px 0 18px;
+  padding: 0 0 6px;
+  border-bottom: 1px dotted hsl(var(--rule));
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-weight: 500;
+}
+.page__section:first-of-type {
+  margin-top: 8px;
+}
+.page__section-title {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  color: hsl(var(--ink-2));
+  text-transform: none;
+}
+.page__section-meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: hsl(var(--ink-4));
+  letter-spacing: 0.08em;
+}
+.page__beat {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  color: hsl(var(--ink-4));
+  margin: 24px 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.page__beat::before {
+  content: '';
+  width: 14px;
+  height: 1px;
+  background: hsl(var(--ink-5));
+  align-self: center;
+}
+
+/* ============================================================
+   Generic entity hero — header block used by element / storyline /
+   category editors. Portrait swatch + kicker + name + alias + facts.
+   ============================================================ */
+.elem-hero {
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+.elem-overview {
+  position: relative;
+  isolation: isolate;
+  margin-bottom: 24px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+.elem-overview::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: auto 0 -1px;
+  height: 1px;
+  background: hsl(var(--rule));
+  pointer-events: none;
+}
+.elem-overview > .elem-hero {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 12px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.elem-overview > [data-agent-summary],
+.elem-overview > .elem-portrait__error {
+  position: relative;
+  z-index: 1;
+}
+.elem-overview .page__sub {
+  display: block;
+  margin-bottom: 0;
+}
+.elem-portrait__icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+}
+.elem-portrait__icon--spin {
+  animation: drift-spin 0.9s linear infinite;
+}
+.elem-portrait__error {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.35;
+  color: hsl(var(--danger, var(--accent)));
+  overflow-wrap: anywhere;
+}
+.elem-portrait__retry {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* Element image entry: the editor top bar button opens .elem-image-menu, a
+   wide menu (.menu-surface) holding the large image, its candidates, the
+   actions as menu rows and the generation form. The image and the candidates
+   stand in from the edge as far as the rows do. */
+.elem-image-menu {
+  z-index: var(--z-popover);
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+  font-family: var(--font-ui);
+}
+.elem-image-menu__body {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+.elem-image-menu__body > .elem-portrait__error,
+.elem-image-menu__body > .elem-candidates {
+  margin: 8px 16px 2px;
+}
+.elem-image-menu__art {
+  display: block;
+  width: calc(100% - 2 * var(--menu-row-inset));
+  margin: 0 var(--menu-row-inset);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: hsl(var(--ink-1) / 0.04);
+  cursor: zoom-in;
+}
+.elem-image-menu__art img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+.elem-image-menu__art--pending {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 5;
+  color: hsl(var(--ink-4));
+  font-size: 11px;
+  cursor: default;
+}
+.elem-image-menu__actions {
+  display: flex;
+  flex-direction: column;
+}
+.elem-image-menu > .elem-imagegen__form {
+  padding: 12px 16px;
+}
+.elem-imagegen__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.elem-imagegen__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--ink-1));
+}
+.elem-imagegen__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.elem-imagegen__label {
+  font-size: 11px;
+  color: hsl(var(--ink-3));
+}
+.elem-imagegen__input {
+  width: 100%;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 6px;
+  background: hsl(var(--ink-1) / 0.02);
+  color: hsl(var(--ink-1));
+  font: 12px/1.5 var(--font-ui);
+}
+.elem-imagegen__input:focus {
+  outline: none;
+  border-color: hsl(var(--ink-3));
+}
+.elem-imagegen__hint {
+  font-size: 10px;
+  line-height: 1.4;
+  color: hsl(var(--ink-4));
+}
+.elem-imagegen__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.elem-imagegen__blocked {
+  font-size: 11px;
+  line-height: 1.4;
+  color: hsl(var(--danger, var(--accent)));
+}
+.elem-imagegen__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.elem-imagegen__button {
+  padding: 4px 10px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: 12px var(--font-ui);
+  cursor: pointer;
+}
+.elem-imagegen__button--primary {
+  border-color: hsl(var(--ink-1));
+  background: hsl(var(--ink-1));
+  color: hsl(var(--page));
+}
+.elem-imagegen__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.elem-candidates {
+  display: flex;
+  flex-direction: column;
+}
+.elem-candidates__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+  font-family: var(--font-ui);
+}
+.elem-candidates__title {
+  font-size: 11px;
+  color: hsl(var(--ink-3));
+}
+.elem-candidates__hint {
+  font-size: 10px;
+  color: hsl(var(--ink-4));
+}
+.elem-candidates__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  font: 11px var(--font-ui);
+  cursor: pointer;
+}
+.elem-candidates__status:hover {
+  color: hsl(var(--ink-1));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.elem-candidates__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.elem-candidates__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.elem-candidates__item[aria-busy='true'] {
+  opacity: 0.6;
+}
+.elem-candidates__thumb {
+  display: block;
+  aspect-ratio: 4 / 5;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: hsl(var(--ink-1) / 0.04);
+  cursor: zoom-in;
+}
+.elem-candidates__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+}
+.elem-candidates__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.elem-candidates__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  font: 11px/1.5 var(--font-ui);
+  cursor: pointer;
+}
+.elem-candidates__action:hover:not(:disabled),
+.elem-candidates__action:focus-visible {
+  color: hsl(var(--ink-1));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.elem-candidates__action:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+.elem-hero__main {
+  flex: 1;
+  min-width: 0;
+}
+.elem-hero__kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: hsl(var(--ink-4));
+  margin-bottom: 8px;
+}
+.elem-hero__kicker-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+.elem-hero__name {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 38px;
+  font-weight: 500;
+  font-style: normal;
+  color: hsl(var(--ink-1));
+  line-height: 1.3;
+  margin: 0;
+  letter-spacing: -0.005em;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  width: 100%;
+  /* A one-line textarea (EntityTitleField): long names wrap, never scroll. */
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.elem-hero__name::placeholder {
+  color: hsl(var(--ink-4));
+  font-style: normal;
+}
+.elem-hero__alias {
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: 14.5px;
+  color: hsl(var(--ink-3));
+  margin-top: 6px;
+}
+.elem-hero__alias-sep {
+  color: hsl(var(--ink-5));
+  margin: 0 6px;
+}
+.elem-hero__summary {
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: calc(var(--entity-body-font-size, 16px) - 4px);
+  color: hsl(var(--ink-3));
+  margin-top: 10px;
+  line-height: 1.55;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+}
+.elem-hero__summary::placeholder {
+  color: hsl(var(--ink-4));
+  font-style: normal;
+}
+.elem-hero__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin-top: 14px;
+  font-size: 12px;
+  align-items: baseline;
+}
+.elem-hero__fact-k {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: hsl(var(--ink-4));
+}
+.elem-hero__fact-v {
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: 13px;
+  color: hsl(var(--ink-2));
+}
+
+/* ============================================================
+   Unified Review panel
+   ============================================================ */
+.review-panel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--workspace-ui-bg);
+  color: hsl(var(--ink-2));
+}
+
+.review-panel__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  background: var(--workspace-ui-bg);
+}
+
+.review-panel__create-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.review-panel__toolbar-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.review-panel__create-actions {
+  gap: 0;
+  margin-left: auto;
+}
+
+.review-panel__list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 6px 12px 12px;
+}
+
+.review-panel__resolved {
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 0.5px solid var(--workspace-subtle-border);
+}
+
+.review-panel__resolved > summary {
+  padding: 3px 0 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-secondary, 10px)/1.3 var(--font-mono);
+  cursor: pointer;
+}
+
+.review-panel__resolved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+}
+
+.review-card--panel {
+  flex: 0 0 auto;
+}
+
+.review-card--panel[tabindex='0']:focus-visible {
+  outline: 1px solid hsl(var(--ink-2));
+  outline-offset: 2px;
+}
+
+.review-card--manual .review-card__kind {
+  color: hsl(var(--comment));
+}
+
+.review-card--todo .review-card__kind {
+  color: hsl(var(--story-4));
+}
+
+.review-card--copilot .review-card__kind {
+  color: hsl(var(--story-2));
+}
+
+.review-card--resolved {
+  opacity: 0.64;
+}
+
+.review-card__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  margin-bottom: 3px;
+}
+
+.review-card__kind,
+.review-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--ui-font-secondary, 9px)/1.2 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.review-card__kind {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.review-card__text-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.68;
+}
+
+.review-card__text-link-button:hover {
+  opacity: 1;
+}
+
+.review-card__text-link-button:focus-visible {
+  outline: 1px solid currentcolor;
+  outline-offset: 1px;
+}
+
+.review-card__status {
+  margin-left: auto;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.review-card__menu-button {
+  width: 20px;
+  height: 20px;
+}
+
+.review-card__body {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font: var(--ui-font-body, 13px)/1.4 var(--font-sans);
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-card__meta,
+.review-card__evidence {
+  margin: 3px 0 7px;
+  padding: 5px 6px;
+  border-radius: var(--radius-xs);
+  background: hsl(var(--ink-1) / 0.035);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 11px);
+  line-height: 1.45;
+}
+
+.review-card__relations {
+  margin-top: 6px;
+}
+
+.todo-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.todo-status-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  flex: 0 0 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  cursor: pointer;
+}
+
+.todo-status-toggle:hover:not(:disabled) {
+  background: hsl(var(--ink-1) / 0.06);
+}
+
+.todo-status-toggle:focus-visible {
+  outline: 2px solid hsl(var(--story-3));
+  outline-offset: 1px;
+}
+
+.todo-status-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.review-card__status-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* "Ask the Agent" appears beside the resolve ring only while the card is
+   hovered or focused, with a small tail pointing at the ring. Touch devices
+   have no hover, so it stays visible there. */
+.review-card__agent-hint {
+  position: relative;
+  margin-right: 7px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: hsl(var(--ink-1) / 0.06);
+  color: hsl(var(--ink-2));
+  font: inherit;
+  font-size: var(--ui-font-secondary, 11px);
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.review-card__agent-hint::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -4px;
+  margin-top: -4px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 4px solid hsl(var(--ink-1) / 0.06);
+}
+
+.review-card:hover .review-card__agent-hint,
+.review-card:focus-within .review-card__agent-hint,
+.review-card__agent-hint--busy {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.review-card__agent-hint:hover:not(:disabled),
+.review-card__agent-hint:focus-visible {
+  background: hsl(var(--ink-1) / 0.1);
+  color: hsl(var(--ink-1));
+}
+
+.review-card__agent-hint:hover:not(:disabled)::after,
+.review-card__agent-hint:focus-visible::after {
+  border-left-color: hsl(var(--ink-1) / 0.1);
+}
+
+.review-card__agent-hint:disabled {
+  cursor: default;
+}
+
+@media (hover: none) {
+  .review-card__agent-hint {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.review-card__agent-task-error {
+  margin-top: 6px;
+  font-size: var(--ui-font-secondary, 11px);
+  color: hsl(var(--story-1));
+}
+
+.review-card__editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.review-card__editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  padding: 7px 8px;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: var(--radius-sm);
+  background: hsl(var(--page));
+  color: hsl(var(--ink-1));
+  font: var(--ui-font-secondary, 12.5px)/1.5 var(--font-sans);
+}
+
+.elem-candidate-preview__image {
+  display: block;
+  max-width: 100%;
+  max-height: 68vh;
+  margin: 0 auto 14px;
+  border-radius: 4px;
+}
+.elem-candidate-preview__meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font: 12px/1.5 var(--font-ui);
+  color: hsl(var(--ink-2));
+}
+.elem-candidate-preview__meta dt {
+  color: hsl(var(--ink-4));
+}
+.elem-candidate-preview__meta dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* Review groups: items gathered under their target. A quiet mono header,
+   no accent bar; collapsing hides only that group's cards. */
+.review-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-group + .review-group {
+  margin-top: 4px;
+}
+
+.review-group__header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px 0 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: var(--ui-font-secondary, 10.5px)/1.3 var(--font-mono);
+}
+
+.review-group__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-xs, 3px);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.review-group__toggle .brush-icon {
+  transition: transform 120ms ease;
+}
+
+.review-group__toggle--open .brush-icon {
+  transform: rotate(90deg);
+}
+
+.review-group__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: var(--radius-xs, 3px);
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-group__title:hover:not(:disabled),
+.review-group__toggle:hover {
+  background: var(--workspace-cell-hover-bg);
+}
+
+.review-group__title:disabled {
+  cursor: default;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.review-group__glyph {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.review-group__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.review-group__count {
+  flex-shrink: 0;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-group__items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The paused mobile shell: Review cards in the panel keep a plate and only
+   borrow the glass rim, which flows under the pointer and never thickens
+   when pressed (materials.css `.glass--surface`). */
+.review-card--panel.glass,
+.review-card--panel.glass:hover,
+.review-card--panel.glass:focus-within {
+  --glass-edge: 34%;
+  background: color-mix(in srgb, hsl(var(--ink-1)) 3.5%, var(--workspace-ui-bg));
+}
+
+/* ============================================================
+   Desktop: sand and glass (docs/design-system/components.md, Review 卡)
+   ============================================================ */
+/* A Review card lays no plate: only the resting line of clear glass, which
+   drifts under the pointer and never thickens when pressed (glass
+   glass--rest glass--surface). Dense texture patches, as in the Agent
+   transcript, so no card draws the sparse one. */
+.review-card.review-card--glass,
+.review-card.review-card--glass:hover,
+.review-card.review-card--glass:focus-within {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+}
+.review-card--glass.glass:nth-of-type(2n + 1) { --glass-gx: var(--glass-dense-gx); --glass-gy: var(--glass-dense-gy); }
+.review-card--glass.glass:nth-of-type(2n) { --glass-gx: -168px; --glass-gy: -18px; }
+/* Its anchor pointed at in the prose: the card brings its glass in as it does
+   under the pointer (use-prose-pointed-card.ts). */
+.review-card--glass.review-card--pointed { --glass-g: 1; --glass-sp: 1; }
+.review-card--glass.review-card--pointed::before {
+  opacity: 1;
+  animation-play-state: running;
+  transition: opacity var(--motion-glass-bleed) ease-out, box-shadow var(--motion-glass-bleed) ease-out;
+}
+
+/* A suggestion's subtitle and its evidence: flat, in the secondary ink;
+   evidence is indented rather than boxed. */
+.review-card--glass :is(.review-card__meta, .review-card__evidence) {
+  margin: 2px 0 6px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.review-card--glass .review-card__evidence {
+  padding-left: 10px;
+}
+
+/* Handing a TODO to the Agent is a text button: no plate, no tail; the
+   loader turns beside it while the Agent works. */
+.review-card--glass .review-card__agent-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 2px;
+  padding: 2px 4px;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.review-card--glass .review-card__agent-hint::after {
+  content: none;
+}
+.review-card--glass .review-card__agent-hint:hover:not(:disabled),
+.review-card--glass .review-card__agent-hint:focus-visible {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+
+/* Done is a round glass button; resolved it is the selected glass, and the
+   brush tick is drawn into it (the author's mark, 0.38s like a sand frame). */
+.todo-status-toggle.todo-status-toggle--glass {
+  color: hsl(var(--ink-2));
+}
+.todo-status-toggle--glass:hover:not(:disabled) {
+  background: transparent;
+}
+.todo-status-toggle--glass:focus-visible {
+  outline: none;
+}
+.todo-status-toggle__tick {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 0.38s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+.todo-status-toggle--glass[aria-pressed='true'] .todo-status-toggle__tick {
+  clip-path: inset(0 0 0 0);
+}
+
+/* Editing a card's text: a page-coloured slip like the Agent composer
+   (glass glass--rest glass--field); cancel is the text button and save the
+   primary glass (`Button` ghost / primary). */
+.review-card__slip.glass {
+  --glass-gx: -168px;
+  --glass-gy: -18px;
+  border-radius: 16px;
+  background: hsl(var(--page));
+}
+.review-card__editor .review-card__slip textarea {
+  display: block;
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  outline: none;
+  resize: none;
+}
+
+/* Group headers are text buttons: the mark takes its thing's colour, the
+   pointer only deepens the words. */
+.review-group--glass .review-group__title {
+  transition: color 120ms ease;
+}
+.review-group--glass .review-group__title:hover:not(:disabled),
+.review-group--glass .review-group__toggle:hover {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+
+/* The resolved fold opens on the brush chevron, not the native triangle. */
+.review-panel__resolved--glass > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  transition: color 120ms ease;
+}
+.review-panel__resolved--glass > summary::-webkit-details-marker {
+  display: none;
+}
+.review-panel__resolved--glass > summary:hover {
+  color: hsl(var(--ink-1));
+}
+.review-panel__resolved-chevron {
+  transition: transform 120ms ease;
+}
+.review-panel__resolved--glass[open] .review-panel__resolved-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-status-toggle__tick,
+  .review-panel__resolved-chevron {
+    transition: none;
+  }
+}

@@ -1,0 +1,2428 @@
+import { Value } from '@sinclair/typebox/value';
+import type {
+  PersistedAgentRuntimeWriteEffect,
+  PersistedAgentRuntimeWriteReview,
+} from '../../../domain/agent-runtime-write-effect';
+import type {
+  AgentRuntimeExpectedRevision,
+  PersistedAgentRuntimeReadReceipt,
+  PersistedAgentRuntimeWriteExpectation,
+} from '../../../domain/agent-runtime-freshness';
+import {
+  createAgentRuntimeFreshnessRepository,
+  type AgentRuntimeFreshnessRepository,
+} from '../../../sqlite-repo/agent-runtime-freshness-repo';
+import {
+  createAgentRuntimeWriteEffectRepository,
+  type AgentRuntimeWriteEffectRepository,
+} from '../../../sqlite-repo/agent-runtime-write-effect-repo';
+import { canonicalAgentRuntimeJson } from '../../../sqlite-repo/agent-runtime-persistence-repo';
+import { createElementPatchRepository } from '../../../sqlite-repo/element-patch-repo';
+import { createAgentMemoryRepository } from '../../../sqlite-repo/agent-memory-repo';
+import {
+  createYjsRepository,
+  type YjsRepository,
+} from '../../../sqlite-repo/yjs-repo';
+import { allElementNames } from '../../../domain/book-element';
+import { useDataStore } from '../../../store/data-store';
+import { useAgentEditStore } from '../../../store/agent-edit-store';
+import { useProjectStore } from '../../../store/project-store';
+import {
+  getActiveAgentToolContext,
+  pendingDeletedPatchIds,
+  runAgentTool,
+  type AgentToolContext,
+} from '../tool-handlers';
+import {
+  getRegisteredTool,
+  isCertifiedTool,
+  type RegisteredTool,
+} from '../tool-registry';
+import { DriftingReadToolRuntime } from './drifting-read-tool-runtime';
+import {
+  getDriftingWriteStrategy,
+  type DriftingWriteStrategy,
+  type PreparedDriftingWriteEffect,
+} from './drifting-write-strategies';
+import type { YjsProsePersistenceCoordinator } from './yjs-prose-persistence-coordinator';
+import { getDb, type DbExecutor } from '../../../lib/db';
+import type { AgentRuntimeElementPatchReceiptRepository } from '../../../sqlite-repo/agent-runtime-element-patch-receipt-repo';
+import type { AgentAuthoredJournal } from './agent-authored-journal';
+import { elementPatchRevision, elementPatchSetRevision } from './element-patch-revision';
+import { isAgentAbort, throwIfAgentAborted } from './errors';
+import type {
+  AgentRuntimeContext,
+  AgentRuntimeRoute,
+  AgentToolDefinition,
+  AgentToolExecutionRequest,
+  AgentToolExecutionResult,
+  AgentToolRuntime,
+} from './types';
+import {
+  isWorkspaceNoopWriteSignal,
+  workspaceAuthoredReadStateFromArguments,
+  workspaceCommandFromArguments,
+} from './drifting-workspace-tool-runtime';
+import {
+  DRIFTING_DOMAIN_WRITE_TOOLS,
+  isDriftingDomainReadToolName,
+  isDriftingDomainWriteToolName,
+  isMaterialNoteCommandName,
+} from './drifting-workspace-tool-contract';
+import {
+  resolveWorkbenchFreshnessTarget,
+  workbenchFreshnessKind,
+} from './drifting-workbench-write-strategy';
+import {
+  MATERIAL_NOTE_OBSERVATION_KIND,
+  readMaterialNoteBase,
+} from './drifting-material-note-write-strategy';
+import { hashAgentPermissionArguments } from './control-plane';
+import {
+  agentMemorySetRevision,
+  loadStorylineMembershipSnapshot,
+} from './domain-crud-revision';
+import {
+  describeAgentWriteTarget,
+  describeWorkspaceDomainWriteResult,
+} from './workspace-domain-language';
+import { toolEntityRef } from '../tool-entity-ref';
+import { proseDocId, type ProseEntityType } from '../../yjs-doc-id';
+import {
+  AgentWriteCollaborationGuard,
+  AgentWriteCollaborationConflictError,
+  AgentWriteCollaborationConflictLimitError,
+  type AgentWriteCollaborationTarget,
+} from './agent-write-collaboration-guard';
+import {
+  attributeYjsRevisionConflict,
+  UNKNOWN_AGENT_WRITE_CONFLICT_ATTRIBUTION,
+  type AgentWriteConflictAttribution,
+} from './agent-write-conflict-attribution';
+
+export interface DriftingWriteToolRuntimeOptions {
+  repository?: AgentRuntimeWriteEffectRepository;
+  /**
+   * Product runtimes use the canonical repository. `null` is reserved for the
+   * pre-P4 deterministic fixtures whose purpose is unrelated to freshness.
+   */
+  freshness?: AgentRuntimeFreshnessRepository | null;
+  getContext?: () => AgentToolContext | null;
+  readRuntime?: AgentToolRuntime;
+  now?: () => string;
+  dispatch?: typeof runAgentTool;
+  /** Runtime-owned domain command preparation performed after public schema
+   * validation and permission, but before the durable effect is claimed. */
+  prepareRequest?: (request: AgentToolExecutionRequest) => Promise<AgentToolExecutionRequest>;
+  resolveStrategy?: (name: string) => DriftingWriteStrategy | undefined;
+  proseCoordinator?: YjsProsePersistenceCoordinator;
+  readNodeContent?: (nodeId: string) => Promise<string | null>;
+  elementPatchDb?: DbExecutor;
+  elementPatchReceipts?: AgentRuntimeElementPatchReceiptRepository;
+  authoredJournal?: AgentAuthoredJournal;
+  collaborationGuard?: AgentWriteCollaborationGuard;
+  revisionProvenance?: Pick<
+    YjsRepository,
+    'getRevision' | 'listRevisionProvenance'
+  >;
+}
+
+export interface AgentWriteReviewDecisionResult {
+  review: PersistedAgentRuntimeWriteReview;
+  effect: PersistedAgentRuntimeWriteEffect;
+}
+
+export interface AgentInterruptedWriteReconciliationResult {
+  inspected: number;
+  reconciled: number;
+  unresolved: number;
+  issues: Array<{
+    effectId: string;
+    reason: string;
+  }>;
+}
+
+/**
+ * Provider-facing tool runtime with a fail-closed write coordinator.
+ *
+ * The provider can see only `write-certified` catalog entries. Every write is
+ * durably claimed against the canonical session/turn/tool-call row before its
+ * renderer usecase runs. A duplicate after mutation start is inspected, never
+ * blindly retried.
+ */
+export class DriftingWriteToolRuntime implements AgentToolRuntime {
+  private readonly repository: AgentRuntimeWriteEffectRepository;
+  private readonly freshness: AgentRuntimeFreshnessRepository | null;
+  private readonly getContext: () => AgentToolContext | null;
+  private readonly readRuntime: AgentToolRuntime;
+  private readonly now: () => string;
+  private readonly dispatch: typeof runAgentTool;
+  private readonly prepareRequest: (
+    request: AgentToolExecutionRequest,
+  ) => Promise<AgentToolExecutionRequest>;
+  private readonly elementPatchDb: DbExecutor | undefined;
+  private readonly resolveStrategy: (name: string) => DriftingWriteStrategy | undefined;
+  private readonly collaborationGuard: AgentWriteCollaborationGuard;
+  private readonly revisionProvenance: Pick<
+    YjsRepository,
+    'getRevision' | 'listRevisionProvenance'
+  >;
+
+  constructor(options: DriftingWriteToolRuntimeOptions = {}) {
+    this.repository = options.repository ?? createAgentRuntimeWriteEffectRepository();
+    this.freshness =
+      options.freshness === undefined ? createAgentRuntimeFreshnessRepository() : options.freshness;
+    this.getContext = options.getContext ?? getActiveAgentToolContext;
+    this.readRuntime = options.readRuntime ?? new DriftingReadToolRuntime();
+    this.now = options.now ?? (() => new Date().toISOString());
+    this.dispatch = options.dispatch ?? runAgentTool;
+    this.prepareRequest = options.prepareRequest ?? (async (request) => request);
+    this.elementPatchDb = options.elementPatchDb;
+    this.collaborationGuard = options.collaborationGuard ?? new AgentWriteCollaborationGuard();
+    this.revisionProvenance =
+      options.revisionProvenance ?? createYjsRepository(options.elementPatchDb);
+    const resolveStrategy =
+      options.resolveStrategy ??
+      ((name: string) =>
+        getDriftingWriteStrategy(name, {
+          freshness: this.freshness,
+          ...(options.elementPatchDb ? { elementPatchDb: options.elementPatchDb } : {}),
+          ...(options.elementPatchReceipts
+            ? { elementPatchReceipts: options.elementPatchReceipts }
+            : {}),
+          ...(options.authoredJournal ? { authoredJournal: options.authoredJournal } : {}),
+          now: this.now,
+          ...(options.proseCoordinator ? { proseCoordinator: options.proseCoordinator } : {}),
+          ...(options.readNodeContent ? { readNodeContent: options.readNodeContent } : {}),
+          dispatch: this.dispatch,
+        }));
+    this.resolveStrategy = resolveStrategy;
+  }
+
+  listDefinitions(context: AgentRuntimeContext): readonly AgentToolDefinition[] {
+    void context;
+    return DRIFTING_DOMAIN_WRITE_TOOLS.map((name) => {
+      const tool = getRegisteredTool(name);
+      if (!isDomainWriteTool(tool)) {
+        throw new Error(`The ${name} domain runtime contract is unavailable`);
+      }
+      return writeDefinition(tool);
+    });
+  }
+
+  resolveCanonicalName(
+    name: string,
+    context: AgentRuntimeContext,
+  ): string | undefined {
+    const direct = this.listDefinitions(context).find(
+      (definition) => definition.name === name,
+    );
+    if (direct) return direct.name;
+    return undefined;
+  }
+
+  async execute(request: AgentToolExecutionRequest): Promise<AgentToolExecutionResult> {
+    if (request.access === 'read') {
+      return this.readRuntime.execute(request);
+    }
+    throwIfAgentAborted(request.signal);
+    const tool = getRegisteredTool(request.name);
+    if (!isExecutableCertifiedWriteTool(tool)) {
+      return {
+        ok: false,
+        error: `Tool "${request.name}" is not write-certified`,
+      };
+    }
+    try {
+      const preparedRequest = await this.prepareRequest(request);
+      if (preparedRequest.name !== tool.name) {
+        throw new Error('Runtime request preparation cannot change the public tool name');
+      }
+      const effectiveRequest =
+        request.name !== preparedRequest.name
+          ? { ...preparedRequest, name: request.name }
+          : preparedRequest;
+      const strategy = this.resolveStrategy(tool.name);
+      if (!strategy) {
+        return {
+          ok: false,
+          error: `Tool "${tool.name}" has no certified write strategy`,
+        };
+      }
+      const context = this.requireMatchingContext(effectiveRequest.context);
+      const result = await this.executeCertifiedWrite(
+        effectiveRequest,
+        tool,
+        strategy,
+        context,
+        request.arguments,
+      );
+      return result;
+    } catch (error) {
+      if (isAgentAbort(error, request.signal)) throw error;
+      if (isWorkspaceNoopWriteSignal(error)) return error.result;
+      return {
+        ok: false,
+        error: isDomainWriteTool(tool)
+          ? publicDomainWriteError(error)
+          : publicWriteError(error),
+      };
+    }
+  }
+
+  /**
+   * Product restart pass for writes that crossed the mutation boundary.
+   *
+   * This path can only inspect a certified strategy's immutable domain
+   * receipt. It never dispatches a tool or replays the forward mutation.
+   */
+  async reconcileInterruptedWrites(
+    sessionId: string,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<AgentInterruptedWriteReconciliationResult> {
+    throwIfAgentAborted(signal);
+    const active = this.getContext();
+    if (!active) throw new Error('Drifting tool context is not mounted');
+    const effects = await this.repository.listEffects(sessionId);
+    const candidates = effects.filter(
+      (effect) => effect.phase === 'mutation_started' || effect.phase === 'uncertain',
+    );
+    const result: AgentInterruptedWriteReconciliationResult = {
+      inspected: candidates.length,
+      reconciled: 0,
+      unresolved: 0,
+      issues: [],
+    };
+
+    for (const effect of candidates) {
+      throwIfAgentAborted(signal);
+      if (effect.phase !== 'mutation_started' && effect.phase !== 'uncertain') {
+        continue;
+      }
+      const enteredPhase: 'mutation_started' | 'uncertain' = effect.phase;
+      try {
+        const tool = requireReconciliationTool(effect);
+        const strategy = this.resolveStrategy(tool.name);
+        if (!strategy?.reconcileEnteredEffect) {
+          throw new Error(`Tool "${effect.toolName}" has no certified receipt reconciler`);
+        }
+        const expected = await this.assertReconciliationProvenance(effect, sessionId, active);
+        const reconciled = await strategy.reconcileEnteredEffect(
+          effect,
+          withProvenance(active, effect, signal, expected),
+          signal,
+        );
+        if (!reconciled) {
+          result.unresolved += 1;
+          result.issues.push({
+            effectId: effect.id,
+            reason: 'No matching durable mutation receipt was found.',
+          });
+          continue;
+        }
+
+        // Re-read the immutable outer receipt chain after the domain strategy
+        // completes and re-check the mounted project immediately before CAS.
+        await this.assertReconciliationProvenance(
+          effect,
+          sessionId,
+          this.requireEffectContext(effect),
+        );
+        throwIfAgentAborted(signal);
+        const committed = (
+          await this.repository.transitionEffect({
+            effectId: effect.id,
+            expectedPhase: enteredPhase,
+            nextPhase: 'effect_committed',
+            effect: reconciled.committedEffect,
+            at: this.now(),
+          })
+        ).effect;
+        await this.settleCommittedEffect(
+          committed,
+          tool,
+          reconciled.handlerResult,
+          strategy,
+          active,
+        );
+        result.reconciled += 1;
+      } catch (error) {
+        if (isAgentAbort(error, signal)) throw error;
+        result.unresolved += 1;
+        result.issues.push({
+          effectId: effect.id,
+          reason: publicWriteError(error),
+        });
+      }
+    }
+    // Settle receipts a crash left between `accepted` and `accepted_effect`,
+    // then any committed prose write whose receipt row is still missing.
+    await this.reconcileInterruptedReviewStates(sessionId, signal);
+    await this.reconcileCommittedEditorReviews(effects);
+    return result;
+  }
+
+  /**
+   * Project hydration: settle every unsettled receipt of the mounted project.
+   * Agent writes commit directly, so a `pending` or `accepted` receipt only
+   * means the renderer stopped before settlement finished.
+   */
+  async reconcileProjectReviews(
+    projectId: string,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<{ settled: number; unresolved: number }> {
+    const context = this.getContext();
+    if (!context || context.projectId !== projectId) {
+      throw new Error('The Agent review project is not mounted');
+    }
+    const result = { settled: 0, unresolved: 0 };
+    const reviews = await this.repository.listPendingReviewsForProject(projectId);
+    for (const candidate of reviews) {
+      try {
+        throwIfAgentAborted(signal);
+        await this.acceptReview(candidate.id);
+        result.settled += 1;
+      } catch (error) {
+        if (isAgentAbort(error, signal)) throw error;
+        result.unresolved += 1;
+        console.warn(
+          `[agent] project review ${candidate.id} could not be settled`,
+          error,
+        );
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Close the small, intentional transaction seam between result commit and
+   * receipt creation. Recovered receipts are settled but not visually replayed
+   * after restart.
+   */
+  private async reconcileCommittedEditorReviews(
+    effects: readonly PersistedAgentRuntimeWriteEffect[],
+  ): Promise<void> {
+    const committed = effects.filter(
+      (effect) => effect.phase === 'result_committed' && effect.authorization,
+    );
+    for (const effect of committed) {
+      try {
+        const tool = requireReconciliationTool(effect);
+        if (!activeEditorReviewId(effect, tool)) continue;
+        await this.ensureCommittedReview(effect);
+      } catch (error) {
+        console.warn(
+          `[agent] committed editor review ${effect.id} could not be recovered`,
+          error,
+        );
+      }
+    }
+  }
+
+  /** Finish a settlement a renderer crash left at `accepted`. */
+  private async reconcileInterruptedReviewStates(
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const reviews = (await this.repository.listReviews(sessionId)).filter(
+      (review) => review.status === 'accepted',
+    );
+    for (const review of reviews) {
+      throwIfAgentAborted(signal);
+      await this.acceptReview(review.id);
+    }
+  }
+
+  /**
+   * Settle one receipt to `accepted_effect`. A receipt that owns durable
+   * blocks settles through its blocks; the repository then settles the
+   * receipt atomically with the last one. Idempotent for settled receipts.
+   */
+  async acceptReview(reviewId: string): Promise<AgentWriteReviewDecisionResult> {
+    const review = await this.requireReview(reviewId);
+    const effect = await this.requireEffect(review.effectId);
+    const blocks = await this.repository.listReviewBlocks(reviewId);
+    if (blocks.length > 0) {
+      for (const block of blocks) {
+        if (block.status === 'accepted') continue;
+        await this.repository.transitionReviewBlock({
+          reviewId,
+          blockId: block.blockId,
+          expectedStatus: 'pending',
+          nextStatus: 'accepted',
+          at: this.now(),
+        });
+      }
+      return { review: await this.requireReview(reviewId), effect };
+    }
+    const accepted =
+      review.status === 'pending'
+        ? (
+            await this.repository.transitionReview({
+              reviewId,
+              expectedStatus: 'pending',
+              nextStatus: 'accepted',
+              at: this.now(),
+            })
+          ).review
+        : review;
+    const settled =
+      accepted.status === 'accepted'
+        ? (
+            await this.repository.transitionReview({
+              reviewId,
+              expectedStatus: 'accepted',
+              nextStatus: 'accepted_effect',
+              at: this.now(),
+            })
+          ).review
+        : accepted;
+    return { review: settled, effect };
+  }
+
+  private async executeCertifiedWrite(
+    request: AgentToolExecutionRequest,
+    tool: RegisteredTool,
+    strategy: DriftingWriteStrategy,
+    context: AgentToolContext,
+    toolCallArguments: Record<string, unknown> = request.arguments,
+  ): Promise<AgentToolExecutionResult> {
+    const route = durableWriteRoute(request.context.route);
+    const effectId = writeEffectId(request.idempotencyKey);
+    const authorizedAt = this.now();
+    const authorization = await requireWriteAuthorization(
+      request,
+      toolCallArguments,
+      authorizedAt,
+    );
+    const expectedRevision = this.freshness
+      ? parseExpectedRevision(request.arguments.expectedRevision)
+      : null;
+    const claimed = await this.repository.claimEffect({
+      id: effectId,
+      ...route,
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      toolCallId: runtimeToolCallId(request),
+      callId: request.callId,
+      toolName: request.name,
+      idempotencyKey: request.idempotencyKey,
+      authorization,
+      toolCallArguments,
+      arguments: request.arguments,
+      expectedRevision,
+      claimedAt: authorizedAt,
+    });
+    let effect = claimed.effect;
+    let writeExpectation: PersistedAgentRuntimeWriteExpectation | null = null;
+
+    if (effect.phase === 'failed' || effect.phase === 'declined') {
+      const replay = await this.replayDurableOutcome(effect, tool, request);
+      if (replay) return replay;
+    }
+
+    // A committed or already-entered effect must replay from its immutable
+    // receipt even when a sibling conversation has since renamed or deleted
+    // the authored target. Collaboration checks only guard a write that has
+    // not crossed the mutation boundary yet; they never weaken idempotency.
+    let collaborationTarget: AgentWriteCollaborationTarget | null = null;
+    if (this.freshness && (effect.phase === 'claimed' || effect.phase === 'confirmed')) {
+      try {
+        collaborationTarget = await resolveAgentWriteCollaborationTarget(
+          request,
+          this.elementPatchDb,
+        );
+        this.collaborationGuard.assertAllowed(collaborationTarget);
+      } catch (error) {
+        await this.repository.transitionEffect({
+          effectId,
+          expectedPhase: effect.phase,
+          nextPhase: 'failed',
+          errorCode:
+            error instanceof AgentWriteCollaborationConflictLimitError
+              ? error.code
+              : 'WRITE_COLLABORATION_TARGET_REJECTED',
+          errorMessage: publicWriteError(error),
+          at: this.now(),
+        });
+        throw error;
+      }
+    }
+
+    if (this.freshness && expectedRevision) {
+      try {
+        if (effect.phase === 'claimed' || effect.phase === 'confirmed') {
+          const observation = await this.validateExpectedRevision(request, expectedRevision);
+          writeExpectation = observation;
+          await this.attachWriteExpectation(effect, observation);
+        } else {
+          writeExpectation = await this.assertDurableWriteExpectation(effect, expectedRevision);
+        }
+      } catch (error) {
+        const surfacedError = await this.attributeConcurrentWriteConflict(
+          error,
+          request,
+          collaborationTarget,
+          expectedRevision,
+        );
+        if (collaborationTarget && isConcurrentAgentWriteConflict(error)) {
+          this.collaborationGuard.recordConflict(
+            collaborationTarget,
+            writeConflictAttribution(surfacedError),
+          );
+        }
+        if (effect.phase === 'claimed' || effect.phase === 'confirmed') {
+          await this.repository.transitionEffect({
+            effectId,
+            expectedPhase: effect.phase,
+            nextPhase: 'failed',
+            errorCode: 'WRITE_FRESHNESS_REJECTED',
+            errorMessage: publicWriteError(surfacedError),
+            at: this.now(),
+          });
+        }
+        throw surfacedError;
+      }
+    }
+
+    const replay = await this.replayDurableOutcome(effect, tool, request, strategy, context);
+    if (replay) return replay;
+
+    let prepared: PreparedDriftingWriteEffect | null = null;
+    try {
+      const strategyPrepared = await strategy.prepare(request, context, writeExpectation);
+      prepared =
+        expectedRevision === null
+          ? strategyPrepared
+          : {
+              ...strategyPrepared,
+              // The effect repository compares this value to the immutable
+              // claim token. The actual SQLite CAS still uses the revision
+              // string passed through renderer provenance below.
+              observedRevision: expectedRevision,
+            };
+      throwIfAgentAborted(request.signal);
+      if (effect.phase === 'claimed') {
+        effect = (
+          await this.repository.transitionEffect({
+            effectId,
+            expectedPhase: 'claimed',
+            nextPhase: 'confirmed',
+            at: this.now(),
+          })
+        ).effect;
+      }
+      if (effect.phase !== 'confirmed') {
+        return unresolvedWriteResult(effect);
+      }
+      effect = (
+        await this.repository.transitionEffect({
+          effectId,
+          expectedPhase: 'confirmed',
+          nextPhase: 'mutation_started',
+          observedRevision: prepared.observedRevision,
+          preimage: prepared.preimage,
+          forward: prepared.forward,
+          inverse: prepared.inverse,
+          reversibility: prepared.reversibility,
+          at: this.now(),
+        })
+      ).effect;
+    } catch (error) {
+      const surfacedError = await this.attributeConcurrentWriteConflict(
+        error,
+        request,
+        collaborationTarget,
+        expectedRevision,
+      );
+      if (collaborationTarget && isConcurrentAgentWriteConflict(error)) {
+        this.collaborationGuard.recordConflict(
+          collaborationTarget,
+          writeConflictAttribution(surfacedError),
+        );
+      }
+      if (effect.phase === 'claimed' || effect.phase === 'confirmed') {
+        await this.repository.transitionEffect({
+          effectId,
+          expectedPhase: effect.phase,
+          nextPhase: 'failed',
+          errorCode: 'WRITE_PREPARATION_FAILED',
+          errorMessage: publicWriteError(surfacedError),
+          at: this.now(),
+        });
+      }
+      throw surfacedError;
+    }
+
+    try {
+      const executionContext = withProvenance(
+        context,
+        effect,
+        request.signal,
+        expectedRevision ?? undefined,
+      );
+      const handlerResult = strategy.applyForward
+        ? await strategy.applyForward(request, executionContext, prepared)
+        : await this.dispatch(tool.name, request.arguments, executionContext);
+      const committedEffect = await strategy.captureEffect(
+        request,
+        context,
+        handlerResult,
+        prepared,
+      );
+      effect = (
+        await this.repository.transitionEffect({
+          effectId,
+          expectedPhase: 'mutation_started',
+          nextPhase: 'effect_committed',
+          effect: committedEffect,
+          at: this.now(),
+        })
+      ).effect;
+      const settled = await this.settleCommittedEffect(
+        effect,
+        tool,
+        handlerResult,
+        strategy,
+        context,
+      );
+      if (collaborationTarget) this.collaborationGuard.recordSuccess(collaborationTarget);
+      return settled;
+    } catch (error) {
+      const surfacedError = await this.attributeConcurrentWriteConflict(
+        error,
+        request,
+        collaborationTarget,
+        expectedRevision,
+      );
+      if (collaborationTarget && isConcurrentAgentWriteConflict(error)) {
+        this.collaborationGuard.recordConflict(
+          collaborationTarget,
+          writeConflictAttribution(surfacedError),
+        );
+      }
+      if (effect.phase === 'mutation_started') {
+        if (isDeterministicStaleWriteError(error)) {
+          await this.repository.transitionEffect({
+            effectId,
+            expectedPhase: 'mutation_started',
+            nextPhase: 'failed',
+            errorCode: error.code,
+            errorMessage: publicWriteError(surfacedError),
+            at: this.now(),
+          });
+        } else {
+          await this.repository.transitionEffect({
+            effectId,
+            expectedPhase: 'mutation_started',
+            nextPhase: 'uncertain',
+            errorCode: 'WRITE_EFFECT_UNCERTAIN',
+            errorMessage: publicWriteError(surfacedError),
+            at: this.now(),
+          });
+        }
+      }
+      throw surfacedError;
+    }
+  }
+
+  private async attributeConcurrentWriteConflict(
+    error: unknown,
+    request: AgentToolExecutionRequest,
+    target: AgentWriteCollaborationTarget | null,
+    expectedRevision: AgentRuntimeExpectedRevision | null,
+  ): Promise<unknown> {
+    if (
+      !target ||
+      !expectedRevision ||
+      !isConcurrentAgentWriteConflict(error) ||
+      !isProseFreshnessKind(target.entityKind)
+    ) {
+      return error;
+    }
+    const expected = parseYjsRevision(expectedRevision.revision);
+    const entityType = proseEntityTypeFromFreshnessKind(target.entityKind);
+    if (expected === null || !entityType) return error;
+    const docId = proseDocId(entityType, target.entityId);
+    let attribution = UNKNOWN_AGENT_WRITE_CONFLICT_ATTRIBUTION;
+    try {
+      const [currentRevision, provenance] = await Promise.all([
+        this.revisionProvenance.getRevision(docId),
+        this.revisionProvenance.listRevisionProvenance(docId, expected),
+      ]);
+      attribution = attributeYjsRevisionConflict({
+        expectedRevision: expected,
+        currentRevision,
+        provenance,
+        currentAgent: {
+          sessionId: request.sessionId,
+          turnId: request.turnId,
+        },
+      });
+    } catch {
+      // The original CAS failure remains authoritative. Missing provenance is
+      // surfaced as unknown instead of being guessed to be a user edit.
+    }
+    return new AgentWriteCollaborationConflictError(target, attribution);
+  }
+
+  private async validateExpectedRevision(
+    request: AgentToolExecutionRequest,
+    expected: AgentRuntimeExpectedRevision,
+  ): Promise<PersistedAgentRuntimeWriteExpectation> {
+    if (!this.freshness) {
+      throw new Error('Agent freshness repository is unavailable');
+    }
+    const receipt = await this.freshness.getReadReceipt(expected.receiptId);
+    const target = await resolveWriteFreshnessTarget(request, this.elementPatchDb);
+    assertExpectedReceiptProvenance(receipt, request, target.readToolNames);
+    const observation = receipt.observations.find(
+      (candidate) => candidate.id === expected.observationId,
+    );
+    const expectsProse = isEffectiveProseWrite(request.name, request.arguments);
+    if (
+      !observation ||
+      observation.receiptId !== expected.receiptId ||
+      observation.entityKind !== target.entityKind ||
+      observation.entityId !== target.entityId ||
+      observation.revision !== expected.revision
+    ) {
+      throw new Error(
+        expectsProse
+          ? `expectedRevision does not match the requested ${target.entityKind} observation from a prose read`
+          : `expectedRevision does not match the requested ${target.entityKind} observation`,
+      );
+    }
+    if (
+      expectsProse &&
+      (!observation.stateVector ||
+        !observation.stateHash ||
+        parseYjsRevision(observation.revision) === null)
+    ) {
+      throw new Error(
+        'The cited read has no exact Yjs revision/vector/hash; call read_node with prose=true',
+      );
+    }
+    if (!expectsProse && target.currentRevision !== expected.revision) {
+      throw new Error(
+        target.entityKind === 'node'
+          ? 'The node changed after read_node; read it again before writing'
+          : 'The target changed after it was read; read it again before writing',
+      );
+    }
+    return {
+      id: writeExpectationId(request.idempotencyKey),
+      effectId: writeEffectId(request.idempotencyKey),
+      projectId: receipt.projectId,
+      sessionId: receipt.sessionId,
+      writeTurnId: request.turnId,
+      writeToolCallId: runtimeToolCallId(request),
+      observationId: observation.id,
+      readReceiptId: receipt.id,
+      readTurnId: observation.turnId,
+      readToolCallId: observation.toolCallId,
+      entityKind: observation.entityKind,
+      entityId: observation.entityId,
+      expectedRevision: observation.revision,
+      expectedStateVector: observation.stateVector,
+      expectedStateHash: observation.stateHash,
+      createdAt: this.now(),
+    };
+  }
+
+  private async attachWriteExpectation(
+    effect: PersistedAgentRuntimeWriteEffect,
+    expected: PersistedAgentRuntimeWriteExpectation,
+  ): Promise<void> {
+    if (!this.freshness) return;
+    await this.freshness.attachWriteExpectations({
+      effectId: effect.id,
+      projectId: effect.projectId,
+      sessionId: effect.sessionId,
+      observations: [
+        {
+          id: expected.id,
+          observationId: expected.observationId,
+        },
+      ],
+      createdAt: expected.createdAt,
+    });
+  }
+
+  private async assertDurableWriteExpectation(
+    effect: PersistedAgentRuntimeWriteEffect,
+    expected: AgentRuntimeExpectedRevision,
+  ): Promise<PersistedAgentRuntimeWriteExpectation | null> {
+    if (!this.freshness) return null;
+    const durable = await this.freshness.listWriteExpectations(effect.id);
+    const expectsProse = isEffectiveProseWrite(effect.toolName, effect.arguments);
+    const expectedEntityKind = reconciliationFreshnessTarget(
+      effect.toolName,
+      effect.arguments,
+    ).entityKind;
+    if (
+      durable.length !== 1 ||
+      durable[0].id !== writeExpectationId(effect.idempotencyKey) ||
+      durable[0].readReceiptId !== expected.receiptId ||
+      durable[0].observationId !== expected.observationId ||
+      durable[0].expectedRevision !== expected.revision ||
+      durable[0].entityKind !== expectedEntityKind ||
+      (expectsProse &&
+        (!durable[0].expectedStateVector ||
+          !durable[0].expectedStateHash ||
+          parseYjsRevision(durable[0].expectedRevision) === null))
+    ) {
+      throw new Error('The durable write effect lost its exact read expectation');
+    }
+    return durable[0];
+  }
+
+  private async replayDurableOutcome(
+    effect: PersistedAgentRuntimeWriteEffect,
+    tool: RegisteredTool,
+    request: AgentToolExecutionRequest,
+    strategy?: DriftingWriteStrategy,
+    context?: AgentToolContext,
+  ): Promise<AgentToolExecutionResult | null> {
+    switch (effect.phase) {
+      case 'result_committed': {
+        const result = persistedExecutionResult(effect.result);
+        projectWorkspaceCreatedAddition(effect, result);
+        if (effect.authorization) {
+          if (!activeEditorReviewId(effect, tool)) return result;
+          const review = await this.ensureCommittedReview(effect);
+          await this.projectCommittedReview(effect, strategy, context);
+          return withCanonicalReviewStatus(result, review);
+        }
+        // Compatibility for effects created before central authorization. A
+        // crash could leave their deterministic review row missing.
+        return withCanonicalReviewStatus(
+          result,
+          await this.ensureCommittedReview(effect),
+        );
+      }
+      case 'effect_committed': {
+        const handlerResult = persistedHandlerResult(effect.effect);
+        return this.settleCommittedEffect(
+          effect,
+          tool,
+          handlerResult,
+          strategy,
+          context,
+        );
+      }
+      case 'mutation_started':
+      case 'uncertain': {
+        if (strategy?.reconcileEnteredEffect && context) {
+          const reconciled = await strategy.reconcileEnteredEffect(
+            effect,
+            withProvenance(context, effect, request.signal),
+            request.signal,
+          );
+          if (reconciled) {
+            const committed = (
+              await this.repository.transitionEffect({
+                effectId: effect.id,
+                expectedPhase: effect.phase,
+                nextPhase: 'effect_committed',
+                effect: reconciled.committedEffect,
+                at: this.now(),
+              })
+            ).effect;
+            return this.settleCommittedEffect(
+              committed,
+              tool,
+              reconciled.handlerResult,
+              strategy,
+              context,
+            );
+          }
+        }
+        return {
+          ok: false,
+          error:
+            'This write entered mutation without a canonical result; inspect its durable effect before retrying',
+        };
+      }
+      case 'failed':
+        return {
+          ok: false,
+          error: effect.errorMessage ?? effect.errorCode ?? 'Write failed',
+        };
+      case 'declined':
+        return { ok: false, error: 'The write was declined' };
+      case 'claimed':
+      case 'confirmed':
+        throwIfAgentAborted(request.signal);
+        return null;
+    }
+  }
+
+  private async settleCommittedEffect(
+    effect: PersistedAgentRuntimeWriteEffect,
+    tool: RegisteredTool,
+    handlerResult: unknown,
+    strategy?: DriftingWriteStrategy,
+    context?: AgentToolContext,
+  ): Promise<AgentToolExecutionResult> {
+    if (!effect.authorization) {
+      return this.settleLegacyCommittedEffect(effect, tool, handlerResult);
+    }
+    const reviewId = activeEditorReviewId(effect, tool);
+    const useDomainPresentation =
+      domainWriteName(tool.name) && hasPreparedDomainEnvelope(effect.arguments);
+    const visibleResult =
+      useDomainPresentation
+        ? workspaceVisibleWriteResult(effect, handlerResult)
+        : handlerResult;
+    const result: AgentToolExecutionResult = {
+      ok: true,
+      data: {
+        result: visibleResult,
+        writeRef: reviewId ?? effect.id,
+        ...(useDomainPresentation ? {} : { effectId: effect.id }),
+        authorization: { kind: effect.authorization.kind },
+        ...(reviewId
+          ? { review: { id: reviewId, status: 'pending' } }
+          : {}),
+      },
+      ...(useDomainPresentation
+        ? {
+            modelData: workspaceModelWriteResult(
+              visibleResult as ReturnType<typeof workspaceVisibleWriteResult>,
+            ),
+          }
+          : reviewId
+          ? {
+              modelData:
+                `${describeAgentWriteTarget(effect.toolName, effect.arguments)}已更新。` +
+                '当前改动已保存。',
+            }
+          : {}),
+      ...(reviewId
+        ? { presentation: { review: { id: reviewId, status: 'pending' } } }
+        : {}),
+    };
+    await this.repository.transitionEffect({
+      effectId: effect.id,
+      expectedPhase: 'effect_committed',
+      nextPhase: 'result_committed',
+      result,
+      at: this.now(),
+    });
+    // Added presentation must come from the canonical local result, not the
+    // provider-facing `modelData`. The latter is intentionally natural prose
+    // and no longer exposes storage fields such as `operation: "created"`.
+    projectWorkspaceCreatedAddition(effect, result);
+    if (reviewId) {
+      // The repository intentionally requires a result-committed effect before
+      // it will create the review row. Projection remains last, so the badge
+      // can never race a missing review even if the renderer crashes here.
+      const review = await this.ensureCommittedReview(effect);
+      await this.projectCommittedReview(effect, strategy, context);
+      return withCanonicalReviewStatus(result, review);
+    }
+    return result;
+  }
+
+  private async settleLegacyCommittedEffect(
+    effect: PersistedAgentRuntimeWriteEffect,
+    tool: RegisteredTool,
+    handlerResult: unknown,
+  ): Promise<AgentToolExecutionResult> {
+    const reviewId = writeReviewId(effect.id);
+    const useDomainPresentation =
+      domainWriteName(tool.name) && hasPreparedDomainEnvelope(effect.arguments);
+    const visibleResult =
+      useDomainPresentation
+        ? workspaceVisibleWriteResult(effect, handlerResult)
+        : handlerResult;
+    const result: AgentToolExecutionResult = {
+      ok: true,
+      data: {
+        result: visibleResult,
+        writeRef: reviewId,
+        ...(useDomainPresentation ? {} : { effectId: effect.id }),
+        review: { id: reviewId, status: 'pending' },
+      },
+      ...(useDomainPresentation
+        ? {
+            modelData: workspaceModelWriteResult(
+              visibleResult as ReturnType<typeof workspaceVisibleWriteResult>,
+            ),
+          }
+        : {}),
+      presentation: { review: { id: reviewId, status: 'pending' } },
+    };
+    await this.repository.transitionEffect({
+      effectId: effect.id,
+      expectedPhase: 'effect_committed',
+      nextPhase: 'result_committed',
+      result,
+      at: this.now(),
+    });
+    return withCanonicalReviewStatus(
+      result,
+      await this.ensureCommittedReview(effect),
+    );
+  }
+
+  /** Create the deterministic settlement receipt once, then settle it. */
+  private async ensureCommittedReview(
+    effect: PersistedAgentRuntimeWriteEffect,
+  ): Promise<PersistedAgentRuntimeWriteReview> {
+    const reviewId = writeReviewId(effect.id);
+    if (!(await this.repository.getReview(reviewId))) {
+      await this.repository.createReview({
+        id: reviewId,
+        effectId: effect.id,
+        sessionId: effect.sessionId,
+        turnId: effect.turnId,
+        toolCallId: effect.toolCallId,
+        createdAt: this.now(),
+      });
+    }
+    return (await this.acceptReview(reviewId)).review;
+  }
+
+  private async projectCommittedReview(
+    effect: PersistedAgentRuntimeWriteEffect,
+    strategy?: DriftingWriteStrategy,
+    context?: AgentToolContext,
+  ): Promise<void> {
+    if (!strategy?.projectReview || !context) return;
+    try {
+      await strategy.projectReview(effect, context);
+    } catch (error) {
+      console.warn(
+        '[agent] durable prose review could not be projected into the editor',
+        error,
+      );
+    }
+  }
+
+  private async assertReconciliationProvenance(
+    effect: PersistedAgentRuntimeWriteEffect,
+    sessionId: string,
+    context: AgentToolContext,
+  ): Promise<AgentRuntimeExpectedRevision> {
+    if (!this.freshness) {
+      throw new Error('Agent freshness repository is unavailable');
+    }
+    if (
+      effect.sessionId !== sessionId ||
+      effect.projectId !== context.projectId ||
+      effect.id !== writeEffectId(effect.idempotencyKey) ||
+      effect.toolCallId !== `agent-tool:${effect.sessionId}:${effect.turnId}:${effect.callId}` ||
+      !effect.mutationStartedAt ||
+      effect.forward === null ||
+      effect.reversibility === null
+    ) {
+      throw new Error('The interrupted write has conflicting durable provenance');
+    }
+    const arguments_ = requireRecord(
+      effect.arguments,
+      'The interrupted write arguments are invalid',
+    );
+    const expected = parseExpectedRevision(arguments_.expectedRevision);
+    if (
+      effect.expectedRevision === null ||
+      effect.observedRevision === null ||
+      canonicalAgentRuntimeJson(effect.expectedRevision) !== canonicalAgentRuntimeJson(expected) ||
+      canonicalAgentRuntimeJson(effect.observedRevision) !== canonicalAgentRuntimeJson(expected)
+    ) {
+      throw new Error('The interrupted write lost its exact expected revision');
+    }
+
+    const expectations = await this.freshness.listWriteExpectations(effect.id);
+    const expectation = expectations[0];
+    const target = reconciliationFreshnessTarget(effect.toolName, effect.arguments);
+    if (
+      expectations.length !== 1 ||
+      !expectation ||
+      expectation.id !== writeExpectationId(effect.idempotencyKey) ||
+      expectation.effectId !== effect.id ||
+      expectation.projectId !== effect.projectId ||
+      expectation.sessionId !== effect.sessionId ||
+      expectation.writeTurnId !== effect.turnId ||
+      expectation.writeToolCallId !== effect.toolCallId ||
+      expectation.readReceiptId !== expected.receiptId ||
+      expectation.observationId !== expected.observationId ||
+      expectation.expectedRevision !== expected.revision ||
+      expectation.entityKind !== target.entityKind ||
+      (isProseFreshnessKind(target.entityKind) &&
+        (!expectation.expectedStateVector ||
+          !expectation.expectedStateHash ||
+          parseYjsRevision(expectation.expectedRevision) === null))
+    ) {
+      throw new Error('The interrupted write lost its exact durable expectation');
+    }
+
+    const receipt = await this.freshness.getReadReceipt(expectation.readReceiptId);
+    const observation = receipt?.observations.find(
+      (candidate) => candidate.id === expectation.observationId,
+    );
+    if (
+      !receipt ||
+      receipt.id !== `agent-read:${receipt.idempotencyKey}` ||
+      receipt.projectId !== effect.projectId ||
+      receipt.sessionId !== effect.sessionId ||
+      !target.readToolNames.includes(receipt.toolName as FreshnessReadToolName) ||
+      receipt.turnId !== expectation.readTurnId ||
+      receipt.toolCallId !== expectation.readToolCallId ||
+      receipt.toolCallId !==
+        `agent-tool:${receipt.sessionId}:${receipt.turnId}:${receipt.callId}` ||
+      !observation ||
+      observation.receiptId !== receipt.id ||
+      observation.projectId !== receipt.projectId ||
+      observation.sessionId !== receipt.sessionId ||
+      observation.turnId !== receipt.turnId ||
+      observation.toolCallId !== receipt.toolCallId ||
+      observation.id !== `agent-observation:${receipt.idempotencyKey}:${observation.ordinal}` ||
+      observation.entityKind !== expectation.entityKind ||
+      observation.entityId !== expectation.entityId ||
+      observation.revision !== expectation.expectedRevision ||
+      !optionalBytesEqual(observation.stateVector, expectation.expectedStateVector) ||
+      observation.stateHash !== expectation.expectedStateHash
+    ) {
+      throw new Error('The interrupted write receipt chain has conflicting provenance');
+    }
+    return expected;
+  }
+
+  private requireMatchingContext(runtimeContext: AgentRuntimeContext): AgentToolContext {
+    const active = this.getContext();
+    if (!active) throw new Error('Drifting tool context is not mounted');
+    if (!runtimeContext.route.projectId || runtimeContext.route.projectId !== active.projectId) {
+      throw new Error('Agent route does not match the active Drifting project');
+    }
+    return active;
+  }
+
+  private requireEffectContext(effect: PersistedAgentRuntimeWriteEffect): AgentToolContext {
+    const active = this.getContext();
+    if (!active || active.projectId !== effect.projectId) {
+      throw new Error('The Agent review belongs to a different or unmounted project');
+    }
+    return active;
+  }
+
+  private async requireReview(reviewId: string): Promise<PersistedAgentRuntimeWriteReview> {
+    const review = await this.repository.getReview(reviewId);
+    if (!review) throw new Error(`Agent write review "${reviewId}" was not found`);
+    return review;
+  }
+
+  private async requireEffect(effectId: string): Promise<PersistedAgentRuntimeWriteEffect> {
+    const effect = await this.repository.getEffect(effectId);
+    if (!effect) throw new Error(`Agent write effect "${effectId}" was not found`);
+    return effect;
+  }
+}
+
+export function createDriftingWriteToolRuntime(
+  options?: DriftingWriteToolRuntimeOptions,
+): DriftingWriteToolRuntime {
+  return new DriftingWriteToolRuntime(options);
+}
+
+export function resolveDriftingCertifiedToolAccess(name: string): 'read' | 'write' | undefined {
+  if (name === 'read_tool_result' || name === 'ask_user') {
+    return 'read';
+  }
+  if (isDriftingDomainReadToolName(name)) return 'read';
+  if (isDriftingDomainWriteToolName(name)) return 'write';
+  return undefined;
+}
+
+function domainWriteName(name: string): boolean {
+  return isDriftingDomainWriteToolName(name);
+}
+
+function isDomainWriteTool(
+  tool: RegisteredTool | null | undefined,
+): tool is RegisteredTool {
+  return Boolean(
+    tool &&
+      domainWriteName(tool.name) &&
+      tool.access === 'write' &&
+      (tool.certification === 'internal-certified' || tool.certification === 'write-certified') &&
+      isCertifiedTool(tool),
+  );
+}
+
+/** Hidden certified commands remain executable by the renderer coordinator so
+ * domain tools can delegate to the existing transactional strategies. They are
+ * deliberately absent from listDefinitions and therefore never provider-facing. */
+function isExecutableCertifiedWriteTool(
+  tool: RegisteredTool | null | undefined,
+): tool is RegisteredTool {
+  return Boolean(tool && tool.access === 'write' && isCertifiedTool(tool));
+}
+
+function requireReconciliationTool(effect: PersistedAgentRuntimeWriteEffect): RegisteredTool {
+  const tool = getRegisteredTool(effect.toolName);
+  if (!isExecutableCertifiedWriteTool(tool)) {
+    throw new Error(`Tool "${effect.toolName}" is not certified for write reconciliation`);
+  }
+  return tool;
+}
+
+type FreshnessReadToolName =
+  | 'read_plot_grid'
+  | 'read_book_structure'
+  | 'list_materials'
+  | 'read_material'
+  | 'read_node'
+  | 'get_element_patches'
+  | 'read_element'
+  | 'get_storyline'
+  | 'get_project_brief'
+  | 'get_overview'
+  | 'list_comments'
+  | 'list_memory'
+  | 'get_entity_relations'
+  | 'get_relation_types';
+
+type FreshnessEntityKind =
+  | 'plot_grid'
+  | 'book_structure'
+  | 'material_library'
+  | 'material_note_prose'
+  | 'node'
+  | 'node_prose'
+  | 'element_prose'
+  | 'storyline_prose'
+  | 'category_prose'
+  | 'element_patch_set'
+  | 'element_patch'
+  | 'element'
+  | 'storyline'
+  | 'category'
+  | 'comment'
+  | 'relation'
+  | 'relation_type'
+  | 'storyline_membership'
+  | 'memory_set'
+  | 'memory'
+  | 'project';
+
+function reconciliationFreshnessTarget(
+  toolName: string,
+  arguments_?: unknown,
+): {
+  readToolNames: readonly FreshnessReadToolName[];
+  entityKind: FreshnessEntityKind;
+} {
+  const effective = effectiveWriteCommand(toolName, arguments_);
+  toolName = effective.name;
+  const workbench = workbenchFreshnessKind(toolName);
+  if (workbench) {
+    return {
+      readToolNames: workbench.readToolNames as readonly FreshnessReadToolName[],
+      entityKind: workbench.entityKind as FreshnessEntityKind,
+    };
+  }
+  if (isMaterialNoteCommandName(toolName)) {
+    return { readToolNames: ['read_material'], entityKind: MATERIAL_NOTE_OBSERVATION_KIND };
+  }
+  if (isProseWriteTool(toolName)) {
+    return {
+      readToolNames: proseReadToolNames(effective.arguments),
+      entityKind: proseFreshnessEntityKind(effective.arguments),
+    };
+  }
+  if (toolName === 'create_element_patch') {
+    return {
+      readToolNames: ['get_element_patches'],
+      entityKind: 'element_patch_set',
+    };
+  }
+  if (
+    toolName === 'update_element_patch' ||
+    toolName === 'delete_element_patch'
+  ) {
+    return {
+      readToolNames: ['get_element_patches'],
+      entityKind: 'element_patch',
+    };
+  }
+  if (toolName === 'update_element') {
+    return { readToolNames: ['read_element'], entityKind: 'element' };
+  }
+  if (toolName === 'update_storyline') {
+    return {
+      readToolNames: ['get_storyline'],
+      entityKind: 'storyline',
+    };
+  }
+  if (toolName === 'set_storyline_membership') {
+    return {
+      readToolNames: ['get_storyline'],
+      entityKind: 'storyline_membership',
+    };
+  }
+  if (toolName === 'remember') {
+    return { readToolNames: ['list_memory'], entityKind: 'memory_set' };
+  }
+  if (toolName === 'update_memory' || toolName === 'forget') {
+    return { readToolNames: ['list_memory'], entityKind: 'memory' };
+  }
+  if (toolName === 'update_relation_type' || toolName === 'delete_relation_type') {
+    return { readToolNames: ['get_relation_types'], entityKind: 'relation_type' };
+  }
+  if (PROJECT_FRESHNESS_WRITE_TOOLS.has(toolName)) {
+    return {
+      readToolNames: ['get_project_brief', 'get_overview'],
+      entityKind: 'project',
+    };
+  }
+  if (toolName === 'delete_element') {
+    return { readToolNames: ['read_element'], entityKind: 'element' };
+  }
+  if (toolName === 'delete_storyline') {
+    return { readToolNames: ['get_storyline'], entityKind: 'storyline' };
+  }
+  if (
+    toolName === 'update_category' ||
+    toolName === 'delete_category'
+  ) {
+    return { readToolNames: ['read_node'], entityKind: 'category' };
+  }
+  if (
+    toolName === 'update_comment' ||
+    toolName === 'delete_comment' ||
+    toolName === 'set_comment_status' ||
+    toolName === 'set_comment_kind'
+  ) {
+    return { readToolNames: ['list_comments'], entityKind: 'comment' };
+  }
+  if (toolName === 'assign_relation_type' || toolName === 'remove_relation') {
+    return { readToolNames: ['get_entity_relations'], entityKind: 'relation' };
+  }
+  return { readToolNames: ['read_node'], entityKind: 'node' };
+}
+
+function requireRecord(value: unknown, message: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(message);
+  }
+  return value as Record<string, unknown>;
+}
+
+function optionalBytesEqual(left: Uint8Array | null, right: Uint8Array | null): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.byteLength === right.byteLength && left.every((value, index) => value === right[index])
+  );
+}
+
+function writeDefinition(tool: RegisteredTool): AgentToolDefinition {
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.parametersSchema,
+    access: 'write',
+    validateInput: (input) => {
+      if (Value.Check(tool.parametersSchema, input)) {
+        return { ok: true, value: input };
+      }
+      const first = Value.Errors(tool.parametersSchema, input).First();
+      return {
+        ok: false,
+        error: first
+          ? `Invalid ${tool.name} arguments at ${first.path || '/'}: ${first.message}`
+          : `Invalid ${tool.name} arguments`,
+      };
+    },
+  };
+}
+
+function durableWriteRoute(route: AgentRuntimeRoute) {
+  if (route.kind === 'test' || !route.projectId) {
+    throw new Error('A durable Agent write requires a project route');
+  }
+  if (!route.conversationId) {
+    throw new Error('A durable Agent write requires a conversation');
+  }
+  return {
+    projectId: route.projectId,
+    routeKind: 'chat' as const,
+    conversationId: route.conversationId,
+  };
+}
+
+function runtimeToolCallId(request: AgentToolExecutionRequest): string {
+  return `agent-tool:${request.sessionId}:${request.turnId}:${request.callId}`;
+}
+
+async function requireWriteAuthorization(
+  request: AgentToolExecutionRequest,
+  publicArguments: Record<string, unknown>,
+  authorizedAt: string,
+) {
+  const authorization = request.authorization;
+  if (!authorization) {
+    throw new Error(
+      'Certified writes require pre-execution authorization from the central runtime',
+    );
+  }
+  const argumentsHash = await hashAgentPermissionArguments(publicArguments);
+  if (authorization.argumentsHash !== argumentsHash) {
+    throw new Error(
+      'The approved write arguments changed before the mutation boundary',
+    );
+  }
+  if (
+    (authorization.kind === 'automatic' && authorization.requestId !== null) ||
+    (authorization.kind === 'author_approved' &&
+      !authorization.requestId?.trim())
+  ) {
+    throw new Error('The write authorization has invalid permission provenance');
+  }
+  return {
+    kind: authorization.kind,
+    requestId: authorization.requestId,
+    argumentsHash,
+    authorizedAt,
+  };
+}
+
+function writeEffectId(idempotencyKey: string): string {
+  return `agent-write:${idempotencyKey}`;
+}
+
+function writeReviewId(effectId: string): string {
+  return `agent-review:${effectId}`;
+}
+
+function writeExpectationId(idempotencyKey: string): string {
+  return `agent-expectation:${idempotencyKey}:0`;
+}
+
+function withProvenance(
+  context: AgentToolContext,
+  effect: PersistedAgentRuntimeWriteEffect,
+  signal: AbortSignal,
+  expectedRevision?: AgentRuntimeExpectedRevision,
+): AgentToolContext {
+  return {
+    ...context,
+    provenance: {
+      sessionId: effect.sessionId,
+      turnId: effect.turnId,
+      callId: effect.callId,
+      idempotencyKey: effect.idempotencyKey,
+      ...(expectedRevision ? { expectedRevision } : {}),
+      signal,
+    },
+  };
+}
+
+function parseExpectedRevision(value: unknown): AgentRuntimeExpectedRevision {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof (value as { receiptId?: unknown }).receiptId !== 'string' ||
+    !(value as { receiptId: string }).receiptId.trim() ||
+    typeof (value as { observationId?: unknown }).observationId !== 'string' ||
+    !(value as { observationId: string }).observationId.trim() ||
+    typeof (value as { revision?: unknown }).revision !== 'string' ||
+    !(value as { revision: string }).revision.trim()
+  ) {
+    throw new Error(
+      'Certified writes require expectedRevision copied from the dependent read freshness',
+    );
+  }
+  return {
+    receiptId: (value as { receiptId: string }).receiptId,
+    observationId: (value as { observationId: string }).observationId,
+    revision: (value as { revision: string }).revision,
+  };
+}
+
+function isDeterministicStaleWriteError(error: unknown): error is Error & {
+  code: 'STALE_REVISION' | 'STALE_STATE_VECTOR' | 'STALE_STATE_HASH';
+} {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error.code === 'STALE_REVISION' ||
+      error.code === 'STALE_STATE_VECTOR' ||
+      error.code === 'STALE_STATE_HASH')
+  );
+}
+
+function isConcurrentAgentWriteConflict(error: unknown): boolean {
+  if (error instanceof AgentWriteCollaborationConflictError) return true;
+  if (isDeterministicStaleWriteError(error)) return true;
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : '';
+  if (/^(?:STALE_|YJS_REVISION_CONFLICT)/u.test(code)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /STALE_EDIT_TARGET|changed (?:after it was read|after read_node|before this revision|before command preparation)|state vector changed/iu.test(
+    message,
+  );
+}
+
+function writeConflictAttribution(error: unknown): AgentWriteConflictAttribution {
+  return error instanceof AgentWriteCollaborationConflictError
+    ? error.attribution
+    : UNKNOWN_AGENT_WRITE_CONFLICT_ATTRIBUTION;
+}
+
+function assertExpectedReceiptProvenance(
+  receipt: PersistedAgentRuntimeReadReceipt | null,
+  request: Pick<AgentToolExecutionRequest, 'sessionId' | 'context'>,
+  readToolNames: readonly FreshnessReadToolName[],
+): asserts receipt is PersistedAgentRuntimeReadReceipt {
+  if (
+    !receipt ||
+    receipt.projectId !== request.context.route.projectId ||
+    receipt.sessionId !== request.sessionId ||
+    !readToolNames.includes(receipt.toolName as FreshnessReadToolName)
+  ) {
+    throw new Error(
+      `expectedRevision must cite a ${readToolNames.join(' or ')} receipt from this project and session`,
+    );
+  }
+}
+
+interface WriteFreshnessRequest {
+  name: string;
+  arguments: Record<string, unknown>;
+  context: {
+    route: {
+      projectId?: string | null;
+    };
+  };
+}
+
+interface WriteFreshnessTarget {
+  readToolNames: readonly FreshnessReadToolName[];
+  entityKind: FreshnessEntityKind;
+  entityId: string;
+  currentRevision: string;
+}
+
+async function resolveAgentWriteCollaborationTarget(
+  request: AgentToolExecutionRequest,
+  db?: DbExecutor,
+): Promise<AgentWriteCollaborationTarget> {
+  const target = await resolveWriteFreshnessTarget(request, db);
+  return {
+    sessionId: request.sessionId,
+    turnId: request.turnId,
+    entityKind: target.entityKind,
+    entityId: target.entityId,
+  };
+}
+
+async function resolveWriteFreshnessTarget(
+  request: WriteFreshnessRequest,
+  db?: DbExecutor,
+): Promise<WriteFreshnessTarget> {
+  const effective = effectiveWriteCommand(request.name, request.arguments);
+  request = {
+    ...request,
+    name: effective.name,
+    arguments: effective.arguments,
+  };
+  const projectId = request.context.route.projectId;
+  if (!projectId) {
+    throw new Error(`${request.name} requires a project-scoped route`);
+  }
+  const workbench = await resolveWorkbenchFreshnessTarget(request.name, request.arguments, projectId, db);
+  if (workbench) {
+    return {
+      readToolNames: workbench.readToolNames as readonly FreshnessReadToolName[],
+      entityKind: workbench.entityKind as FreshnessEntityKind,
+      entityId: workbench.entityId,
+      currentRevision: workbench.currentRevision,
+    };
+  }
+  if (isMaterialNoteCommandName(request.name)) {
+    const itemId = String(request.arguments.materialId ?? '').trim();
+    const { base } = await readMaterialNoteBase(projectId, itemId);
+    return {
+      readToolNames: ['read_material'],
+      entityKind: MATERIAL_NOTE_OBSERVATION_KIND,
+      entityId: itemId,
+      currentRevision: `yjs:${base.revision}`,
+    };
+  }
+  if (request.name === 'create_element_patch') {
+    const element = resolveProjectElement(projectId, request.arguments.element);
+    const pendingDeletes = pendingDeletedPatchIds(element.id);
+    const patches = (await createElementPatchRepository(db).listByElement(element.id)).filter(
+      (patch) =>
+        patch.projectId === projectId && !patch.invalidatedAt && !pendingDeletes.has(patch.id),
+    );
+    return {
+      readToolNames: ['get_element_patches'],
+      entityKind: 'element_patch_set',
+      entityId: element.id,
+      currentRevision: await elementPatchSetRevision(patches),
+    };
+  }
+  if (
+    request.name === 'update_element_patch' ||
+    request.name === 'delete_element_patch'
+  ) {
+    const patchId = String(request.arguments.patchId ?? '').trim();
+    const patch = patchId ? await createElementPatchRepository(db).findById(patchId) : null;
+    if (!patch || patch.projectId !== projectId) {
+      throw new Error(`No element patch "${patchId}" exists in this project`);
+    }
+    if (patch.invalidatedAt || pendingDeletedPatchIds(patch.elementId).has(patch.id)) {
+      throw new Error(`Element patch "${patchId}" is not available for Agent changes`);
+    }
+    return {
+      readToolNames: ['get_element_patches'],
+      entityKind: 'element_patch',
+      entityId: patch.id,
+      currentRevision: await elementPatchRevision(patch),
+    };
+  }
+  if (request.name === 'update_element') {
+    const element = resolveProjectElement(projectId, request.arguments.element);
+    return {
+      readToolNames: ['read_element'],
+      entityKind: 'element',
+      entityId: element.id,
+      currentRevision: element.updatedAt,
+    };
+  }
+  if (request.name === 'update_storyline') {
+    const storyline = resolveProjectStoryline(projectId, request.arguments.storyline);
+    return {
+      readToolNames: ['get_storyline'],
+      entityKind: 'storyline',
+      entityId: storyline.id,
+      currentRevision: storyline.updatedAt,
+    };
+  }
+  if (request.name === 'set_storyline_membership') {
+    const storyline = resolveProjectStoryline(
+      projectId,
+      request.arguments.storyline,
+    );
+    const snapshot = await loadStorylineMembershipSnapshot(
+      db ?? getDb(),
+      projectId,
+      storyline.id,
+    );
+    return {
+      readToolNames: ['get_storyline'],
+      entityKind: 'storyline_membership',
+      entityId: storyline.id,
+      currentRevision: snapshot.updatedAt,
+    };
+  }
+  if (request.name === 'remember') {
+    const memories = await createAgentMemoryRepository(
+      projectId,
+      db,
+    ).findAll();
+    return {
+      readToolNames: ['list_memory'],
+      entityKind: 'memory_set',
+      entityId: projectId,
+      currentRevision: await agentMemorySetRevision(memories),
+    };
+  }
+  if (request.name === 'update_memory' || request.name === 'forget') {
+    const memoryId = String(request.arguments.memoryId ?? '').trim();
+    const memory = memoryId
+      ? await createAgentMemoryRepository(projectId, db).findById(memoryId)
+      : null;
+    if (!memory || memory.deletedAt) {
+      throw new Error(`No live memory "${memoryId}" exists in this project`);
+    }
+    return {
+      readToolNames: ['list_memory'],
+      entityKind: 'memory',
+      entityId: memory.id,
+      currentRevision: memory.updatedAt,
+    };
+  }
+  if (PROJECT_FRESHNESS_WRITE_TOOLS.has(request.name)) {
+    const project = useProjectStore.getState().currentProject;
+    if (!project || project.id !== projectId) {
+      throw new Error(`${request.name} requires the mounted project brief`);
+    }
+    return {
+      readToolNames: ['get_project_brief', 'get_overview'],
+      entityKind: 'project',
+      entityId: projectId,
+      currentRevision: project.updatedAt,
+    };
+  }
+  if (request.name === 'delete_element') {
+    const element = resolveProjectElement(projectId, request.arguments.element);
+    return {
+      readToolNames: ['read_element'],
+      entityKind: 'element',
+      entityId: element.id,
+      currentRevision: element.updatedAt,
+    };
+  }
+  if (request.name === 'delete_storyline') {
+    const storyline = resolveProjectStoryline(projectId, request.arguments.storyline);
+    return {
+      readToolNames: ['get_storyline'],
+      entityKind: 'storyline',
+      entityId: storyline.id,
+      currentRevision: storyline.updatedAt,
+    };
+  }
+  if (request.name === 'update_category' || request.name === 'delete_category') {
+    const category = resolveProjectCategory(projectId, request.arguments.category);
+    return {
+      readToolNames: ['read_node'],
+      entityKind: 'category',
+      entityId: category.id,
+      currentRevision: category.updatedAt,
+    };
+  }
+  if (
+    request.name === 'update_comment' ||
+    request.name === 'delete_comment' ||
+    request.name === 'set_comment_status' ||
+    request.name === 'set_comment_kind'
+  ) {
+    const comment = resolveProjectComment(projectId, request.arguments.commentId);
+    return {
+      readToolNames: ['list_comments'],
+      entityKind: 'comment',
+      entityId: comment.id,
+      currentRevision: comment.updatedAt,
+    };
+  }
+  if (request.name === 'assign_relation_type' || request.name === 'remove_relation') {
+    const relation = resolveProjectRelation(projectId, request.arguments.relationId);
+    return {
+      readToolNames: ['get_entity_relations'],
+      entityKind: 'relation',
+      entityId: relation.id,
+      currentRevision: relation.updatedAt,
+    };
+  }
+  if (request.name === 'update_relation_type' || request.name === 'delete_relation_type') {
+    const relationType = resolveProjectRelationType(projectId, request.arguments.relationType);
+    return {
+      readToolNames: ['get_relation_types'],
+      entityKind: 'relation_type',
+      entityId: relationType.id,
+      currentRevision: relationType.updatedAt,
+    };
+  }
+  if (isProseWriteTool(request.name)) {
+    const entity = resolveWriteTargetProseEntity(request);
+    return {
+      readToolNames: proseReadToolNames(request.arguments),
+      entityKind: proseFreshnessEntityKind(request.arguments),
+      entityId: entity.id,
+      // The Yjs current version is verified inside the prose strategy/coordinator.
+      currentRevision: String(
+        (request.arguments.expectedRevision as { revision?: unknown } | undefined)?.revision ?? '',
+      ),
+    };
+  }
+  const node = resolveWriteTargetNode(request);
+  return {
+    readToolNames: ['read_node'],
+    entityKind: 'node',
+    entityId: node.id,
+    currentRevision: node.updatedAt,
+  };
+}
+
+function resolveProjectElement(projectId: string, value: unknown) {
+  const ref = String(value ?? '').trim();
+  if (!ref) throw new Error('create_element_patch requires an element');
+  const elements = useDataStore
+    .getState()
+    .bookElements.filter((element) => element.projectId === projectId);
+  const direct = elements.find((element) => element.id === ref);
+  if (direct) return direct;
+  const matches = elements.filter(
+    (element) =>
+      allElementNames(element).some(
+        (name) => name.trim().toLocaleLowerCase() === ref.toLocaleLowerCase(),
+      ),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No element named "${ref}" exists in this project`
+        : `Element reference "${ref}" is ambiguous`,
+    );
+  }
+  return matches[0]!;
+}
+
+function resolveProjectStoryline(projectId: string, value: unknown) {
+  const ref = String(value ?? '').trim();
+  if (!ref) throw new Error('update_storyline requires a storyline');
+  const storylines = useDataStore
+    .getState()
+    .storylines.filter((storyline) => storyline.projectId === projectId);
+  const direct = storylines.find((storyline) => storyline.id === ref);
+  if (direct) return direct;
+  const matches = storylines.filter(
+    (storyline) => storyline.name.trim().toLocaleLowerCase() === ref.toLocaleLowerCase(),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No storyline named "${ref}" exists in this project`
+        : `Storyline reference "${ref}" is ambiguous`,
+    );
+  }
+  return matches[0]!;
+}
+
+function resolveProjectCategory(projectId: string, value: unknown) {
+  const ref = String(value ?? '').trim();
+  if (!ref) throw new Error('A category reference is required');
+  const categories = useDataStore
+    .getState()
+    .bookElementCategories.filter((category) => category.projectId === projectId);
+  const direct = categories.find((category) => category.id === ref);
+  if (direct) return direct;
+  const matches = categories.filter(
+    (category) => category.name.trim().toLocaleLowerCase() === ref.toLocaleLowerCase(),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No category named "${ref}" exists in this project`
+        : `Category reference "${ref}" is ambiguous`,
+    );
+  }
+  return matches[0]!;
+}
+
+function resolveProjectComment(projectId: string, value: unknown) {
+  const id = String(value ?? '').trim();
+  const comment = useDataStore
+    .getState()
+    .comments.find((candidate) => candidate.projectId === projectId && candidate.id === id);
+  if (!comment) throw new Error(`No comment "${id}" exists in this project`);
+  return comment;
+}
+
+function resolveProjectRelation(projectId: string, value: unknown) {
+  const id = String(value ?? '').trim();
+  const relation = useDataStore
+    .getState()
+    .entityRelations.find(
+      (candidate) => candidate.projectId === projectId && candidate.id === id,
+    );
+  if (!relation) throw new Error(`No relation "${id}" exists in this project`);
+  return relation;
+}
+
+function resolveProjectRelationType(projectId: string, value: unknown) {
+  const ref = String(value ?? '').trim();
+  const types = useDataStore
+    .getState()
+    .entityRelationTypes.filter((candidate) => candidate.projectId === projectId);
+  const direct = types.find((candidate) => candidate.id === ref);
+  if (direct) return direct;
+  const matches = types.filter(
+    (candidate) => candidate.name.trim().toLocaleLowerCase() === ref.toLocaleLowerCase(),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No relation type "${ref}" exists in this project`
+        : `Relation type reference "${ref}" is ambiguous`,
+    );
+  }
+  return matches[0]!;
+}
+
+function resolveWriteTargetProseEntity(request: WriteFreshnessRequest) {
+  const projectId = request.context.route.projectId;
+  if (!projectId) throw new Error(`${request.name} requires a project-scoped entity`);
+  const ref =
+    request.arguments.entity ??
+    request.arguments.node ??
+    request.arguments.nodeId;
+  const kind = String(request.arguments.kind ?? 'node');
+  if (kind === 'element') return resolveProjectElement(projectId, ref);
+  if (kind === 'storyline') return resolveProjectStoryline(projectId, ref);
+  if (kind === 'category') return resolveProjectCategory(projectId, ref);
+  return resolveWriteTargetNode(request);
+}
+
+function resolveWriteTargetNode(request: WriteFreshnessRequest) {
+  const projectId = request.context.route.projectId;
+  const ref = String(
+    request.arguments.node ?? request.arguments.nodeId ?? request.arguments.entity ?? '',
+  ).trim();
+  const kind = String(request.arguments.kind ?? 'node');
+  if (kind !== 'node' && kind !== 'chapter' && kind !== 'drift') {
+    throw new Error(`${request.name} currently certifies node prose only`);
+  }
+  if (!projectId || !ref) {
+    throw new Error(`${request.name} requires a project-scoped node`);
+  }
+  const nodes = useDataStore.getState().bookNodes.filter((node) => node.projectId === projectId);
+  const direct = nodes.find((node) => node.id === ref);
+  if (direct) return direct;
+  const matches = nodes.filter(
+    (node) => node.title.trim().toLocaleLowerCase() === ref.toLocaleLowerCase(),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No node named "${ref}" exists in this project`
+        : `Node reference "${ref}" is ambiguous`,
+    );
+  }
+  return matches[0];
+}
+
+const PROSE_WRITE_TOOLS = new Set([
+  'edit_prose_file',
+  'edit_block',
+  'edit_blocks',
+  'append_paragraph',
+  'insert_blocks',
+  'remove_blocks',
+  'replace_block_range',
+]);
+
+const PROJECT_FRESHNESS_WRITE_TOOLS = new Set([
+  'update_project_facts',
+  'create_comment',
+  'create_node',
+  'create_element',
+  'create_storyline',
+  'create_category',
+  'add_relation',
+  'create_relation_type',
+]);
+
+function isProseWriteTool(name: string): boolean {
+  return PROSE_WRITE_TOOLS.has(name);
+}
+
+function isEffectiveProseWrite(name: string, arguments_: unknown): boolean {
+  return isProseWriteTool(effectiveWriteCommand(name, arguments_).name);
+}
+
+function proseFreshnessEntityKind(
+  arguments_: Record<string, unknown>,
+): Extract<
+  FreshnessEntityKind,
+  'node_prose' | 'element_prose' | 'storyline_prose' | 'category_prose'
+> {
+  const kind = String(arguments_.kind ?? 'node');
+  if (kind === 'element') return 'element_prose';
+  if (kind === 'storyline') return 'storyline_prose';
+  if (kind === 'category') return 'category_prose';
+  return 'node_prose';
+}
+
+function proseReadToolNames(
+  arguments_: Record<string, unknown>,
+): readonly FreshnessReadToolName[] {
+  return String(arguments_.kind ?? 'node') === 'element'
+    ? ['read_element', 'read_node']
+    : ['read_node'];
+}
+
+function isProseFreshnessKind(kind: string): boolean {
+  return (
+    kind === 'node_prose' ||
+    kind === 'element_prose' ||
+    kind === 'storyline_prose' ||
+    kind === 'category_prose'
+  );
+}
+
+function proseEntityTypeFromFreshnessKind(
+  kind: string,
+): ProseEntityType | null {
+  switch (kind) {
+    case 'node_prose':
+      return 'node';
+    case 'element_prose':
+      return 'element';
+    case 'storyline_prose':
+      return 'storyline';
+    case 'category_prose':
+      return 'category';
+    default:
+      return null;
+  }
+}
+
+function effectiveWriteCommand(
+  name: string,
+  arguments_: unknown,
+): { name: string; arguments: Record<string, unknown> } {
+  const command = workspaceCommandFromArguments(arguments_);
+  return command ?? { name, arguments: requireRecord(arguments_, 'Write arguments are invalid') };
+}
+
+function hasPreparedDomainEnvelope(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      typeof (value as { path?: unknown }).path === 'string' &&
+      (value as { path: string }).path.length > 0,
+  );
+}
+
+function workspaceVisibleWriteResult(
+  effect: PersistedAgentRuntimeWriteEffect,
+  handlerResult?: unknown,
+): {
+  path: string;
+  requestedPath?: string;
+  updated: true;
+  replacements?: number;
+  skippedStale?: number;
+  operation?: 'created' | 'updated' | 'deleted';
+  guidance?: string;
+  canonicalPath?: string;
+  wordCount?: number;
+  summaryInitialized?: true;
+  summaryUpdated?: true;
+  changeSummary?: string;
+  remainingWork?: string;
+  authoredReadState?: ReturnType<typeof workspaceAuthoredReadStateFromArguments>;
+} {
+  const arguments_ = requireRecord(effect.arguments, 'The workspace write arguments are invalid');
+  const path = String(arguments_.path ?? '');
+  const changeSummary = recordString(arguments_, 'changeSummary');
+  const remainingWork = recordString(arguments_, 'remainingWork');
+  const authoredReadState = workspaceAuthoredReadStateFromArguments(arguments_);
+  if (!path) throw new Error('The workspace write lost its public path');
+  const command = effectiveWriteCommand(effect.toolName, arguments_);
+  const deleted =
+    command.name.startsWith('delete_') ||
+    command.name === 'remove_relation' ||
+    command.name === 'forget';
+  if (deleted) {
+    return {
+      path,
+      updated: true,
+      operation: 'deleted',
+      ...(changeSummary ? { changeSummary } : {}),
+      ...(remainingWork ? { remainingWork } : {}),
+    };
+  }
+  {
+    const created = Boolean(
+      command.name.startsWith('create_') ||
+        command.name === 'add_relation' ||
+        command.name === 'remember',
+    );
+    const entityId =
+      recordString(handlerResult, 'entityId') ??
+      recordString(handlerResult, 'commentId');
+    const state = useDataStore.getState();
+    const categoryPath = /^\/categories\/(.+)\/body\.md$/u.exec(path);
+    const nodeId =
+      recordString(handlerResult, 'nodeId') ??
+      (recordString(handlerResult, 'entityType') === 'node'
+        ? recordString(handlerResult, 'entityId')
+        : null);
+    const wordCount =
+      nodeId && (command.name === 'create_node' || command.name === 'edit_prose_file')
+        ? (state.bookNodes.find((node) => node.id === nodeId && node.projectId === effect.projectId)
+            ?.wordCount ?? null)
+        : null;
+    const createdEntityPath = (() => {
+      if (!created || !entityId) return null;
+      if (command.name === 'create_node') {
+        const node = state.bookNodes.find(
+          (item) => item.id === entityId && item.projectId === effect.projectId,
+        );
+        return node
+          ? `/${node.kind === 'chapter' ? 'chapters' : 'drifts'}/${workspaceResultPathSegment(node.title)}/prose.md`
+          : null;
+      }
+      if (command.name === 'create_element') {
+        const element = state.bookElements.find(
+          (item) => item.id === entityId && item.projectId === effect.projectId,
+        );
+        const category = element
+          ? state.bookElementCategories.find(
+              (item) => item.id === element.categoryId && item.projectId === effect.projectId,
+            )
+          : null;
+        return element && category
+          ? `/elements/${workspaceResultPathSegment(category.name)}/${workspaceResultPathSegment(element.name)}/body.md`
+          : null;
+      }
+      if (command.name === 'create_storyline') {
+        const storyline = state.storylines.find(
+          (item) => item.id === entityId && item.projectId === effect.projectId,
+        );
+        return storyline
+          ? `/storylines/${workspaceResultPathSegment(storyline.name)}/body.md`
+          : null;
+      }
+      if (command.name === 'create_category') {
+        const category = state.bookElementCategories.find(
+          (item) => item.id === entityId && item.projectId === effect.projectId,
+        );
+        return category
+          ? `/categories/${workspaceResultPathSegment(category.name)}/body.md`
+          : null;
+      }
+      return null;
+    })();
+    const canonicalCandidate =
+      entityId && command.name === 'remember'
+        ? `/memory/${workspaceResultPathSegment(entityId)}.json`
+        : entityId && command.name === 'create_comment'
+          ? `/comments/${workspaceResultPathSegment(entityId)}.json`
+          : entityId && command.name === 'add_relation'
+            ? `/relations/${workspaceResultPathSegment(entityId)}.json`
+            : createdEntityPath;
+    const canonicalPath = canonicalCandidate && canonicalCandidate !== path
+      ? canonicalCandidate
+      : null;
+    return {
+      // The path field is the resumable file identity. ID-backed resources are
+      // created through a descriptive request alias, but all later reads and
+      // mutations must use the canonical path returned by the database.
+      path: canonicalPath ?? path,
+      ...(canonicalPath ? { requestedPath: path } : {}),
+      updated: true,
+      operation: created ? 'created' : 'updated',
+      ...(wordCount !== null ? { wordCount } : {}),
+      ...(changeSummary ? { changeSummary } : {}),
+      ...(remainingWork ? { remainingWork } : {}),
+      ...(created && typeof command.arguments.summary === 'string' && command.arguments.summary.trim()
+        ? { summaryInitialized: true as const }
+        : {}),
+      ...(!created && typeof command.arguments.summary === 'string'
+        ? { summaryUpdated: true as const }
+        : {}),
+      ...(canonicalPath ? { canonicalPath } : {}),
+      ...(authoredReadState ? { authoredReadState } : {}),
+      ...(command.name === 'create_category' && categoryPath
+        ? {
+            guidance:
+              `The category now exists. Create an element in it by writing ` +
+              `"/elements/${categoryPath[1]}/<element-name>/body.md" directly.`,
+          }
+        : {}),
+    };
+  }
+}
+
+function parseYjsRevision(value: string): number | null {
+  const match = /^yjs:(0|[1-9]\d*)$/.exec(value);
+  if (!match) return null;
+  const revision = Number(match[1]);
+  return Number.isSafeInteger(revision) ? revision : null;
+}
+
+function persistedExecutionResult(value: unknown): AgentToolExecutionResult {
+  if (!value || typeof value !== 'object' || typeof (value as { ok?: unknown }).ok !== 'boolean') {
+    throw new Error('The persisted Agent write result is invalid');
+  }
+  return value as AgentToolExecutionResult;
+}
+
+function withCanonicalReviewStatus(
+  result: AgentToolExecutionResult,
+  review: PersistedAgentRuntimeWriteReview | null,
+): AgentToolExecutionResult {
+  if (!review || !result.ok || !result.data || typeof result.data !== 'object') {
+    return result;
+  }
+  const data = result.data as Record<string, unknown>;
+  const centrallyAuthorized = 'authorization' in data;
+  return {
+    ...result,
+    ...(result.modelData !== undefined &&
+    'result' in data &&
+    !centrallyAuthorized
+      ? {
+          modelData: workspaceModelWriteResult(
+            (data as { result: ReturnType<typeof workspaceVisibleWriteResult> }).result,
+          ),
+        }
+      : {}),
+    presentation: {
+      ...(result.presentation ?? {}),
+      review: {
+        id: review.id,
+        status: review.status,
+      },
+    },
+    data: {
+      ...(result.data as Record<string, unknown>),
+      writeRef: review.id,
+      review: {
+        id: review.id,
+        status: review.status,
+      },
+    },
+  };
+}
+
+function workspaceModelWriteResult(
+  result: ReturnType<typeof workspaceVisibleWriteResult>,
+): string {
+  return describeWorkspaceDomainWriteResult(result);
+}
+
+/**
+ * Project a successful workspace create into the persisted first-open Added
+ * reveal state. This runs after `result_committed` and also on idempotent result
+ * replay, closing the gap where model-facing natural language contained no
+ * machine-readable `operation` field.
+ */
+function projectWorkspaceCreatedAddition(
+  effect: PersistedAgentRuntimeWriteEffect,
+  executionResult: AgentToolExecutionResult,
+): void {
+  if (
+    !executionResult.ok ||
+    !domainWriteName(effect.toolName) ||
+    !executionResult.data ||
+    typeof executionResult.data !== 'object' ||
+    Array.isArray(executionResult.data)
+  ) {
+    return;
+  }
+  const visibleResult = (executionResult.data as { result?: unknown }).result;
+  if (
+    !visibleResult ||
+    typeof visibleResult !== 'object' ||
+    Array.isArray(visibleResult) ||
+    (visibleResult as { operation?: unknown }).operation !== 'created'
+  ) {
+    return;
+  }
+  const ref = toolEntityRef(
+    effect.toolName,
+    effect.arguments,
+    JSON.stringify(visibleResult),
+  );
+  if (ref?.op !== 'create') return;
+  try {
+    useAgentEditStore.getState().recordAddition(ref.entityType, ref.id);
+  } catch {
+    // Added is a rebuildable local presentation. A full/unavailable
+    // localStorage must never turn a durable result_committed create back into
+    // a model-visible failure and invite a duplicate retry.
+  }
+}
+
+function workspaceResultPathSegment(value: string): string {
+  return value
+    .trim()
+    .replaceAll('%', '%25')
+    .replaceAll('/', '%2F')
+    .replaceAll('\\', '%5C');
+}
+
+function recordString(value: unknown, key: string): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === 'string' && candidate.trim()
+    ? candidate.trim()
+    : null;
+}
+
+/** A certified prose write owns a settlement receipt and an editor projection. */
+function activeEditorReviewId(
+  effect: PersistedAgentRuntimeWriteEffect,
+  tool: RegisteredTool,
+): string | null {
+  if (tool.approval !== 'automatic' && tool.approval !== 'review_after') return null;
+  if (!effect.forward || typeof effect.forward !== 'object' || Array.isArray(effect.forward)) {
+    return null;
+  }
+  // Structural creates use the Added first-open reveal; metadata-only writes
+  // complete without an editor receipt.
+  if ((effect.forward as { kind?: unknown }).kind !== 'yjs_prose') return null;
+  const reviewSnapshot = (effect.forward as { reviewSnapshot?: unknown })
+    .reviewSnapshot;
+  if (
+    !reviewSnapshot ||
+    typeof reviewSnapshot !== 'object' ||
+    Array.isArray(reviewSnapshot) ||
+    (reviewSnapshot as { effectId?: unknown }).effectId !== effect.id ||
+    (reviewSnapshot as { reviewId?: unknown }).reviewId !==
+      writeReviewId(effect.id)
+  ) {
+    throw new Error('The committed prose write lost its editor-review provenance');
+  }
+  return writeReviewId(effect.id);
+}
+
+function persistedHandlerResult(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || !('handlerResult' in value)) {
+    throw new Error('The committed Agent effect has no replayable handler result');
+  }
+  return (value as { handlerResult: unknown }).handlerResult;
+}
+
+function unresolvedWriteResult(effect: PersistedAgentRuntimeWriteEffect): AgentToolExecutionResult {
+  return {
+    ok: false,
+    error: `Write effect is in non-retryable phase "${effect.phase}"`,
+  };
+}
+
+function publicWriteError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return 'Agent write failed';
+}
+
+function publicDomainWriteError(error: unknown): string {
+  if (
+    error instanceof AgentWriteCollaborationConflictError ||
+    error instanceof AgentWriteCollaborationConflictLimitError
+  ) {
+    return error.message;
+  }
+  const message = publicWriteError(error);
+  if (/INCOMPLETE_AUTHORED_OBJECT_READ/iu.test(message)) {
+    return 'The complete current body must be read before replacing this authored object. Continue from the returned reading cursor, or make only the focused passage revision that is needed.';
+  }
+  if (/STALE_EDIT_TARGET/iu.test(message)) {
+    return 'The requested passage changed before this revision could be applied. Read its current text before revising it.';
+  }
+  if (/read-only|cannot be overwritten directly/iu.test(message)) {
+    return 'This authored object cannot be overwritten directly because its current version is approved or read-only. Create a new author-owned version when the work should evolve.';
+  }
+  if (
+    /\b(?:Yjs|freshness|expectedRevision|revision|state\s*(?:vector|hash)|read_node|receipt)\b/i.test(
+      message,
+    )
+  ) {
+    return 'The authored object changed while it was being revised. Read its current state and apply the intended revision again.';
+  }
+  if (/\b(?:nodeId|entityId|docId|commandId)\b/i.test(message)) {
+    return 'The authored object could not be saved safely. Read its current state before retrying.';
+  }
+  if (
+    /\b(?:filesystem|file|directory|path|json|list_files|read_file|grep|write_file|edit_file|delete_file)\b/iu.test(
+      message,
+    ) ||
+    /\/(?:chapters|drifts|elements|storylines|categories|comments|relations|memory)(?:\/|\b)/iu.test(
+      message,
+    )
+  ) {
+    return 'The requested authored-object change could not be applied. Read the current object state, then retry the still-needed editorial change once.';
+  }
+  return message;
+}

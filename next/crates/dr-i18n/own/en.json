@@ -1,0 +1,93 @@
+{
+  "import": {
+    "v1": {
+      "blocked": {
+        "title": "Some text may be missing its last few seconds of typing",
+        "no_handoff": "This library hasn't been opened in the last 0.1 release",
+        "unproven_one": "{{count}} text can't be confirmed as the latest; it's listed below",
+        "unproven_other": "{{count}} texts can't be confirmed as the latest; they're listed below",
+        "stale_one": "{{count}} chapter is older than what you wrote",
+        "stale_other": "{{count}} chapters are older than what you wrote",
+        "changed_after_handoff_one": "{{count}} text changed after the handoff check",
+        "changed_after_handoff_other": "{{count}} texts changed after the handoff check",
+        "sync": "Sync has unresolved conflicts",
+        "get_last_release": "Download the last 0.1 release, open this library once, quit, then import again"
+      },
+      "action": {
+        "download_last_release": "Download the last 0.1 release",
+        "import_anyway": "Import anyway"
+      },
+      "summary": {
+        "already_imported": "Imported on this device before; skipped",
+        "already_in_library": "Already in the library; left as it is",
+        "from_caches_one": "{{count}} text came from its cache and may miss its last few seconds",
+        "from_caches_other": "{{count}} texts came from their caches and may miss their last few seconds",
+        "account_libraries_left_one": "{{count}} account library in the folder waits for accounts",
+        "account_libraries_left_other": "{{count}} account libraries in the folder wait for accounts",
+        "carries_on": "Not finished; import this library again to carry on"
+      },
+      "notice": {
+        "unfinished": "“{{name}}” didn't finish importing",
+        "carry_on": "Resume import"
+      }
+    }
+  },
+  "settings": {
+    "editor": {
+      "justify": "Justify"
+    },
+    "sync": {
+      "backup": {
+        "errors": {
+          "legacy": "This is a Drifting 0.1 backup, which this version cannot restore directly. Restore it in Drifting 0.1, then import that library with “Import · Drifting 0.1” on the bookshelf."
+        }
+      }
+    },
+    "update": {
+      "restart": "Restart to Update",
+      "ready_on_quit": "Drifting {{version}} is downloaded and its signature verified. It installs when you quit.",
+      "older_offered": "You're up to date. The update service offers {{version}}, which is older than this version, so it won't be installed.",
+      "refused_signature": "The downloaded update failed signature verification and was discarded. This version keeps working.",
+      "refused_version": "The downloaded update isn't the version it claims to be, possibly an older one, and was refused. This version keeps working.",
+      "refused_app": "The downloaded update isn't Drifting and was discarded. This version keeps working.",
+      "interrupted": "The update didn't finish downloading and was discarded. It downloads again at the next check.",
+      "server_error": "The update service has a problem right now. Try again later; this version keeps working.",
+      "local_error": "The update couldn't be saved on this computer and was stopped. This version keeps working.",
+      "install_failed": "Drifting {{version}} couldn't be installed when you last quit. This version is unchanged; it tries again next time you quit.",
+      "install_failed_admin": "Drifting {{version}} couldn't be installed when you last quit: the folder Drifting is in can't be written to. This version is unchanged."
+    }
+  },
+  "findPanel": {
+    "replacePlaceholder": "Replace with…",
+    "replace": "Replace",
+    "replaceAll": "Replace all"
+  },
+  "positionLink": {
+    "copied": "Location link copied"
+  },
+  "projectPicker": {
+    "bookTransfer": {
+      "legacy": "This book was exported by Drifting 0.1. Import it there, then hand that library over to this version."
+    }
+  },
+  "importDialog": {
+    "targets": {
+      "idea": {
+        "label": "Idea",
+        "desc": "Floating idea card — independent from storylines."
+      }
+    },
+    "warnings": {
+      "imagesDropped_one": "{{count}} image wasn't imported",
+      "imagesDropped_other": "{{count}} images weren't imported",
+      "notUtf8": "Not UTF-8 text; some characters were replaced"
+    }
+  },
+  "notifications": {
+    "markdownFolder": {
+      "issue": {
+        "owned": "Another Drifting installation keeps this folder; nothing was read or written"
+      }
+    }
+  }
+}

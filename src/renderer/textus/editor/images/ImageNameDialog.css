@@ -1,0 +1,59 @@
+/* The dialog box is the app's (.close-prompt); only its width is its own. */
+.image-name-dialog {
+  box-sizing: border-box;
+  width: min(390px, calc(100vw - 40px));
+  max-width: none;
+}
+
+.image-name-title {
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+.image-name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--ui-muted);
+  font-size: var(--text-secondary);
+}
+
+.image-name-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-name-input-row input {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--shape-pill);
+  corner-shape: round;
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+}
+
+.image-name-input-row input:focus {
+  outline: none;
+  border-color: var(--ui-accent);
+}
+
+.image-name-error {
+  margin-top: 8px;
+  color: var(--ui-danger);
+  font-size: var(--text-footnote);
+}
+
+.image-name-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.image-name-buttons button {
+  color: var(--ui-text);
+}

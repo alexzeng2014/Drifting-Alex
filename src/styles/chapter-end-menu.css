@@ -1,0 +1,167 @@
+/* ⁂ chapter-end menu. The mark (三尊石) stays the page's quiet ending;
+   hovering it (after a brief intent delay), clicking it or focusing it with
+   the keyboard morphs it into three monospace actions, each led by its brush
+   icon, in one column centred on the mark with the primary action on the
+   mark's own line — no pressed wash, no button chrome. The column overhangs
+   the mark's margins instead of taking space, so the page never shifts;
+   leaving it morphs ⁂ straight back.
+
+   The morph is one simultaneous cross-zoom: ⁂ shrinks, blurs and fades while
+   the actions unblur and unfold a row up and down from it, so neither state
+   ever reads as an empty gap. Under the pointer an action's outline becomes
+   the faint flowing-glass ring of a sidebar cell. Rules on the resting state time the return
+   (110 ms); rules under [data-open] time the opening (150 ms). */
+
+/* Doubled class: index.css's .page__ornament spaces the bare glyph and may
+   load after this sheet. */
+.page__ornament.page__ornament--menu {
+  --chapter-end-row: 22px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  letter-spacing: 0;
+  text-indent: 0;
+}
+.page__ornament--menu > .page__ornament-trigger {
+  grid-area: 1 / 1;
+}
+
+.page__ornament-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.page__ornament-trigger[data-finished="true"] {
+  color: hsl(var(--accent));
+}
+.page__ornament-trigger:focus-visible {
+  outline: 2px solid hsl(var(--accent) / 0.55);
+  outline-offset: 2px;
+}
+.page__ornament--menu[data-open="true"] .page__ornament-trigger {
+  pointer-events: none;
+}
+.page__ornament > .brush-icon {
+  margin-inline: auto;
+}
+.page__ornament-glyph {
+  display: inline-block;
+  transition:
+    opacity 110ms ease,
+    transform 110ms ease,
+    filter 110ms ease;
+}
+.page__ornament--menu[data-open="true"] .page__ornament-glyph {
+  opacity: 0;
+  transform: scale(0.6);
+  filter: blur(2px);
+  transition:
+    opacity 150ms ease,
+    transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 150ms ease;
+}
+
+/* One column centred on ⁂, top to bottom; with three rows the middle one,
+   the primary action, sits on ⁂'s line. Icons line up down the left edge. */
+.chapter-end-menu {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-prose-mono, ui-monospace, monospace);
+  font-size: var(--ui-font-body, 12.5px);
+  line-height: 18px;
+  visibility: hidden;
+  pointer-events: none;
+  transition: visibility 0s linear 110ms;
+}
+.page__ornament--menu[data-open="true"] .chapter-end-menu {
+  visibility: visible;
+  pointer-events: auto;
+  transition: visibility 0s;
+}
+
+.chapter-end-menu__item {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--chapter-end-row);
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  filter: blur(2px);
+  /* Folded onto ⁂'s line until the list opens. */
+  transform: translateY(var(--fold-y, 0));
+  transition:
+    color 60ms ease-out,
+    opacity 110ms ease,
+    transform 110ms ease,
+    filter 110ms ease;
+}
+.page__ornament--menu[data-open="true"] .chapter-end-menu__item {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+  transition:
+    color 60ms ease-out,
+    opacity 150ms ease,
+    transform 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 150ms ease;
+}
+.chapter-end-menu__item:first-child {
+  --fold-y: var(--chapter-end-row);
+}
+.chapter-end-menu__item:last-child {
+  --fold-y: calc(-1 * var(--chapter-end-row));
+}
+.chapter-end-menu__item[data-primary="true"] {
+  color: hsl(var(--ink-2));
+}
+.chapter-end-menu__item:focus-visible {
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.chapter-end-menu__item:disabled {
+  color: hsl(var(--ink-4));
+  cursor: default;
+}
+/* Each action is a sand cell (materials.css): its ring of flowing glass
+   comes in under the pointer, and under keyboard focus too; a disabled
+   action has none. */
+.chapter-end-menu__item:focus-visible > .cell-ring { opacity: 1; animation-play-state: running; }
+.chapter-end-menu__item:disabled > .cell-ring { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page__ornament-glyph,
+  .page__ornament--menu[data-open="true"] .page__ornament-glyph,
+  .chapter-end-menu,
+  .page__ornament--menu[data-open="true"] .chapter-end-menu,
+  .chapter-end-menu__item,
+  .page__ornament--menu[data-open="true"] .chapter-end-menu__item {
+    transition: none;
+  }
+  .chapter-end-menu__item {
+    transform: none;
+    filter: none;
+  }
+}

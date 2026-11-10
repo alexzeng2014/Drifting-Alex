@@ -1,0 +1,176 @@
+{
+  "suite": "milestone-c-durable-commit-and-settlement-receipts",
+  "schemaVersion": 2,
+  "nodeVersion": "v22.23.1",
+  "platform": "darwin",
+  "gitHead": "aafecab3abc717df8eecf31cca3daaf7562a5e4d",
+  "sourceSetSha256": "sha256:1f71ac6c2287da027c8bc866c85e6aa21722d97276fb68fcfa17098126a787f9",
+  "storageReplay": {
+    "sqlite": "real file-backed SQLite from the current local-first baseline with injected transaction faults",
+    "prose": "real Yjs snapshots/updates committed through the prose coordinator",
+    "localProjection": "Zustand/localStorage state deliberately cleared and rebuilt",
+    "networkRequired": false
+  },
+  "vitest": {
+    "files": {
+      "required": 11,
+      "discovered": 11
+    },
+    "tests": {
+      "total": 129,
+      "passed": 129,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    },
+    "groups": {
+      "turnCommitAndContextAdoption": {
+        "requiredFiles": 3,
+        "discoveredFiles": 3,
+        "tests": {
+          "total": 43,
+          "passed": 43,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "writeAndSettlementLedger": {
+        "requiredFiles": 4,
+        "discoveredFiles": 4,
+        "tests": {
+          "total": 23,
+          "passed": 23,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "fileSqliteAndYjsProduct": {
+        "requiredFiles": 1,
+        "discoveredFiles": 1,
+        "tests": {
+          "total": 25,
+          "passed": 25,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "editorProjectionAndAnimation": {
+        "requiredFiles": 3,
+        "discoveredFiles": 3,
+        "tests": {
+          "total": 38,
+          "passed": 38,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      }
+    },
+    "requiredAssertions": {
+      "transientTurnCommitRetry": {
+        "requiredName": "retries an idempotent durable commit before publishing the completed terminal",
+        "matches": 1,
+        "passed": true
+      },
+      "permanentTurnCommitFailClosed": {
+        "requiredName": "fails the live canonical terminal closed when the completed turn cannot commit",
+        "matches": 1,
+        "passed": true
+      },
+      "lostSqliteCommitAcknowledgement": {
+        "requiredName": "adopts one exact history when SQLite committed but the first commit acknowledgement was lost",
+        "matches": 1,
+        "passed": true
+      },
+      "orderedBlockLedger": {
+        "requiredName": "persists ordered settlement blocks and settles the receipt atomically with the last one",
+        "matches": 1,
+        "passed": true
+      },
+      "projectReceiptRecovery": {
+        "requiredName": "settles a pending block receipt during project hydration",
+        "matches": 1,
+        "passed": true
+      },
+      "sessionReceiptRecovery": {
+        "requiredName": "settles a pending block receipt during session hydration",
+        "matches": 1,
+        "passed": true
+      },
+      "missingReceiptRecovery": {
+        "requiredName": "recovers and settles a missing settlement receipt without replaying editor UI",
+        "matches": 1,
+        "passed": true
+      },
+      "postCommitSettlementFault": {
+        "requiredName": "settles a prose receipt whose acknowledgement failed after Yjs committed during project hydration",
+        "matches": 1,
+        "passed": true
+      },
+      "migrationKeepsReceipts": {
+        "requiredName": "drops the reject/revert columns and keeps every settlement receipt and block",
+        "matches": 1,
+        "passed": true
+      },
+      "migrationRefusesReviewDecision": {
+        "requiredName": "refuses a database holding a review reject decision and leaves it unchanged",
+        "matches": 1,
+        "passed": true
+      },
+      "migrationRefusesBlockDecision": {
+        "requiredName": "refuses a database holding a block reject decision and leaves it unchanged",
+        "matches": 1,
+        "passed": true
+      },
+      "receiptBatchIdempotence": {
+        "requiredName": "records a receipt batch once and clears it only when settlement resolves it",
+        "matches": 1,
+        "passed": true
+      },
+      "retiredCacheMigration": {
+        "requiredName": "reads a v1 cache without its retired reject queue and drops a v0 cache",
+        "matches": 1,
+        "passed": true
+      },
+      "nativeScrollRevealCoordinates": {
+        "requiredName": "keeps reveal coordinates stable inside the native scrolling content tree",
+        "matches": 1,
+        "passed": true
+      },
+      "sqliteProjectionWins": {
+        "requiredName": "keeps a canonical pending receipt and removes it after settlement",
+        "matches": 1,
+        "passed": true
+      }
+    },
+    "process": {
+      "exitCode": 0,
+      "signal": null
+    },
+    "passed": true
+  },
+  "typecheck": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "lint": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "capabilities": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "boundaries": {
+    "nativeAnimationAppearance": "direction and selection are deterministic; visual smoothness remains user/native acceptance",
+    "deviceRestart": "file/process restart is headless; platform lifecycle acceptance remains milestone J",
+    "providerNetwork": "not required for storage semantics; multi-provider conformance remains milestone I"
+  },
+  "passed": true
+}

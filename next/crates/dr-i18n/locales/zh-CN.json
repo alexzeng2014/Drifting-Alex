@@ -1,0 +1,1564 @@
+{
+  "agentPanel": {
+    "checking": "检查中…",
+    "common": {
+      "none": "无"
+    },
+    "composer": {
+      "answer": "回答",
+      "placeholder": "询问 Agent…（Enter 发送，Shift+Enter 换行）",
+      "send": "发送",
+      "steer": "补充",
+      "stop": "停止"
+    },
+    "config": {
+      "effort": "强度 · {{effort}}",
+      "effortLabel": "推理强度",
+      "model": "模型",
+      "modelUnavailable": "当前目录中没有已选模型，请选择其他模型。"
+    },
+    "context": {
+      "tokens": "{{count}} tokens"
+    },
+    "control": {
+      "allow": {
+        "once": "仅这一次"
+      },
+      "deny": "拒绝",
+      "permissionTitle": "Agent 请求执行操作",
+      "questionTitle": "Agent 需要你的决定",
+      "recoveredTitle": "发现上次中断的等待步骤"
+    },
+    "empty": {
+      "start": "给 Agent 发条消息开始。它可以读写本项目的章节、要素与关系。"
+    },
+    "history": {
+      "empty": "暂无历史对话",
+      "untitled": "未命名"
+    },
+    "newConversation": "新对话",
+    "onboarding": {
+      "connect": "连接模型",
+      "getKey": "获取 API Key",
+      "history": "版本历史",
+      "prompts": {
+        "castCharacters": "建三个主要人物",
+        "commentChapter": "给「{{chapter}}」留两条批注",
+        "completeElement": "补全「{{element}}」的设定",
+        "extractElements": "从「{{chapter}}」里找出人物和地点，建成要素",
+        "interview": "先问我几个问题，帮我理清这个故事",
+        "outline": "帮我搭一个三幕的分章大纲",
+        "relateElements": "理一理{{first}}和{{second}}的关系",
+        "tightenChapter": "把「{{chapter}}」开头一段改紧凑些"
+      },
+      "saveFailed": "无法保存到 Keychain。",
+      "try": "试试"
+    },
+    "pending": {
+      "cancelling": "正在停止…",
+      "committing": "正在保存…",
+      "now": "思考中…"
+    },
+    "setup": {
+      "openSettings": "前往设置"
+    },
+    "thinking": {
+      "done": "思考过程",
+      "streaming": "思考中…"
+    },
+    "tool": {
+      "result": "结果"
+    },
+    "toolbar": {
+      "history": "历史"
+    },
+    "turnChanges": "本轮改动",
+    "unavailable": "Agent 不可用。"
+  },
+  "allChapters": {
+    "actOrdinal": "第{{n}}幕"
+  },
+  "bottomStatusBar": {
+    "collapseTimeline": "收起 Storyline Timeline",
+    "elements": "要素全景",
+    "expandTimeline": "展开 Storyline Timeline",
+    "storyGraph": "故事图谱",
+    "todoLibrary": "审阅与素材"
+  },
+  "bottomTimeline": {
+    "act": {
+      "chapterCount": "{{count}}章",
+      "deleteMergeNext": "删除此幕（并入下一幕）",
+      "deleteMergePrev": "删除此幕（并入前一幕）",
+      "dragBoundary": "拖动调整幕边界",
+      "newAct": "新建幕",
+      "openActNote": "打开幕笔记",
+      "railLabel": "幕",
+      "startHere": "在此处开始新幕",
+      "unbindDrift": "解绑构想"
+    },
+    "axis": {
+      "addPin": "添加时间 pin",
+      "time": "时间"
+    },
+    "empty": {
+      "noChaptersInStoryline": "这条故事线还没有章节 · 双击新建"
+    },
+    "locateCurrent": "定位到当前章节",
+    "marker": {
+      "defaultLabel": "标记"
+    },
+    "menu": {
+      "detachFromNarrative": "回到未放置",
+      "moveToUnaffiliated": "转移至未归属"
+    },
+    "pinMenu": {
+      "bindDrift": "绑定构想…",
+      "deleteMarker": "删除标记",
+      "openDrift": "打开构想",
+      "rename": "重命名",
+      "unbind": "解绑（恢复为纯标签）"
+    },
+    "spread": {
+      "needTwo": "至少两个章节才能打散",
+      "title": "打散：把{{mode}}重排，让重叠的节点拉开间距"
+    },
+    "storyline": {
+      "chapterCount": "{{count}} 章"
+    },
+    "synthetic": {
+      "book": "本书",
+      "unaffiliated": "未归属"
+    },
+    "unplaced": {
+      "empty": "所有章节都在叙事时间轴上",
+      "label": "未放置",
+      "title": "未放置到叙事时间轴上的章节"
+    },
+    "view": {
+      "book": "书序",
+      "narrative": "叙事时"
+    }
+  },
+  "categoryEditor": {
+    "actions": {
+      "openElement": "打开要素"
+    },
+    "alerts": {
+      "deleteFailed": "删除类目失败，请重试。"
+    },
+    "deleteConfirm": "删除类目「{{name}}」？\n\n这个类目下的要素会移到「未分类」（categoryId 变为空）。",
+    "empty": {
+      "noFilteredElements": "此筛选下暂无要素",
+      "noSummary": "尚未填写概述"
+    },
+    "filters": {
+      "unused": "未填写",
+      "used": "已填写"
+    },
+    "folio": "类目",
+    "labels": {
+      "elementCount": "要素数",
+      "summary": "概述"
+    },
+    "meta": {
+      "elements": "{{count}} 要素",
+      "items": "{{count}} 个"
+    },
+    "sections": {
+      "elements": "要素清单",
+      "scratch": "札记"
+    },
+    "untitled": "未命名类目"
+  },
+  "chapterEditor": {
+    "synopsisPlaceholder": "梗概…",
+    "untitledChapter": "无标题章节",
+    "untitledDrift": "无标题构想"
+  },
+  "chapterEnd": {
+    "defaultTitle": "新章节",
+    "insertAfter": "新建下一章",
+    "markDraft": "改回草稿",
+    "markFinished": "标为完成",
+    "trigger": "章末操作",
+    "triggerFinished": "章末操作（已完成）"
+  },
+  "commentRail": {
+    "actions": {
+      "reopen": "未解决",
+      "resolve": "解决",
+      "toNote": "转批注",
+      "toTodo": "转 TODO"
+    },
+    "card": {
+      "emptyComment": "空批注"
+    },
+    "snapshot": {
+      "changed": "已删除/改动"
+    }
+  },
+  "common": {
+    "cancel": "取消",
+    "close": "关闭",
+    "confirm": "确认",
+    "counting": "统计中…",
+    "creating": "创建中…",
+    "customColor": "自定义颜色",
+    "delete": "删除",
+    "edit": "编辑",
+    "local": "本地",
+    "processing": "处理中…",
+    "save": "保存",
+    "saveFailed": "保存未完成，请重试。",
+    "saving": "保存中…",
+    "untitled": "未命名",
+    "words": "字",
+    "wordsCount": "{{count}} 字"
+  },
+  "dashboard": {
+    "actions": {
+      "allChapters": "通览全书",
+      "elementOverview": "要素总览",
+      "storyGraph": "叙事图"
+    },
+    "hero": {
+      "projectName": "项目名称"
+    },
+    "plan": {
+      "wordsPerDay": "字 / 天"
+    },
+    "profilePlaceholder": "写下项目简介、核心命题或故事梗概",
+    "sections": {
+      "projectProfile": "本书简介",
+      "writingPlan": "写作计划"
+    },
+    "today": {
+      "goal": "目标",
+      "streak": "连续写作",
+      "week": "本周"
+    },
+    "wordCount": "{{count}} 字"
+  },
+  "edgeKindManager": {
+    "changeColor": "点击改色",
+    "changeColorLabel": "修改 {{label}} 的颜色",
+    "editTypes": "编辑类型",
+    "resetColor": "恢复默认色",
+    "summary": "{{kinds}} 类 · {{relations}} 条关联",
+    "title": "全部关联类型"
+  },
+  "editorOutline": {
+    "aria": "大纲",
+    "hiddenItems": "远处 {{count}} 个目录项，悬停展开"
+  },
+  "editorTopBar": {
+    "actions": {
+      "collapsePlotPlanner": "收起情节规划",
+      "expandPlotPlanner": "展开情节规划",
+      "more": "更多操作"
+    },
+    "menu": {
+      "changeCategory": "更改类目",
+      "changeGroup": "更改分组",
+      "deleteCategory": "删除类目",
+      "deleteElement": "删除要素",
+      "deleteMaterial": "删除素材",
+      "deleteNode": "删除节点",
+      "deleteStoryline": "删除故事线",
+      "editStorylines": "编辑故事线",
+      "moveMaterialToFolder": "移动到素材夹…",
+      "moveToGroup": "移动到分组…",
+      "openMaterialInSystem": "用默认应用打开"
+    },
+    "outlineRailMode": {
+      "hidden": "隐藏 TOC",
+      "visible": "显示 TOC"
+    },
+    "status": {
+      "discarded": "已弃用",
+      "draft": "草稿",
+      "drifting": "漂浮中",
+      "finished": "已完成",
+      "resting": "休眠"
+    },
+    "statusSection": {
+      "chapter": "写作状态",
+      "drift": "构想状态"
+    }
+  },
+  "elementCategoryCreateMenu": {
+    "back": "返回新增菜单",
+    "createGroup": "创建并打开首个要素",
+    "duplicateGroup": "已有同名分组。",
+    "groupNameLabel": "分组名称",
+    "groupNamePlaceholder": "输入分组名称",
+    "groupTitle": "新建分组",
+    "newElement": "新建要素",
+    "newGroup": "新建分组…",
+    "openCreateMenu": "添加到此类目",
+    "title": "新增至「{{name}}」"
+  },
+  "elementEditor": {
+    "alerts": {
+      "aliasConflict": "无法添加别名：“{{name}}” 已被要素「{{conflicting}}」使用。",
+      "deleteFailed": "删除要素失败，请重试。",
+      "groupUpdateFailed": "更新分组失败，请重试。",
+      "renameConflict": "无法重命名：“{{name}}” 已被要素「{{conflicting}}」使用（名字或别名冲突）。"
+    },
+    "alias": {
+      "add": "别名",
+      "addFirst": "添加别名",
+      "remove": "移除别名"
+    },
+    "category": {
+      "newOption": "新建类目…"
+    },
+    "deleteConfirm": "删除要素「{{name}}」？",
+    "empty": {
+      "noFacts": "尚无字段。新建要素时，所属类目的「字段模版」会自动填入"
+    },
+    "folio": "要素",
+    "group": {
+      "create": "新建分组「{{name}}」",
+      "empty": "此类目下还没有分组。",
+      "noGroup": "（不分组）",
+      "placeholder": "搜索或新建分组…（留空 = 不分组）",
+      "title": "分组 · {{category}}"
+    },
+    "sections": {
+      "bioTitle": "记 · 传",
+      "facts": "字段"
+    },
+    "summaryPlaceholder": "一句话概述…",
+    "untitled": "未命名要素"
+  },
+  "feedback": {
+    "attachDiagnostics": "附上脱敏诊断摘要",
+    "cancel": "取消",
+    "close": "关闭",
+    "contact": "联系邮箱",
+    "contactPlaceholder": "选填",
+    "crash": {
+      "emailSubject": "Drifting 故障补充",
+      "ignore": "忽略",
+      "placeholder": "当时在做什么",
+      "title": "上次出了故障"
+    },
+    "emailSubject": "Drifting 反馈",
+    "failed": "没能发出",
+    "hidePreview": "收起",
+    "placeholder": "问题或建议",
+    "preview": "预览",
+    "send": "发送",
+    "sendByEmail": "用邮件发送",
+    "sending": "发送中…",
+    "sent": "已发送",
+    "title": "提交反馈"
+  },
+  "findPanel": {
+    "bookPlaceholder": "在全书中查找…",
+    "closeTitle": "关闭 (Esc)",
+    "currentPlaceholder": "在当前编辑器中查找…",
+    "nextTitle": "下一个 (Enter)",
+    "previousTitle": "上一个 (Shift+Enter)",
+    "replace": "替换",
+    "replaceAll": "全部替换",
+    "replacePlaceholder": "替换为…"
+  },
+  "globalSearch": {
+    "closeTitle": "关闭 (Esc)",
+    "field": {
+      "body": "正文",
+      "name": "名称",
+      "title": "标题"
+    },
+    "noResults": "没有找到匹配项",
+    "stats": "{{groups}} 个 · {{occurrences}} 处"
+  },
+  "guide": {
+    "back": "上一步",
+    "done": "完成",
+    "hints": {
+      "search": "全局搜索",
+      "timeline": "时间线"
+    },
+    "next": "下一步",
+    "skip": "跳过导览",
+    "workspace": {
+      "agent": {
+        "body": "能读、能查、能改整本书。改过的地方标在正文里，可以从历史撤回。",
+        "closedBody": "右栏里有 Agent，能读、能查、能改整本书。点这里把右栏打开。",
+        "title": "Agent"
+      },
+      "create": {
+        "body": "章节、构想、要素、故事线、类目和素材都从这里开始。",
+        "title": "新建"
+      },
+      "home": {
+        "body": "鸟居回到这一页；旁边的风铃是通知。",
+        "title": "项目主页"
+      },
+      "panels": {
+        "body": "这本书的骨架。左栏还能分成两半，各开一个面板。",
+        "closedBody": "这本书的骨架都在左栏：章节、要素、构想。点这里把它打开。",
+        "title": "章节 · 要素 · 构想"
+      },
+      "superViews": {
+        "body": "整窗的全景视图，从对应面板头上的圆形按钮进入。",
+        "title": "全景视图"
+      },
+      "timeline": {
+        "body": "故事线按书序或叙事时间排开，从稿纸下方滑上来。",
+        "title": "时间线"
+      }
+    }
+  },
+  "immersiveWriting": {
+    "enter": "沉浸写作",
+    "leave": "退出沉浸写作"
+  },
+  "import": {
+    "v1": {
+      "action": {
+        "download_last_release": "下载旧版最后一版",
+        "import_anyway": "仍然导入"
+      },
+      "blocked": {
+        "changed_after_handoff": "有 {{count}} 篇在交接核对后又改过",
+        "get_last_release": "下载旧版的最后一版，打开这个资料库一次再退出，然后重新导入",
+        "no_handoff": "这个资料库还没在旧版的最后一版里打开过",
+        "stale": "有 {{count}} 章比你写到的旧",
+        "sync": "同步还有没解决的冲突",
+        "title": "有几篇正文可能少了最后几秒打的字",
+        "unproven": "有 {{count}} 篇正文无法确认是最新的，列在下面"
+      },
+      "notice": {
+        "carry_on": "接着导入",
+        "unfinished": "《{{name}}》没导完"
+      },
+      "summary": {
+        "account_libraries_left": "文件夹里还有 {{count}} 个账号资料库没导入，等账号功能做好",
+        "already_imported": "这台设备以前导入过，这次没再导入",
+        "already_in_library": "新资料库里已经有这本书，没有动",
+        "carries_on": "没导入完，再导入一次这个资料库会接着导入",
+        "from_caches": "有 {{count}} 篇照缓存导入，可能少了最后几秒的字"
+      }
+    }
+  },
+  "importDialog": {
+    "categoryTitle": "归属类别",
+    "chooseFiles": "选择文件",
+    "chooseFolder": "选择文件夹",
+    "clear": "清空",
+    "filesTitle": "文件 · FILES",
+    "importing": "导入中…",
+    "start": "开始导入 ({{count}})",
+    "status": {
+      "committed": "已导入",
+      "error": "错误",
+      "parsing": "解析中",
+      "ready": "就绪"
+    },
+    "storylineTitle": "归属故事线",
+    "summary": {
+      "done": "完成",
+      "failed": "失败",
+      "ok": "成功"
+    },
+    "targetTitle": "类型 · TARGET",
+    "targets": {
+      "chapter": {
+        "desc": "主线节点 — 进时间线、参与字数统计。",
+        "label": "章节"
+      },
+      "element": {
+        "desc": "人物 / 地点 / 物件等参考资料。需选择类别。",
+        "label": "要素"
+      },
+      "idea": {
+        "desc": "构想卡 — 不归属任何故事线，独立悬浮。",
+        "label": "构想"
+      }
+    },
+    "title": "导入文件",
+    "warnings": {
+      "imagesDropped": "{{count}} 张图片没有导入",
+      "notUtf8": "不是 UTF-8 文本，有些字符被替换了"
+    }
+  },
+  "kvEditor": {
+    "addField": "新增字段",
+    "keyPlaceholder": "字段",
+    "removeRow": "移除这一行",
+    "valuePlaceholder": "内容"
+  },
+  "leftSidebar": {
+    "actions": {
+      "collapseAll": "展开／折叠全部",
+      "newCategory": "新类目",
+      "newDrift": "新构想",
+      "newDriftGroup": "新建分组",
+      "sort": "排序"
+    },
+    "empty": {
+      "noChapters": "还没有章节。",
+      "noDrifts": "还没有构想。",
+      "noElements": "还没有要素。"
+    },
+    "groups": {
+      "addElementToGroup": "在此分组新建要素",
+      "deleteGroup": "删除分组",
+      "driftCount_one": "{{count}} 条构想",
+      "driftCount_other": "{{count}} 条构想",
+      "moveDriftToRoot": "根层级（移出分组）",
+      "moveGroupToRoot": "根层级（移到顶层）",
+      "newChapterInStoryline": "在此故事线中新建章节",
+      "newDriftInGroup": "在此新建构想",
+      "newSubGroup": "新建子分组",
+      "rename": "重命名",
+      "renameElementGroupTitle": "双击重命名分组",
+      "unaffiliated": "未归属"
+    },
+    "meta": {
+      "chapters": "{{count}} 章",
+      "drifts": "{{count}} 条构想",
+      "elements": "{{categories}} 类 · {{elements}} 要素"
+    },
+    "sort": {
+      "alphabet": "按字母顺序",
+      "bookOrder": "按阅读顺序",
+      "categoryElements": "排序类目内要素",
+      "cellMetaGroup": "单元格右侧",
+      "chapters": "排序章节",
+      "createdAt": "按创建时间",
+      "drifts": "排序构想",
+      "duplicatesAll": "在每个所属分组显示",
+      "duplicatesGroup": "多线章节",
+      "duplicatesPrimary": "仅在主线分组显示",
+      "narrativeOrder": "按叙事顺序",
+      "outerCategoriesGroup": "外层类目",
+      "outerStorylinesGroup": "外层故事线",
+      "showBoth": "显示字数和日期",
+      "showDate": "显示日期",
+      "showNone": "都不显示",
+      "showWordCount": "显示字数",
+      "storylineChapters": "排序故事线内章节",
+      "storylineOrder": "按故事线顺序",
+      "title": "按标题字母",
+      "updatedAt": "按更新时间"
+    },
+    "tabs": {
+      "chapters": "章节",
+      "drifts": "构想",
+      "elements": "要素"
+    },
+    "top": {
+      "close": "收起左侧栏",
+      "open": "展开左侧栏"
+    },
+    "uncategorized": "未分类",
+    "viewMode": {
+      "chapterSummary": "{{storylines}} 条故事线 · {{chapters}} 章",
+      "elementCompactTitle": "紧凑索引 · 点此切换到名称列表",
+      "elementListTitle": "名称列表 · 点此切换到紧凑索引",
+      "globalTitle": "全书总览 · 点此按 storyline 分组",
+      "storylineTitle": "按 storyline 分组 · 点此切回全书总览"
+    }
+  },
+  "manuscriptExport": {
+    "actTitles": "卷标题",
+    "author": "作者",
+    "bookInfo": "书籍信息",
+    "bookTitle": "书名",
+    "changeCover": "更换",
+    "chapterCount": "{{count}} 章",
+    "chapterTitles": "章节标题",
+    "chooseCover": "选择图片",
+    "contents": "内容",
+    "cover": "封面",
+    "coverFailed": "未能读取这张图片。",
+    "export": "导出 {{format}}",
+    "exporting": "正在导出…",
+    "failed": "导出未完成，请重试。",
+    "format": "格式",
+    "loadFailed": "未能读取章节，请重试。",
+    "loading": "正在读取章节…",
+    "menu": "导出成稿",
+    "removeCover": "移除",
+    "retry": "重试",
+    "saved": "已导出",
+    "scope": "范围",
+    "selectAll": "全选",
+    "selectNone": "全不选",
+    "selectedChapters": "选中章节",
+    "title": "导出成稿",
+    "untitledAct": "未命名卷",
+    "untitledChapter": "无标题章节",
+    "wholeBook": "全书"
+  },
+  "markdownFolderGuide": {
+    "choose": "选择文件夹…",
+    "chosen": "已选择",
+    "continue": "继续",
+    "intro": "每个项目都会在你选择的文件夹里保存一份 Markdown。章节和构想可以用任何编辑器修改，修改会合并回 Drifting。",
+    "title": "Markdown 文件夹放在哪里？"
+  },
+  "markdownShare": {
+    "characters": "{{count}} 字符",
+    "copied": "已复制全部 Markdown",
+    "copy": "复制全部",
+    "currentBody": "分享当前文档的完整正文",
+    "failed": "操作未完成，请重试，或选中文字后复制。",
+    "loadFailed": "未能完整读取正文，请重试。",
+    "loading": "正在准备完整 Markdown…",
+    "menu": "分享",
+    "proseOnly": "包含标题、正文及章节概要，不包含批注和剧情规划。",
+    "readOnly": "只读",
+    "retry": "重试",
+    "save": "保存 .md",
+    "saved": "已保存 Markdown",
+    "saving": "正在保存…",
+    "title": "分享 Markdown",
+    "wholeBook": "按书稿顺序分享全部章节"
+  },
+  "materialEditor": {
+    "deleteConfirm": "删除素材「{{title}}」？此操作无法撤销。",
+    "deleteFailed": "素材删除失败。",
+    "descriptionPlaceholder": "添加说明…",
+    "embed": {
+      "importFile": "从文件导入图片或 PDF…",
+      "importing": "导入中…",
+      "pastedImage": "粘贴的图片"
+    },
+    "regions": {
+      "draw": "框选批注",
+      "drawHint": "在画面上拖出一个区域来批注",
+      "empty": "在画面或页面上拖出区域，写下第一条批注。",
+      "listLabel": "这条素材的批注",
+      "page": "第 {{page}} 页",
+      "stopDrawing": "结束批注",
+      "whole": "整条素材"
+    },
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "zoomReset": "适配窗口"
+  },
+  "materialFolders": {
+    "deleteConfirm": "删除素材夹「{{name}}」？里面的素材和子素材夹会移到上一级，不会删除任何素材。",
+    "deleteSelectionConfirm": "删除所选的 {{count}} 项？素材会被删除；删除的素材夹里的内容会移到上一级。",
+    "empty": "还没有素材。可用上方的新建素材夹按钮整理素材。",
+    "menu": {
+      "collapseAll": "全部收起",
+      "delete": "删除素材夹",
+      "deleteSelection": "删除 {{count}} 项",
+      "expandAll": "全部展开",
+      "move": "移动到素材夹…",
+      "moveSelection": "将 {{count}} 项移动到素材夹…",
+      "newFolder": "新建素材夹",
+      "newSubfolder": "在其中新建素材夹",
+      "open": "打开",
+      "rename": "重命名"
+    },
+    "picker": {
+      "createAndMove": "新建并移入",
+      "newPlaceholder": "新素材夹名称",
+      "title": "移动到素材夹"
+    },
+    "root": "素材库",
+    "untitled": "新素材夹"
+  },
+  "memoMaterial": {
+    "card": {
+      "addSnippetBody": "写点什么…"
+    },
+    "empty": {
+      "noRelated": "当前条目没有关联的素材。"
+    },
+    "error": {
+      "openFile": "无法打开文件：{{error}}",
+      "pickFailed": "无法导入文件：{{error}}"
+    },
+    "kind": {
+      "image": "图片",
+      "pdf": "PDF",
+      "text": "笔记"
+    },
+    "menu": {
+      "deleteMaterial": "删除素材",
+      "openInSystem": "在系统 app 中打开"
+    },
+    "preview": {
+      "loading": "加载中…",
+      "loadingPdf": "加载 PDF…",
+      "nextPage": "下一页",
+      "noImage": "无法预览图片",
+      "noPdf": "无法预览 PDF",
+      "openPdfFailed": "无法打开 PDF",
+      "previousPage": "上一页",
+      "renderPdfFailed": "无法渲染 PDF"
+    },
+    "toolbar": {
+      "count": "{{count}} 素材",
+      "newMaterial": "新建素材"
+    }
+  },
+  "mobileWorkspace": {
+    "projectActions": {
+      "deleteFailed": "删除未完成，请重试。"
+    }
+  },
+  "navigation": {
+    "back": "返回"
+  },
+  "nodeEditor": {
+    "empty": {
+      "noStoryline": "未归属故事线"
+    },
+    "folio": {
+      "chapter": "章节",
+      "chapterNumber": "第 {{n}} 章",
+      "drift": "构想"
+    },
+    "meta": {
+      "words": "{{count}} 字"
+    }
+  },
+  "notifications": {
+    "appUpdate": {
+      "available": "Drifting {{version}} 可以更新",
+      "installed": "已更新到 Drifting {{version}}",
+      "source": "更新"
+    },
+    "clear": "清空",
+    "cloudSync": {
+      "source": "云同步"
+    },
+    "crashFollowUp": {
+      "source": "Drifting"
+    },
+    "empty": "暂无通知",
+    "markdownFolder": {
+      "issue": {
+        "empty": "正文被清空，未合并，原文件已另存",
+        "encoding": "不是 UTF-8 编码，未读取，原文件已另存",
+        "frontmatter": "开头的属性写法有误，修好之前不合并也不覆盖",
+        "identity": "drifting-id 指向别的章节，未合并，原文件已另存",
+        "lineage": "这一章被恢复或重置过，无法自动合并，原文件已另存",
+        "owned": "这个文件夹由另一个 Drifting 管理，没有读写",
+        "too-large": "文件太大，未读取，原文件已另存"
+      },
+      "preserved_one": "{{count}} 个改过的文件另存到了 .drifting/preserved",
+      "preserved_other": "{{count}} 个改过的文件另存到了 .drifting/preserved",
+      "source": "Markdown 文件夹"
+    },
+    "organize": {
+      "source": "Agent"
+    },
+    "remove": "移除",
+    "shareComments": {
+      "source": "读者评论"
+    },
+    "time": {
+      "daysAgo": "{{count}} 天前",
+      "hoursAgo": "{{count}} 小时前",
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}} 分钟前"
+    },
+    "title": "通知"
+  },
+  "plotGrid": {
+    "addColumnShort": "列",
+    "addRowShort": "行",
+    "clear": "清空",
+    "clearConfirm": "清空当前情节规划器的所有行列标题和单元格文字？表格结构、尺寸和正文将保留。此操作无法撤销。",
+    "clearTitle": "清空情节规划器内容",
+    "columnPlaceholder": "列",
+    "deleteClears": "会清空 {{count}} 格",
+    "deleteColumn": "删除此列",
+    "deleteRow": "删除此行",
+    "emptyCell": "写点什么…",
+    "fit": "适应",
+    "insertColumnLeft": "在左侧插入一列",
+    "insertColumnRight": "在右侧插入一列",
+    "insertRowAbove": "在上方插入一行",
+    "insertRowBelow": "在下方插入一行",
+    "moveDown": "下移",
+    "moveLeft": "左移",
+    "moveRight": "右移",
+    "moveUp": "上移",
+    "rename": "重命名",
+    "rowPlaceholder": "行",
+    "title": "情节"
+  },
+  "positionLink": {
+    "copied": "已复制位置链接"
+  },
+  "projectHome": {
+    "book": {
+      "noStorylines": "还没有故事线。",
+      "storylineCount": "{{done}} / {{total}} 章",
+      "title": "全书"
+    },
+    "continue": {
+      "empty": "还没有章节。",
+      "title": "继续写"
+    },
+    "create": {
+      "kinds": {
+        "category": "类目",
+        "chapter": "章节",
+        "drift": "构想",
+        "element": "要素",
+        "material": "素材",
+        "storyline": "故事线"
+      }
+    },
+    "kicker": "作品主页",
+    "readout": "{{chapters}} 章 · {{storylines}} 条故事线 · {{elements}} 个要素",
+    "settings": {
+      "dailyGoal": "每日目标",
+      "projectTarget": "全书目标"
+    },
+    "since": "作品主页 · {{date}}起",
+    "today": "今日 {{today}} / {{goal}} · 连续 {{streak}} 天",
+    "todayNoGoal": "今日 {{today}} · 连续 {{streak}} 天",
+    "views": {
+      "overview": "概览",
+      "settings": "设定"
+    },
+    "words": "{{words}} 字",
+    "wordsOfTarget": "{{words}} / {{target}} 字"
+  },
+  "projectPicker": {
+    "bookTransfer": {
+      "exportFailed": "这本书没能导出，请稍后再试。",
+      "exportFailedTitle": "无法导出",
+      "importFailed": "这本书没能导入，请稍后再试。",
+      "importFailedTitle": "无法导入",
+      "invalid": "这个文件已损坏，无法导入。",
+      "legacy": "这本书是 Drifting 0.1 导出的。请在旧版里导入它，再把旧版资料库交接给新版。",
+      "newer": "这本书由更新版本的 Drifting 导出，请先更新 Drifting。",
+      "notABook": "这不是 Drifting 导出的书。",
+      "tooLarge": "这本书太大，无法导入。"
+    },
+    "delete": {
+      "deleting": "删除中…"
+    },
+    "desk": {
+      "chaptersUnit": "章",
+      "coverStyle": {
+        "names": {
+          "bauhaus": "包豪斯",
+          "chars": "字海",
+          "cutout": "剪纸",
+          "cyanotype": "蓝晒",
+          "field": "色域",
+          "quipu": "结绳",
+          "ridge": "山脊",
+          "rings": "年轮",
+          "riso": "孔版",
+          "sand": "砂笔",
+          "stars": "星图",
+          "strata": "地层",
+          "topo": "等高线",
+          "weave": "织物"
+        },
+        "turn": "换封面画风 · 现在是{{name}}"
+      },
+      "elementsUnit": "个要素",
+      "exportBook": "导出这本书（.driftingbook）",
+      "form": {
+        "createTitle": "新建一本书",
+        "editTitle": "编辑《{{name}}》",
+        "nameLabel": "书名",
+        "summaryLabel": "梗概"
+      },
+      "goal": "{{pct}}% · 目标 {{target}} 字",
+      "importing": "正在导入",
+      "moveToTrash": "移到最近删除",
+      "newCard": "新建一本",
+      "newCardSub": "从一张白纸开始",
+      "open": "打开《{{name}}》",
+      "progress": "进度",
+      "recent": "近 30 天",
+      "recentLabel": "近 30 天写了 {{words}} 字",
+      "storylinesUnit": "条故事线",
+      "trashEntry": "最近删除",
+      "trashList": {
+        "confirmTitle": "永久删除《{{name}}》？",
+        "empty": "最近没有删除的作品。",
+        "subLocal": "作品在这里保留 30 天，到期后自动永久删除。",
+        "title": "最近删除"
+      },
+      "trashTitle": "把《{{name}}》移到最近删除？",
+      "untitled": "未命名",
+      "wordsUnit": "字"
+    },
+    "form": {
+      "createSubmit": "新建",
+      "namePlaceholder": "例：北岬灯塔",
+      "summaryPlaceholder": "一两句话说明这本书是什么。"
+    },
+    "header": {
+      "titleEm": "书架"
+    },
+    "heat": {
+      "daysUnit": "天",
+      "daysWritten": "在写",
+      "fri": "五",
+      "label": "写作热力图",
+      "mon": "一",
+      "streak": "连续",
+      "summary": "过去一年写了 {{words}} 字，在写 {{days}} 天",
+      "today": "今天",
+      "wed": "三",
+      "year": "过去一年"
+    },
+    "projectCount": "{{filtered}} / {{total}} 本",
+    "rail": {
+      "books": "{{count}} 本",
+      "import": "导入书",
+      "library": "{{count}} 本 · {{words}}字"
+    },
+    "status": {
+      "draft": "草稿",
+      "paused": "搁置",
+      "writing": "在写"
+    },
+    "trash": {
+      "body": "这本书（{{words}} 字 · {{nodes}} 章 · {{elements}} 个要素）会从书架移走。30 天内可以在「最近删除」里恢复，之后永久删除。",
+      "confirm": "移到最近删除",
+      "deleteNow": "立即删除",
+      "expiresIn_one": "{{count}} 天后永久删除",
+      "expiresIn_other": "{{count}} 天后永久删除",
+      "expiresSoon": "即将永久删除",
+      "failed": "移动未完成，请重试。",
+      "localNote": "内容和可读 Markdown 副本都保留到永久删除时。",
+      "moving": "正在移动…",
+      "permanentBody": "立即永久删除，不再等 30 天。此操作无法撤销。",
+      "restore": "恢复",
+      "restoreFailed": "恢复未完成，请重试。",
+      "restoring": "正在恢复…"
+    }
+  },
+  "referencesPanel": {
+    "actions": {
+      "linkEntity": "关联实体",
+      "remove": "移除关联"
+    },
+    "deleted": {
+      "category": "(已删除分类)",
+      "element": "(已删除要素)",
+      "node": "(已删除章节)",
+      "storyline": "(已删除故事线)"
+    },
+    "empty": {
+      "incoming": "尚未被任何内容引用",
+      "outgoing": "正文中尚未引用其他实体",
+      "relations": "尚无关联"
+    },
+    "filters": {
+      "all": "全部"
+    },
+    "kind": {
+      "category": "分类",
+      "element": "要素",
+      "node": "章节",
+      "patch": "补丁",
+      "storyline": "故事线"
+    },
+    "meta": {
+      "blocksSpans": "{{blocks}} 处 · {{spans}} 次",
+      "spans": "{{count}} 次"
+    },
+    "picker": {
+      "empty": "没有可选项",
+      "placeholder": "搜索可关联的实体…"
+    },
+    "sections": {
+      "incoming": "被引用",
+      "outgoing": "引用其他",
+      "relations": "关联"
+    }
+  },
+  "relationPicker": {
+    "untitledChapter": "无标题章节",
+    "untitledDrift": "无标题构想",
+    "untitledElement": "未命名要素",
+    "untitledStoryline": "未命名故事线"
+  },
+  "relationTypes": {
+    "allowedEntities": "允许实体",
+    "allowedSources": "允许源实体",
+    "allowedTargets": "允许目标实体",
+    "builtIn": "内建",
+    "cancel": "取消",
+    "confirmDelete": "删除关系类型「{{name}}」？",
+    "create": "新建",
+    "createInline": "新建关系类型",
+    "defaultSourceRole": "源端",
+    "defaultTargetRole": "目标端",
+    "delete": "删除关系类型",
+    "description": "说明",
+    "directed": "有向",
+    "direction": "方向",
+    "endpointRole": "端点角色",
+    "entityKinds": {
+      "category": "要素类目",
+      "comment": "批注",
+      "element": "要素",
+      "library_item": "素材",
+      "node": "章节或构想",
+      "patch": "要素补丁",
+      "storyline": "故事线"
+    },
+    "genericAssociation": {
+      "name": "关联",
+      "sourceRole": "关联项",
+      "targetRole": "对象"
+    },
+    "missing": "缺失的关系类型",
+    "name": "名称",
+    "pendingIncoming": "该实体 ← 目标",
+    "pendingOutgoing": "该实体 → 目标",
+    "save": "保存",
+    "selectConfigured": "选择关系类型",
+    "sourceRole": "源角色",
+    "swap": "交换关系两端",
+    "symmetric": "对称",
+    "symmetricSummary": "对称 · {{role}}",
+    "targetRole": "目标角色",
+    "title": "关系类型定义"
+  },
+  "reviewPanel": {
+    "commentPlaceholder": "写批注…",
+    "empty": "此范围内没有审阅项目。",
+    "filters": {
+      "all": "全部",
+      "comment": "批注",
+      "todo": "TODO"
+    },
+    "groups": {
+      "deleted": "已删除",
+      "floating": "未挂载"
+    },
+    "resolved": "已解决（{{count}}）",
+    "scopes": {
+      "current": "当前"
+    },
+    "sourceFloating": "项目级 · 未关联对象",
+    "sourceTextUnavailable": "没有保存原文摘录"
+  },
+  "rightSidebar": {
+    "kickers": {
+      "library": "全项目 · 素材库",
+      "review": "全项目 · 审阅",
+      "stats": {
+        "all-chapters": "全书 · 节奏统计",
+        "category": "本类目 · 详细统计",
+        "chapter": "本章 · 详细统计",
+        "drift": "这条构想 · 详细统计",
+        "element": "本要素 · 详细统计",
+        "material": "这份素材 · 详细统计",
+        "none": "本项目 · 详细统计",
+        "storyline": "本故事线 · 详细统计"
+      }
+    },
+    "stats": {
+      "actMeta": "{{chapters}}章 · {{wordsK}}k · {{pct}}%",
+      "actRhythm": "分幕节奏",
+      "allElementsAppeared": "所有要素都已在正文出场。",
+      "appeared": "已出场",
+      "averageAppearance": "平均出场",
+      "averagePerChapter": "平均每章",
+      "avgChaptersPerElement": "{{count}} 章 / 要素",
+      "bookPosition": "全书位置",
+      "category": "类目",
+      "categoryCoordinates": "类目坐标",
+      "categoryNoElements": "类目下还没有要素。",
+      "chapter": "章节",
+      "chapterCoordinates": "章节坐标",
+      "chapterCount": "章节数",
+      "chapterLengthRhythm": "章节长度节奏",
+      "chapterOrdinal": "第 {{count}} 章",
+      "chaptersValue": "{{count}} 章",
+      "completion": "完成度",
+      "dialogueRatio": "对白比",
+      "dimensions": "尺寸",
+      "discardedParen": "（弃用 {{count}}）",
+      "driftCoordinates": "构想坐标",
+      "driftFreeFragment": "构想 · 自由片段",
+      "elementCoordinates": "要素坐标",
+      "elementCount": "要素数",
+      "elementsValue": "{{count}} 个要素",
+      "embeddedMaterials": "嵌入的素材",
+      "fileSize": "大小",
+      "fileType": "格式",
+      "floatingStoryline": "漂浮 / 未归线",
+      "health": "健康度",
+      "lastModified": "最近修改",
+      "longestWithWords": "最长 · {{title}}（{{words}}字）",
+      "materialCoordinates": "素材坐标",
+      "materialFile": "文件",
+      "materialRelations": "关联",
+      "moreLowAppearanceElements": "还有 {{count}} 个要素出场较少",
+      "moreUnappearedElements": "还有 {{count}} 个未出场",
+      "name": "名称",
+      "noActiveProgress": "章节都已弃用或暂无进度。",
+      "noChapters": "全书还没有章节。开始写第一章后，这里会显示全书节奏。",
+      "noMentionedElements": "正文尚未 @ 提及任何要素。",
+      "noteShape": "笔记概况",
+      "noteTasks": "待办",
+      "noteTasksValue": "{{done}} / {{total}} 已完成",
+      "noteWords": "字数",
+      "openComments": "未解决的批注与 TODO",
+      "paragraphSentence": "段落 / 句",
+      "paragraphSentenceValue": "{{paragraphs}} 段 · {{sentences}} 句",
+      "recent": "最近",
+      "shortestWithWords": "最短 · {{title}}（{{words}}字）",
+      "snapshotButton": "历史快照…",
+      "statusCount": "{{status}} {{count}} 章",
+      "storyline": "故事线",
+      "storylineCoordinates": "故事线坐标",
+      "storylineCoreElements": "本线核心要素",
+      "storylineDistribution": "故事线分布",
+      "storylineNoChapters": "这条线还没有章节。",
+      "storylineNoMentionedElements": "本线章节正文尚未 @ 提及任何要素。",
+      "thisChapterElements": "本章要素",
+      "thisFragmentElements": "本篇要素",
+      "titleWithWords": "{{title}}（{{words}}字）",
+      "type": "类型",
+      "unappearedElements": "未出场要素",
+      "updated": "更新",
+      "wordRhythm": "字数 · 节奏",
+      "wordsPerChapterValue": "{{words}} 字 / 章",
+      "wordsValue": "{{count}} 字",
+      "writingProgress": "写作进度",
+      "writtenTarget": "已写 / 目标"
+    },
+    "status": {
+      "discarded": "弃用",
+      "done": "已完成",
+      "draft": "草稿",
+      "todo": "待写"
+    },
+    "tabs": {
+      "companion": "帮手",
+      "library": "素材库",
+      "review": "审阅",
+      "stats": "统计"
+    },
+    "top": {
+      "close": "收起右侧栏",
+      "open": "展开右侧栏"
+    }
+  },
+  "settings": {
+    "about": {
+      "channel": "通道",
+      "channelPreAlpha": "Alpha",
+      "contact": "联系",
+      "credits": "致谢与许可",
+      "emailTeam": "写信给团队",
+      "engine": "引擎",
+      "feedback": "反馈…",
+      "knownIssues": "已知问题",
+      "knownIssuesDesc": "当前 Alpha 的已知限制",
+      "license": "客户端许可证",
+      "licenseDesc": "GNU AGPL v3 或更高版本",
+      "openSource": "开源依赖",
+      "sourceCode": "源代码",
+      "sourceCodeDesc": "这个 AGPL 客户端的对应源代码",
+      "sub": "终极写作体验",
+      "submitFeedback": "提交反馈",
+      "submitFeedbackDesc": "可附上脱敏诊断摘要；不含正文。",
+      "support": "Alpha 支持",
+      "supportDesc": "故障排查与安全反馈说明",
+      "tagline": "为夜里不睡的写作人造。",
+      "title": "Drifting",
+      "version": "版本",
+      "viewLicense": "查看许可证",
+      "viewList": "查看清单",
+      "viewSource": "查看源码",
+      "writeEmail": "写邮件"
+    },
+    "agent": {
+      "chatConfigDesc": "服务商、模型与推理强度在右栏 Agent 输入框的配置菜单里选；密钥和 ChatGPT 订阅在「模型与 API」里管理。",
+      "effortOptions": {
+        "high": "高",
+        "low": "低",
+        "max": "最大",
+        "medium": "中",
+        "minimal": "最低",
+        "ultra": "极高",
+        "xhigh": "超高"
+      },
+      "replayOnboarding": "重新显示首次引导",
+      "title": "右栏那位能动手的 Agent。"
+    },
+    "agentLimits": {
+      "desc": "限制每轮对话中的模型调用次数。达到上限时本轮停止，已提交的改动保留。设置改动对下一轮对话生效。",
+      "iterationLabel": "单轮最大模型迭代数",
+      "iterationOption": "{{value}} 次",
+      "unlimited": "无限制",
+      "unlimitedHint": "「无限制」不设模型调用次数上限，你可以手动停止本轮。"
+    },
+    "appearance": {
+      "dark": "深色",
+      "guides": "引导",
+      "interface_text_large": "较大",
+      "interface_text_largest": "最大",
+      "interface_text_size": "界面字号",
+      "interface_text_size_desc": "调整此设备的桌面界面文字大小。正文使用编辑器中的字号设置。",
+      "interface_text_small": "较小",
+      "interface_text_smallest": "最小",
+      "interface_text_standard": "标准",
+      "light": "浅色",
+      "replay_guides": "第一次打开书时的导览",
+      "replay_guides_action": "重新显示",
+      "system": "跟随系统",
+      "theme": "主题",
+      "theme_desc": "浅色、深色，或跟随系统。"
+    },
+    "byokProvider": {
+      "available": "可用",
+      "editKey": "编辑密钥",
+      "invalidKey": "密钥无效",
+      "keyPlaceholder": "粘贴密钥...",
+      "notConnected": "未连接",
+      "requestFailed": "请求失败（provider 不可用或网络问题）"
+    },
+    "codexSubscription": {
+      "cancelled": "已取消登录。",
+      "codeHint": "在 OpenAI 设备页面输入；Drifting 会持续检查直到你批准",
+      "codeLabel": "一次性代码",
+      "failure": {
+        "expired": "代码在批准前已过期。",
+        "invalid_response": "OpenAI 返回了意外的响应。",
+        "network_failed": "无法连接到 OpenAI。",
+        "provider_rejected": "OpenAI 拒绝了这次登录。",
+        "storage_failed": "登录信息无法保存到 Keychain。"
+      },
+      "name": "ChatGPT 订阅",
+      "openVerification": "打开验证页面",
+      "signOut": "退出登录",
+      "signedInAs": "已登录"
+    },
+    "common": {
+      "cancel": "取消",
+      "connect": "连接",
+      "disconnect": "断开",
+      "manageKeys": "管理 API Key",
+      "open_in_browser": "在浏览器打开",
+      "save": "保存",
+      "test_connection": "测试连接"
+    },
+    "editor": {
+      "auto_element_link": "自动要素链接",
+      "auto_element_link_desc": "输入时自动识别已存在的要素名称（如人物、地点），并链接到对应页面。",
+      "auto_immersive": "打字时自动沉浸",
+      "auto_immersive_desc": "开始写正文就收起侧栏与工具；按 Esc 或点正文以外的地方回来。",
+      "flow": "书写体验",
+      "font_size": "字号",
+      "font_size_desc": "编辑视图字号；导出稿件不受影响。",
+      "indent": "段首缩进",
+      "indent_desc": "仅编辑视图。导出时按稿件格式独立设定。",
+      "indent_none": "无",
+      "indent_one": "一字符",
+      "indent_two": "两字符",
+      "justify": "两端对齐",
+      "line_height": "行距",
+      "page_width": "纸张宽度",
+      "page_width_desc": "编辑器中部纸张的宽度；正文按固定边距填满纸张。",
+      "paragraph_spacing": "段间距",
+      "paragraph_spacing_desc": "正文与各级标题共用的段间距，按正文字号计算；仅编辑视图。",
+      "preview": "预览",
+      "preview_h1": "一级标题",
+      "preview_p1": "沉默在两人之间蔓延，像潮水漫过礁石。她终于开口，声音轻得几乎被海风吹散，落在他听不真切的地方。海面上最后一缕光正缓缓收拢，把两人的影子拉得很长。",
+      "preview_p2": "“你还会回来吗？”他没有立刻回答，只是望着那轮渐渐沉入海平线的夕阳，许久才轻轻点头。可那点头里有太多迟疑，连他自己也分不清是承诺，还是不忍。",
+      "reset_style": "还原推荐样式",
+      "typesetting": "排版",
+      "typewriter_mode": "打字机模式",
+      "typewriter_mode_desc": "输入或移动光标时，让当前正文行稳定停在视口中的固定位置；只影响编辑视图。",
+      "typewriter_position": "输入行位置",
+      "typewriter_position_desc": "距编辑器顶部的比例：25% 靠上，50% 居中，75% 靠下。"
+    },
+    "groups": {
+      "about": "关于",
+      "control": "控制",
+      "intelligence": "智能",
+      "preferences": "偏好"
+    },
+    "hosted": {
+      "connect_errors": {
+        "cancelled": "已取消。"
+      }
+    },
+    "keys": {
+      "actions": {
+        "closeActiveTab": {
+          "desc": "关闭底部标签中当前激活的标签页",
+          "label": "关闭当前标签页"
+        },
+        "closeProject": {
+          "desc": "关闭当前项目并回到书架",
+          "label": "关闭项目"
+        },
+        "findInEditor": {
+          "desc": "在当前打开的编辑器中查找文本",
+          "label": "当前编辑器内查找"
+        },
+        "globalSearch": {
+          "desc": "跨章节、故事线、要素、分类搜索",
+          "label": "全局搜索"
+        },
+        "goBack": {
+          "desc": "回到上一个访问过的页面（类似浏览器后退）",
+          "label": "返回上一个页面"
+        },
+        "goForward": {
+          "desc": "回到下一个访问过的页面（类似浏览器前进）",
+          "label": "前进下一个页面"
+        },
+        "newEntity": {
+          "desc": "回到作品主页，新建那一排就在手边",
+          "label": "新建"
+        },
+        "nextTab": {
+          "desc": "在已打开的标签页间向右切换",
+          "label": "切换到下一个标签页"
+        },
+        "prevTab": {
+          "desc": "在已打开的标签页间向左切换",
+          "label": "切换到上一个标签页"
+        },
+        "toggleBottomTimeline": {
+          "desc": "切换底部时间轴的显示与隐藏",
+          "label": "展开 / 收起底部时间轴"
+        },
+        "toggleImmersiveWriting": {
+          "desc": "只留稿纸；再按一次或按 Esc 回来",
+          "label": "沉浸写作"
+        }
+      },
+      "allActionsShort": "所有动作 · {{count}}",
+      "conflict": "{{accelerator}} 已被「{{action}}」占用",
+      "pressNewCombo": "按下新组合键…",
+      "recording": "录制中",
+      "reset": "恢复",
+      "resetAll": "恢复全部默认"
+    },
+    "language": {
+      "ui_locale": "界面语言",
+      "ui_locale_desc": "菜单、按钮与提示文字的语言，不影响你写的内容。"
+    },
+    "models": {
+      "providers": {
+        "anthropic": "供 General Agent 使用。",
+        "deepseek": "供 General Agent 使用。",
+        "openai": "供 General Agent 使用。",
+        "openaiCodex": "通过 OpenAI 的 Codex 设备登录，用你的 ChatGPT 订阅运行 General Agent，可用模型以你的账号为准；生成设定图也用它。OpenAI 没有向第三方应用开放这条路径，可能随时失效；用量计入你的 ChatGPT 套餐。"
+      },
+      "title": "AI 功能连接的服务。"
+    },
+    "privacy": {
+      "copyDiagnostics": "复制摘要",
+      "crashLogs": "自动发送故障诊断",
+      "crashLogsDesc": "发送脱敏的错误位置、版本和系统信息，帮助维护者排查故障；不包含正文。可随时关闭。",
+      "dataUsage": "数据使用",
+      "diagnostics": "脱敏诊断摘要",
+      "diagnosticsCopied": "已复制脱敏诊断摘要。",
+      "diagnosticsCopyFailed": "无法写入剪贴板，可能没有剪贴板权限。",
+      "diagnosticsDesc": "复制版本、平台、功能可用性、同步计数/错误类别与更新状态；不含稿件、凭据、项目标识或绝对路径，也不会自动上传。",
+      "noteLocal": "这个构建不连接 Drifting 服务端，作品只保存在这台设备上。AI 与语音转写请求从本机直接发往你选择的服务商，适用该服务商的数据与训练条款；你添加的远程 MCP 扩展也会访问网络。"
+    },
+    "rail": {
+      "about_app": "关于 Drifting",
+      "agent": "General Agent",
+      "appearance": "外观",
+      "editor": "编辑器",
+      "keys": "快捷键",
+      "language": "语言",
+      "models": "模型与 API"
+    },
+    "search_placeholder": "搜索设定…",
+    "sync": {
+      "backup": {
+        "errors": {
+          "invalid": "这个文件不是有效的 Drifting 备份，或已经损坏。当前资料库没有改动。",
+          "legacy": "这是 Drifting 0.1 的备份，这一版不能直接恢复。请先在 Drifting 0.1 里恢复它，再在书架上用「导入 · Drifting 0.1」导入那个资料库。",
+          "newer": "这个备份来自更新版本的 Drifting。请先更新应用再恢复。",
+          "unknown": "操作没有完成，当前资料库没有改动：{{detail}}"
+        },
+        "exportButton": "导出备份…",
+        "exportDesc": "把所有项目的数据库，连同图片、PDF 原文件，打包成一个 .drifting 文件。可用来恢复，也可以带到另一台电脑。",
+        "exportTitle": "资料库备份",
+        "exported": "已保存「{{file}}」。",
+        "exporting": "正在备份…",
+        "inspecting": "正在校验…",
+        "missingAssets": "有 {{count}} 个素材在本机缺失，未能备份。",
+        "noProjects": "（没有项目）",
+        "openSafety": "打开恢复前副本",
+        "restoreButton": "选择备份…",
+        "restoreConfirm": "将用「{{file}}」替换当前资料库。\n\n备份时间：{{date}}\n内容：{{summary}}\n项目：{{projects}}\n\n当前资料库会先自动存成恢复前副本，可在「打开恢复前副本」中找到。恢复完成后应用会重新载入。",
+        "restoreConfirmButton": "替换并恢复",
+        "restoreDesc": "用 .drifting 备份替换当前资料库。恢复前，当前资料库会自动存成一份恢复前副本。",
+        "restoreTitle": "从备份恢复",
+        "restoring": "正在恢复…",
+        "summary": "共 {{projects}} 个项目、{{assets}} 个素材文件，{{size}}。"
+      },
+      "local_data": "本地数据",
+      "local_sub": "无需 Drifting 账号，也不连接托管云服务；你可以随时导出一份可阅读的副本。",
+      "local_title": "作品只保存在这台设备上。",
+      "projection": {
+        "allProjects": "所有项目",
+        "allProjectsUnset": "所有项目 · 未选择位置",
+        "choose": "选择文件夹",
+        "description": "每个项目都有一份结构化 Markdown，供本地阅读、检索和外部工具使用。章节和构想可以在任何编辑器里修改，Drifting 运行时会把修改合并回来；其余文件由 Drifting 生成，只读。",
+        "locationHint": "里面每个项目一个文件夹，只在本机生效。换位置后，旧文件夹留在原处。",
+        "offHint": "已关闭：项目不再写出 Markdown，外部修改也不再合并回来。已有文件留在原处。",
+        "offTitle": "关闭 Markdown 文件夹？",
+        "offWarning": "所有项目都不再写出 Markdown。其他编辑器和外部 Agent 看到的会停在现在的内容，在那里做的修改也不会再合并回 Drifting。已有文件留在原处；之后可以在 设置 → 同步与数据 重新开启。",
+        "reveal": "在访达中打开",
+        "title": "Markdown 文件夹",
+        "turnOff": "关闭 Markdown 文件夹",
+        "turnOn": "开启"
+      }
+    },
+    "title": "设定",
+    "update": {
+      "channel_desc": "Apple Silicon · macOS 13+",
+      "check": "新版本",
+      "check_action": "检查更新",
+      "check_failed": "暂时无法检查更新，可能是网络不通。稍后再试，当前版本照常可用。",
+      "checking": "正在检查…",
+      "downloading": "正在下载并校验签名…",
+      "downloading_progress": "正在下载并校验… {{progress}}%",
+      "install_failed": "上次退出时没能装上 Drifting {{version}}，当前版本没有改动。下次退出时再试。",
+      "install_failed_admin": "上次退出时没能装上 Drifting {{version}}：Drifting 所在的文件夹不能写入。当前版本没有改动。",
+      "interrupted": "更新没有下载完整，已丢弃。下次检查时会重新下载。",
+      "local_error": "更新没能存进这台电脑，已停止。当前版本照常可用。",
+      "no_update": "已是最新版本。",
+      "older_offered": "已是最新版本。更新服务提供的 {{version}} 比这一版旧，不会安装。",
+      "ready_on_quit": "Drifting {{version}} 已下载并通过签名校验，退出时安装。",
+      "refused_app": "下载的更新不是 Drifting，已丢弃。当前版本照常可用。",
+      "refused_signature": "下载的更新没有通过签名校验，已丢弃。当前版本照常可用。",
+      "refused_version": "下载的更新不是它标明的版本，可能是旧版本，已拒绝。当前版本照常可用。",
+      "restart": "重启以更新",
+      "server_error": "更新服务暂时出了问题，稍后再试。当前版本照常可用。",
+      "unavailable": "这个构建没有内置更新签名公钥，不能检查更新。从 GitHub Releases 下载的正式版可以。"
+    }
+  },
+  "sidebarLayout": {
+    "split": "恢复双栏"
+  },
+  "snapshotHistory": {
+    "confirmRestore": "确认覆盖当前版本",
+    "empty": "暂无快照。编辑正文后系统会按约 15 分钟一次的节奏自动留存。",
+    "kind": {
+      "category": "类目",
+      "element": "要素",
+      "library_item": "笔记",
+      "node": "章节",
+      "storyline": "故事线"
+    },
+    "loading": "读取中…",
+    "restore": "恢复…",
+    "restoreFailed": "恢复失败：{{error}}",
+    "restoreSuccess": "已恢复到所选版本。恢复前的状态已自动存为新快照。",
+    "restoring": "恢复中…",
+    "title": "历史快照 · 30 天"
+  },
+  "storyGraph": {
+    "edge": {
+      "create": "创建"
+    }
+  },
+  "storylineEditor": {
+    "actions": {
+      "openChapter": "打开章节"
+    },
+    "alerts": {
+      "deleteFailed": "删除故事线失败，请重试。"
+    },
+    "deleteConfirm": "删除故事线「{{name}}」？",
+    "empty": {
+      "noChapterSummary": "尚未填写一句话摘要",
+      "noFacts": "尚无字段。新建故事线时，项目主页的「故事线字段模版」会自动填入",
+      "noFilteredChapters": "此筛选下暂无章节"
+    },
+    "filters": {
+      "all": "全部",
+      "unwritten": "未起",
+      "written": "已写"
+    },
+    "folio": "故事线",
+    "labels": {
+      "color": "色标"
+    },
+    "meta": {
+      "chapters": "{{count}} 章",
+      "chaptersWords": "{{chapters}} 章 · {{words}}k 字",
+      "kWords": "{{count}}k 字",
+      "nodeTemplate": "新章节的默认骨架"
+    },
+    "nodeTemplatePlaceholder": "用 H1 / H2 / H3 写一份默认的章节骨架，新建章节时自动填充…",
+    "sections": {
+      "chapters": "章节序列",
+      "facts": "字段",
+      "nodeTemplate": "章节模版",
+      "scratch": "札记"
+    },
+    "summaryPlaceholder": "一句话概述本线…",
+    "untitled": "未命名故事线"
+  },
+  "topTimeline": {
+    "closeTab": "关闭标签页",
+    "dockLock": "保持展开",
+    "dockUnlock": "收回小点",
+    "newEntity": "新建实体",
+    "singletons": {
+      "allChapters": "通览全书"
+    },
+    "untitled": {
+      "category": "未命名类目",
+      "chapter": "未命名章节",
+      "drift": "未命名构想",
+      "element": "未命名要素",
+      "library_item": "未命名素材",
+      "storyline": "未命名故事线"
+    }
+  },
+  "userMenu": {
+    "feedback": "提交反馈",
+    "import": "导入",
+    "importBook": "导入书（.driftingbook）",
+    "language": "语言",
+    "localMenu": "本地书库菜单",
+    "localStatus": "本地 · 本机存储",
+    "settings": "设定",
+    "theme": "主题",
+    "themeDark": "深色",
+    "themeDarkShort": "暗",
+    "themeLight": "浅色",
+    "themeLightShort": "明",
+    "themeSystem": "跟随系统",
+    "themeSystemShort": "系统"
+  },
+  "windowCaption": {
+    "close": "关闭",
+    "maximize": "最大化",
+    "minimize": "最小化",
+    "restore": "还原"
+  },
+  "workspaceWordTally": {
+    "book": "全书",
+    "chapter": "本章",
+    "counting": "统计中",
+    "drift": "构想",
+    "selection": "选中",
+    "storyline": "故事线",
+    "today": "今日"
+  }
+}

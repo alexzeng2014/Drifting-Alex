@@ -1,0 +1,1056 @@
+{
+  "schemaVersion": 1,
+  "kind": "reference_index_scoped_reads_acceptance",
+  "status": "passed",
+  "generatedAt": "2026-09-12T11:49:13.951Z",
+  "source": {
+    "commit": "62d5cc687999406959b6620f86f2039f7d98b312",
+    "fingerprint": "9369279642258c49ba0cc01f9c0a451e2966f19ca8d1af03406c5738cbe37a64",
+    "dirty": true,
+    "build": "vitest-sqlite-and-isolated-chromium"
+  },
+  "environment": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "node": "v24.19.0",
+    "sqlite": "3.53.3"
+  },
+  "fixture": {
+    "provenance": "synthetic test-local content",
+    "database": "integration suites: temporary files, WAL, FULL, complete product migrations; db unit suite: fake gateway",
+    "ui": "actual notice/styles/locales with a fixture status seam and production React profiling renderer"
+  },
+  "suites": [
+    "src/renderer/services/reference-index-repository.integration.test.ts",
+    "src/renderer/services/reference-index-queue.integration.test.ts",
+    "src/renderer/lib/db.test.ts",
+    "src/renderer/sync/prose-change-scope.test.ts",
+    "src/renderer/sync/engine/durable-runtime.integration.test.ts",
+    "src/renderer/services/reference-index-reads.acceptance.test.ts"
+  ],
+  "tests": [
+    {
+      "name": "Drizzle Tauri transaction binding notifies only after the outer commit, including successful savepoints",
+      "status": "passed",
+      "durationMs": 4.656790999999998
+    },
+    {
+      "name": "Drizzle Tauri transaction binding discards notifications registered in a rolled-back savepoint",
+      "status": "passed",
+      "durationMs": 2.0294169999999667
+    },
+    {
+      "name": "Drizzle Tauri transaction binding discards successful-savepoint notifications when the outer transaction rolls back",
+      "status": "passed",
+      "durationMs": 1.5009999999999764
+    },
+    {
+      "name": "Drizzle Tauri transaction binding does not notify when the gateway commit fails",
+      "status": "passed",
+      "durationMs": 1.0413329999999519
+    },
+    {
+      "name": "Drizzle Tauri transaction binding does not turn an observer failure into an apparent author write failure",
+      "status": "passed",
+      "durationMs": 1.1283750000000055
+    },
+    {
+      "name": "Drizzle Tauri transaction binding rejects notification registration outside a live bound transaction",
+      "status": "passed",
+      "durationMs": 0.7493329999999787
+    },
+    {
+      "name": "Drizzle Tauri transaction binding uses the gateway transaction ID and never emits raw top-level transaction SQL",
+      "status": "passed",
+      "durationMs": 1.2085419999999658
+    },
+    {
+      "name": "Drizzle Tauri transaction binding rolls back the owning gateway transaction when the callback fails",
+      "status": "passed",
+      "durationMs": 0.7756249999999909
+    },
+    {
+      "name": "Drizzle Tauri transaction binding serializes concurrent top-level transactions before asking Rust to begin",
+      "status": "passed",
+      "durationMs": 1.292082999999991
+    },
+    {
+      "name": "Drizzle Tauri transaction binding implements nested Drizzle transactions with transaction-bound savepoints",
+      "status": "passed",
+      "durationMs": 1.0804169999999544
+    },
+    {
+      "name": "project reference queue starts with complete coverage, merges narrow hints and preserves unrelated acknowledgements",
+      "status": "passed",
+      "durationMs": 47.64554099999998
+    },
+    {
+      "name": "project reference queue bounds accumulated source hints and lets a complete invalidation supersede them",
+      "status": "passed",
+      "durationMs": 30.594541999999933
+    },
+    {
+      "name": "project reference queue retains a second source arriving while a narrow pass is running",
+      "status": "passed",
+      "durationMs": 33.35283300000003
+    },
+    {
+      "name": "project reference queue recaptures the whole project after a generation change discovered by a narrow read",
+      "status": "passed",
+      "durationMs": 33.21266700000001
+    },
+    {
+      "name": "project reference queue falls back to atomic full cleanup when a hinted source disappeared",
+      "status": "passed",
+      "durationMs": 28.789749999999913
+    },
+    {
+      "name": "project reference queue rechecks full coverage on a failed narrow replacement and keeps the retry bounded",
+      "status": "passed",
+      "durationMs": 33.57404199999996
+    },
+    {
+      "name": "project reference queue rejects an older narrow body and recaptures concurrent changes to other sources",
+      "status": "passed",
+      "durationMs": 37.069417000000044
+    },
+    {
+      "name": "project reference queue revokes a prepared narrow pass on forced repair before committing its rows",
+      "status": "passed",
+      "durationMs": 32.493582999999944
+    },
+    {
+      "name": "project reference queue starts with full coverage and coalesces 100 notifications without postponing the first window",
+      "status": "passed",
+      "durationMs": 28.470750000000066
+    },
+    {
+      "name": "project reference queue for 100 sources, metadata prepares 0 and a single body edit prepares and writes exactly 1",
+      "status": "passed",
+      "durationMs": 156.68204100000003
+    },
+    {
+      "name": "project reference queue retains a request arriving during a pass and rejects its older prepared body",
+      "status": "passed",
+      "durationMs": 30.661374999999907
+    },
+    {
+      "name": "project reference queue acknowledges successful sources while retrying failed sources with bounded backoff",
+      "status": "passed",
+      "durationMs": 29.526165999999876
+    },
+    {
+      "name": "project reference queue moves a backed-off retry forward when a new durable change repairs its source",
+      "status": "passed",
+      "durationMs": 31.177333999999973
+    },
+    {
+      "name": "project reference queue keeps one retry timer and caps repeated failures at 30 seconds",
+      "status": "passed",
+      "durationMs": 25.02891599999998
+    },
+    {
+      "name": "project reference queue force repair revokes an in-flight owner before replacement can commit",
+      "status": "passed",
+      "durationMs": 28.421124999999847
+    },
+    {
+      "name": "project reference queue prunes deletion and processes restored sources even when their body version is unchanged",
+      "status": "passed",
+      "durationMs": 31.26862499999993
+    },
+    {
+      "name": "project reference queue new owners repair missing rows even when the previous owner acknowledged every version",
+      "status": "passed",
+      "durationMs": 34.220124999999825
+    },
+    {
+      "name": "project reference queue rechecks coverage removed by lifecycle cleanup even when source prose is unchanged",
+      "status": "passed",
+      "durationMs": 27.61920800000007
+    },
+    {
+      "name": "project reference queue disposal cancels scheduled work, releases yields, and prevents late publication",
+      "status": "passed",
+      "durationMs": 63.996624999999995
+    },
+    {
+      "name": "reference queue runtime wiring repairs coverage after a recreated sync runtime even when source notifications were lost",
+      "status": "passed",
+      "durationMs": 28.316332999999986
+    },
+    {
+      "name": "reference queue runtime wiring uses complete capture for unknown prose scopes and workspace changes carrying prose hints",
+      "status": "passed",
+      "durationMs": 27.18516599999998
+    },
+    {
+      "name": "reference queue runtime wiring indexes JSON-only patch create and update commits and prunes durable patch deletion",
+      "status": "passed",
+      "durationMs": 44.637083000000075
+    },
+    {
+      "name": "reference queue runtime wiring survives immediate release and reattachment without retaining a cancelled startup",
+      "status": "passed",
+      "durationMs": 35.14204199999995
+    },
+    {
+      "name": "reference queue runtime wiring cancels a previous database queue even when the next database reuses the project ID",
+      "status": "passed",
+      "durationMs": 89.78058299999998
+    },
+    {
+      "name": "reference queue runtime wiring shares one worker across retainers and releases all event listeners and timers",
+      "status": "passed",
+      "durationMs": 42.45116699999994
+    },
+    {
+      "name": "reference queue runtime wiring observes ordinary authored Yjs only after commit and suppresses faulty observers",
+      "status": "passed",
+      "durationMs": 61.42216600000006
+    },
+    {
+      "name": "reference queue runtime wiring observes Agent outer commits but not rolled-back Agent savepoints",
+      "status": "passed",
+      "durationMs": 33.68624999999997
+    },
+    {
+      "name": "reference queue runtime wiring handles remote prose without a workspace refresh, and restores force complete repair",
+      "status": "passed",
+      "durationMs": 72.32183400000008
+    },
+    {
+      "name": "reference queue runtime wiring status observation does not retain a worker and manual retry repairs a failed source",
+      "status": "passed",
+      "durationMs": 48.940875000000005
+    },
+    {
+      "name": "reference index durable transaction boundary captures only requested source metadata and coverage without loading snapshot blobs or another project",
+      "status": "passed",
+      "durationMs": 49.73837500000002
+    },
+    {
+      "name": "reference index durable transaction boundary drains failed derived replacements without failing an unrelated author-state barrier",
+      "status": "passed",
+      "durationMs": 25.410458000000006
+    },
+    {
+      "name": "reference index durable transaction boundary captures all five source kinds and projects JSON seeds without writing author state",
+      "status": "passed",
+      "durationMs": 29.807458000000054
+    },
+    {
+      "name": "reference index durable transaction boundary reads durable node Yjs instead of a stale or invalid JSON cache",
+      "status": "passed",
+      "durationMs": 24.974083000000064
+    },
+    {
+      "name": "reference index durable transaction boundary reads durable element Yjs instead of a stale or invalid JSON cache",
+      "status": "passed",
+      "durationMs": 23.86991599999999
+    },
+    {
+      "name": "reference index durable transaction boundary reads durable storyline Yjs instead of a stale or invalid JSON cache",
+      "status": "passed",
+      "durationMs": 25.131332999999927
+    },
+    {
+      "name": "reference index durable transaction boundary reads durable category Yjs instead of a stale or invalid JSON cache",
+      "status": "passed",
+      "durationMs": 23.988665999999967
+    },
+    {
+      "name": "reference index durable transaction boundary combines snapshots and updates and keeps the same source version through compaction",
+      "status": "passed",
+      "durationMs": 28.6875
+    },
+    {
+      "name": "reference index durable transaction boundary distinguishes a revision-zero snapshot from a JSON seed",
+      "status": "passed",
+      "durationMs": 26.46225000000004
+    },
+    {
+      "name": "reference index durable transaction boundary ignores metadata and materialized-cache changes but detects only the changed prose source",
+      "status": "passed",
+      "durationMs": 25.887166999999977
+    },
+    {
+      "name": "reference index durable transaction boundary detects JSON source changes even when updatedAt is unchanged",
+      "status": "passed",
+      "durationMs": 24.140207999999916
+    },
+    {
+      "name": "reference index durable transaction boundary never falls back to JSON when a durable revision has lost its Yjs state",
+      "status": "passed",
+      "durationMs": 26.139917000000082
+    },
+    {
+      "name": "reference index durable transaction boundary preserves previous references when JSON parsing fails",
+      "status": "passed",
+      "durationMs": 24.337332999999944
+    },
+    {
+      "name": "reference index durable transaction boundary preserves previous references when persisted Yjs bytes are malformed",
+      "status": "passed",
+      "durationMs": 30.339500000000044
+    },
+    {
+      "name": "reference index durable transaction boundary rejects unresolved Yjs dependencies instead of indexing a partial document",
+      "status": "passed",
+      "durationMs": 24.928958999999963
+    },
+    {
+      "name": "reference index durable transaction boundary rejects late preparation and replacement after a newer durable prose revision",
+      "status": "passed",
+      "durationMs": 26.923874999999953
+    },
+    {
+      "name": "reference index durable transaction boundary invalidates both generation creation and generation replacement without mutating generations",
+      "status": "passed",
+      "durationMs": 25.941667000000052
+    },
+    {
+      "name": "reference index durable transaction boundary rejects results belonging to a different database or repository owner",
+      "status": "passed",
+      "durationMs": 44.38633400000003
+    },
+    {
+      "name": "reference index durable transaction boundary rejects revoked work even if it was queued before the transaction began",
+      "status": "passed",
+      "durationMs": 23.25737499999991
+    },
+    {
+      "name": "reference index durable transaction boundary rolls back replacement when its owner is revoked during the delete/insert transaction",
+      "status": "passed",
+      "durationMs": 27.123208999999974
+    },
+    {
+      "name": "reference index durable transaction boundary rolls back the deletion if replacement insertion fails and permits retry",
+      "status": "passed",
+      "durationMs": 26.001750000000015
+    },
+    {
+      "name": "reference index durable transaction boundary does not acknowledge a replacement whose commit fails",
+      "status": "passed",
+      "durationMs": 24.483166999999867
+    },
+    {
+      "name": "reference index durable transaction boundary does not resurrect hard-deleted sources and prunes their old references",
+      "status": "passed",
+      "durationMs": 24.90908300000001
+    },
+    {
+      "name": "reference index durable transaction boundary excludes trashed sources and child patches, then reprojects after restore",
+      "status": "passed",
+      "durationMs": 36.810249999999996
+    },
+    {
+      "name": "reference index durable transaction boundary rechecks current existence so an old catalog cannot prune newly created sources",
+      "status": "passed",
+      "durationMs": 34.660709
+    },
+    {
+      "name": "reference index durable transaction boundary keeps writes within the owning project and preserves unsupported source formats",
+      "status": "passed",
+      "durationMs": 26.62104199999999
+    },
+    {
+      "name": "reference index durable transaction boundary rejects changed source incarnations and sources moved to another project",
+      "status": "passed",
+      "durationMs": 25.205165999999963
+    },
+    {
+      "name": "reference index durable transaction boundary captures source rows and Yjs versions in one consistent SQLite transaction",
+      "status": "passed",
+      "durationMs": 25.211249999999836
+    },
+    {
+      "name": "reference index durable transaction boundary clears an empty committed source without changing its prose",
+      "status": "passed",
+      "durationMs": 30.99716599999988
+    },
+    {
+      "name": "reference index durable transaction boundary rejects deleted and recreated project scopes even if entity IDs are reused",
+      "status": "passed",
+      "durationMs": 26.07162500000004
+    },
+    {
+      "name": "committed prose notification scope deduplicates and freezes all four canonical prose kinds without copying payload bytes",
+      "status": "passed",
+      "durationMs": 0.9969999999999999
+    },
+    {
+      "name": "committed prose notification scope falls back to full coverage for empty, unknown or mixed mutations: undefined",
+      "status": "passed",
+      "durationMs": 0.0910830000000118
+    },
+    {
+      "name": "committed prose notification scope falls back to full coverage for empty, unknown or mixed mutations: {\"action\":\"yjs.update\",\"target\":{\"family\":\"yjs\",\"kind\":\"prose-document\",\"id\":\"node-content:\"}}",
+      "status": "passed",
+      "durationMs": 0.06045899999999449
+    },
+    {
+      "name": "committed prose notification scope falls back to full coverage for empty, unknown or mixed mutations: {\"action\":\"yjs.update\",\"target\":{\"family\":\"yjs\",\"kind\":\"prose-document\",\"id\":\"unknown:a\"}}",
+      "status": "passed",
+      "durationMs": 0.060625000000001705
+    },
+    {
+      "name": "committed prose notification scope falls back to full coverage for empty, unknown or mixed mutations: {\"action\":\"field.set\",\"target\":{\"family\":\"yjs\",\"kind\":\"prose-document\",\"id\":\"node-content:a\"}}",
+      "status": "passed",
+      "durationMs": 0.05062499999999659
+    },
+    {
+      "name": "committed prose notification scope falls back to full coverage for empty, unknown or mixed mutations: {\"action\":\"yjs.update\",\"target\":{\"family\":\"yjs\",\"kind\":\"prose-document\",\"id\":\"node-content:a\"}}",
+      "status": "passed",
+      "durationMs": 0.04520799999998815
+    },
+    {
+      "name": "committed prose notification scope falls back to full coverage for empty, unknown or mixed mutations: {\"action\":\"yjs.update\",\"target\":{\"family\":\"entity\",\"kind\":\"node\",\"id\":\"a\"}}",
+      "status": "passed",
+      "durationMs": 0.052042000000000144
+    },
+    {
+      "name": "committed prose notification scope bounds unique source identities and promotes overflow to complete capture",
+      "status": "passed",
+      "durationMs": 0.49970799999999826
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime converges two Memory replicas through durable segment, inbox, reducer, cursor and frontier receipts",
+      "status": "passed",
+      "durationMs": 121.86554100000001
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime publishes real object and byte progress for outbound and inbound transfers",
+      "status": "passed",
+      "durationMs": 62.52895799999999
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime classifies pure remote Yjs as non-blocking and structural effects as workspace-impacting",
+      "status": "passed",
+      "durationMs": 86.918
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime retries open Yjs tail reconciliation on the next cycle after a post-commit callback failure",
+      "status": "passed",
+      "durationMs": 81.15566700000011
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime retries a failed post-commit notification without reapplying or losing its prose scope",
+      "status": "passed",
+      "durationMs": 65.64570900000012
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime keeps a later writer segment dependency-pending until its contiguous predecessor arrives",
+      "status": "passed",
+      "durationMs": 87.462583
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime uses a restored applied segment-head anchor to accept the next segment and quarantine a fork",
+      "status": "passed",
+      "durationMs": 96.2841249999999
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime reconciles an upload response loss by immutable stat without duplicating the object",
+      "status": "passed",
+      "durationMs": 31.939041999999972
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime blocks a degraded provider history without turning remote removal into a domain delete",
+      "status": "passed",
+      "durationMs": 59.280750000000126
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime converges three LocalFolder replicas and replays a page after a cursor-commit crash",
+      "status": "passed",
+      "durationMs": 292.5911249999999
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime recovers an expired committed LocalFolder cursor through a durable full inventory",
+      "status": "passed",
+      "durationMs": 195.34612500000003
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime recovers an expired lowercase Drive-style pending inventory page token",
+      "status": "passed",
+      "durationMs": 144.45954199999983
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime blocks before publish when an invalid cursor rescan omits a known immutable object",
+      "status": "passed",
+      "durationMs": 127.98262499999987
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime durably quarantines malformed protocol bytes and advances discovery without domain writes",
+      "status": "passed",
+      "durationMs": 23.606917000000067
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime keeps authored writes pending without provider I/O while a binding is paused",
+      "status": "passed",
+      "durationMs": 26.619834000000083
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime publishes a detached project purge before retiring the SyncGeneration binding",
+      "status": "passed",
+      "durationMs": 26.738083000000188
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime receipts a later writer after remote purge and retires the current binding",
+      "status": "passed",
+      "durationMs": 93.44820900000013
+    },
+    {
+      "name": "SQLite durable SyncEngine runtime publishes blobs before dependent segments and installs a verified source before owner materialization",
+      "status": "passed",
+      "durationMs": 81.28654099999994
+    },
+    {
+      "name": "reference index SQLite read scope compares full and selected capture after one durable body change among 64 sources",
+      "status": "passed",
+      "durationMs": 164.19541699999996
+    },
+    {
+      "name": "reference index SQLite read scope compares full and selected capture after one durable body change among 1024 sources",
+      "status": "passed",
+      "durationMs": 1240.514625
+    }
+  ],
+  "queueOperations": {
+    "sourceCount": 100,
+    "startup": {
+      "capture": "full",
+      "sources": 100,
+      "prepared": 100,
+      "written": 100,
+      "reused": 0,
+      "removedSources": 0,
+      "failedSources": 0,
+      "stale": false
+    },
+    "metadata": {
+      "capture": "full",
+      "sources": 100,
+      "prepared": 0,
+      "written": 0,
+      "reused": 100,
+      "removedSources": 0,
+      "failedSources": 0,
+      "stale": false
+    },
+    "oneBodyChange": {
+      "capture": "sources",
+      "sources": 1,
+      "prepared": 1,
+      "written": 1,
+      "reused": 0,
+      "removedSources": 0,
+      "failedSources": 0,
+      "stale": false
+    }
+  },
+  "sqliteReads": [
+    {
+      "sources": 64,
+      "charactersPerSource": 8200,
+      "samples": [
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 272,
+            "serializedBytes": 1198573,
+            "queryMs": 0.712998999999968
+          },
+          "elapsedMs": 4.066750000000013,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 64,
+            "prepared": 1,
+            "written": 1,
+            "reused": 63,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 18,
+            "serializedBytes": 120485,
+            "queryMs": 0.2512060000000247
+          },
+          "elapsedMs": 2.1671249999999986,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 274,
+            "serializedBytes": 1201954,
+            "queryMs": 0.690584000000058
+          },
+          "elapsedMs": 5.030667000000051,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 64,
+            "prepared": 1,
+            "written": 1,
+            "reused": 63,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 20,
+            "serializedBytes": 123920,
+            "queryMs": 0.24491499999999178
+          },
+          "elapsedMs": 2.0126660000000243,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 276,
+            "serializedBytes": 1205443,
+            "queryMs": 0.6032480000001783
+          },
+          "elapsedMs": 3.549666000000002,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 64,
+            "prepared": 1,
+            "written": 1,
+            "reused": 63,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 22,
+            "serializedBytes": 127463,
+            "queryMs": 0.2526269999998476
+          },
+          "elapsedMs": 2.1227499999999964,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 278,
+            "serializedBytes": 1209044,
+            "queryMs": 0.6201230000000351
+          },
+          "elapsedMs": 3.7897080000000187,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 64,
+            "prepared": 1,
+            "written": 1,
+            "reused": 63,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 24,
+            "serializedBytes": 131120,
+            "queryMs": 0.2601280000001225
+          },
+          "elapsedMs": 2.2158749999999827,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 280,
+            "serializedBytes": 1212753,
+            "queryMs": 0.6337519999999586
+          },
+          "elapsedMs": 3.8116249999999354,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 64,
+            "prepared": 1,
+            "written": 1,
+            "reused": 63,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 26,
+            "serializedBytes": 134883,
+            "queryMs": 0.24437400000010712
+          },
+          "elapsedMs": 2.0715000000000146,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        }
+      ]
+    },
+    {
+      "sources": 1024,
+      "charactersPerSource": 8200,
+      "samples": [
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 4112,
+            "serializedBytes": 17525989,
+            "queryMs": 6.4769560000002
+          },
+          "elapsedMs": 24.994000000000142,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 1024,
+            "prepared": 1,
+            "written": 1,
+            "reused": 1023,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 18,
+            "serializedBytes": 120219,
+            "queryMs": 0.2720409999999447
+          },
+          "elapsedMs": 2.1198329999999714,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 4114,
+            "serializedBytes": 17529270,
+            "queryMs": 5.283748000000287
+          },
+          "elapsedMs": 19.95729100000017,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 1024,
+            "prepared": 1,
+            "written": 1,
+            "reused": 1023,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 20,
+            "serializedBytes": 123554,
+            "queryMs": 0.2623710000000301
+          },
+          "elapsedMs": 2.081666999999925,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 4116,
+            "serializedBytes": 17532659,
+            "queryMs": 5.254332999999178
+          },
+          "elapsedMs": 19.00149999999985,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 1024,
+            "prepared": 1,
+            "written": 1,
+            "reused": 1023,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 22,
+            "serializedBytes": 126997,
+            "queryMs": 0.2900440000000799
+          },
+          "elapsedMs": 2.102999999999838,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 4118,
+            "serializedBytes": 17536160,
+            "queryMs": 5.958665000000337
+          },
+          "elapsedMs": 19.700207999999975,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 1024,
+            "prepared": 1,
+            "written": 1,
+            "reused": 1023,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 24,
+            "serializedBytes": 130554,
+            "queryMs": 0.2508309999991525
+          },
+          "elapsedMs": 2.0587920000000395,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "full",
+          "reads": {
+            "queries": 33,
+            "rows": 4120,
+            "serializedBytes": 17539769,
+            "queryMs": 5.619499999999107
+          },
+          "elapsedMs": 19.757875000000013,
+          "publications": 1,
+          "stats": {
+            "capture": "full",
+            "sources": 1024,
+            "prepared": 1,
+            "written": 1,
+            "reused": 1023,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        },
+        {
+          "capture": "sources",
+          "reads": {
+            "queries": 21,
+            "rows": 26,
+            "serializedBytes": 134217,
+            "queryMs": 0.26328999999941516
+          },
+          "elapsedMs": 2.2409999999999854,
+          "publications": 1,
+          "stats": {
+            "capture": "sources",
+            "sources": 1,
+            "prepared": 1,
+            "written": 1,
+            "reused": 0,
+            "removedSources": 0,
+            "failedSources": 0,
+            "stale": false
+          }
+        }
+      ]
+    }
+  ],
+  "ui": {
+    "browser": "Chrome/153.0.8010.36",
+    "mode": "production React profiling renderer; fixture status seam; actual notice/styles/locales",
+    "mountedCommits": 1,
+    "healthyNotifications": 100,
+    "healthyProgressCommits": 0,
+    "checks": [
+      {
+        "id": "failure-visible",
+        "passed": true
+      },
+      {
+        "id": "retry-project-identity",
+        "passed": true
+      },
+      {
+        "id": "recovery-hides-notice",
+        "passed": true
+      },
+      {
+        "id": "project-switch",
+        "passed": true
+      },
+      {
+        "id": "unmount-cleanup",
+        "passed": true
+      }
+    ],
+    "layouts": [
+      {
+        "language": "zh-CN",
+        "dark": false,
+        "viewportWidth": 375,
+        "noticeWidth": 327,
+        "noticeHeight": 38.25,
+        "fits": true
+      },
+      {
+        "language": "en",
+        "dark": true,
+        "viewportWidth": 375,
+        "noticeWidth": 327,
+        "noticeHeight": 38.25,
+        "fits": true
+      },
+      {
+        "language": "zh-CN",
+        "dark": false,
+        "viewportWidth": 1280,
+        "noticeWidth": 400,
+        "noticeHeight": 38.25,
+        "fits": true
+      }
+    ]
+  },
+  "acceptance": {
+    "durableTransactionBoundary": "passed",
+    "runtimeQueueConnected": true,
+    "hardKillRecovery": "not-run",
+    "nativeOrPhysicalDevice": "not-run",
+    "performanceComparison": "sqlite-returned-data-and-headless-timings"
+  },
+  "limitations": [
+    "Provider and editor wiring is implemented; SQLite tests exercise the service with ordinary, Agent and remote commit events. Full application/native/device acceptance is not exercised.",
+    "Failure injection, rollback and owner restart are exercised in-process; process termination and restart recovery are not exercised.",
+    "The read matrix compares the current full-capture fallback with selected capture on identical synthetic data. It is not a separate historical-build comparison.",
+    "SQL timings are Node SQLite gateway observations. Pass elapsed time includes query result serialization used to count returned bytes. Neither establishes native IPC, input latency or total workspace refresh time.",
+    "Returned rows and serialized bytes measure data crossing the query adapter, not SQLite physical pages scanned. Source parsing/replacement is one in both modes, with one project reference publication in both modes.",
+    "Startup, restore, sync-runtime recreation, unknown or oversized scopes, failed or stale writes and structural changes retain complete capture. Structural workspace partial reads remain pending.",
+    "UI behavior/layout use an isolated real component with a fixture status seam; they do not prove the complete reference panel or native shell."
+  ]
+}

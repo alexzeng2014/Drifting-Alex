@@ -1,0 +1,1141 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import type { AgentModelRequest, AgentModelStreamEvent } from '../types';
+import { OpenAIResponsesAgentDriver, promptCacheKey } from './openai-responses-driver';
+import { setCodexModelCatalog } from '../agent-provider-contract';
+
+function request(overrides: Partial<AgentModelRequest> = {}): AgentModelRequest {
+  return {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    iteration: 1,
+    provider: 'openai',
+    model: 'gpt-5.6-sol',
+    context: {
+      systemPrompt: 'Use only certified tools.',
+      messages: [
+        {
+          type: 'model_message',
+          sourceIds: ['message/user/1'],
+          message: { role: 'user', content: 'Search rain.' },
+        },
+      ],
+    },
+    tools: [
+      {
+        name: 'search',
+        description: 'Search the manuscript.',
+        inputSchema: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+          additionalProperties: false,
+        },
+      },
+    ],
+    maxOutputTokens: 512,
+    reasoning: { enabled: true, effort: 'max' },
+    signal: new AbortController().signal,
+    ...overrides,
+  };
+}
+
+async function collect(
+  driver: OpenAIResponsesAgentDriver,
+  input: AgentModelRequest,
+): Promise<AgentModelStreamEvent[]> {
+  const events: AgentModelStreamEvent[] = [];
+  for await (const event of driver.stream(input)) events.push(event);
+  return events;
+}
+
+function sse(events: readonly Record<string, unknown>[]): string {
+  return `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')}data: [DONE]\n\n`;
+}
+
+describe('OpenAI Responses Agent driver', () => {
+  it.each(['openai', 'openai-codex'] as const)('preserves optional tool arguments for %s', async (provider) => {
+    const transport = { request: vi.fn(async (_body: string) => new Response(sse([
+      { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ]))) };
+    const driver = new OpenAIResponsesAgentDriver({ provider, transport });
+    const inputSchema = {
+      type: 'object', properties: { chapter: { type: 'string' }, version: { type: 'string' } },
+      required: ['chapter'], additionalProperties: false,
+    };
+    await collect(driver, request({ provider, tools: [{ name: 'read_chapter', description: 'Read a chapter.', inputSchema }] }));
+    expect(JSON.parse(transport.request.mock.calls[0]![0]).tools).toEqual([{
+      type: 'function', name: 'read_chapter', description: 'Read a chapter.',
+      parameters: inputSchema, strict: false,
+    }, { type: 'web_search', external_web_access: true }]);
+  });
+
+  it.each([
+    { label: 'free choice', toolChoice: undefined, offered: true },
+    { label: 'auto', toolChoice: 'auto' as const, offered: true },
+    { label: 'a forced function', toolChoice: { force: 'search' }, offered: true },
+    { label: 'required', toolChoice: 'required' as const, offered: false },
+    // Listed but uncallable, so the synthesis boundary keeps the cache prefix.
+    { label: 'none', toolChoice: 'none' as const, offered: true },
+  ])('offers hosted web search with $label', async ({ toolChoice, offered }) => {
+    const transport = { request: vi.fn(async (_body: string) => new Response(sse([
+      { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ]))) };
+    const driver = new OpenAIResponsesAgentDriver({ provider: 'openai-codex', transport });
+    await collect(driver, request({ provider: 'openai-codex', toolChoice }));
+    const tools = JSON.parse(transport.request.mock.calls[0]![0]).tools as { type: string }[];
+    expect(tools.some((tool) => tool.type === 'web_search')).toBe(offered);
+    expect(tools.filter((tool) => tool.type === 'function')).toHaveLength(1);
+  });
+
+  it('sends no tools at all, hosted ones included, for a tool-free request', async () => {
+    const transport = { request: vi.fn(async (_body: string) => new Response(sse([
+      { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ]))) };
+    const driver = new OpenAIResponsesAgentDriver({ provider: 'openai', transport });
+    await collect(driver, request({ tools: [] }));
+    expect(JSON.parse(transport.request.mock.calls[0]![0])).not.toHaveProperty('tools');
+  });
+
+  it('reports each hosted search once and finishes a search-only answer as end_turn', async () => {
+    const searchItem = {
+      id: 'ws_1', type: 'web_search_call', status: 'completed',
+      action: { type: 'search', query: '水浒传 拳打镇关西', queries: ['水浒传 拳打镇关西'] },
+    };
+    const pageItem = {
+      id: 'ws_2', type: 'web_search_call', status: 'completed',
+      action: { type: 'open_page', url: 'https://zh.wikisource.org/wiki/水滸傳' },
+    };
+    const findItem = {
+      id: 'ws_3', type: 'web_search_call', status: 'failed',
+      action: { type: 'find_in_page', url: 'https://example.org/a', pattern: '鲁达' },
+    };
+    const message = {
+      id: 'msg_1', type: 'message', role: 'assistant', status: 'completed',
+      content: [{ type: 'output_text', text: '见第三回。', annotations: [] }],
+    };
+    const transport = { request: vi.fn(async (_body: string) => new Response(sse([
+      { type: 'response.output_item.added', output_index: 0, item: { id: 'ws_1', type: 'web_search_call', status: 'in_progress' } },
+      { type: 'response.web_search_call.in_progress', item_id: 'ws_1', output_index: 0 },
+      { type: 'response.web_search_call.searching', item_id: 'ws_1', output_index: 0 },
+      { type: 'response.web_search_call.completed', item_id: 'ws_1', output_index: 0 },
+      { type: 'response.output_item.done', output_index: 0, item: searchItem },
+      { type: 'response.output_item.done', output_index: 1, item: pageItem },
+      { type: 'response.output_text.delta', delta: '见第三回。' },
+      { type: 'response.output_item.done', output_index: 2, item: message },
+      {
+        type: 'response.completed',
+        // `find_in_page` arrives only on the terminal snapshot here.
+        response: { status: 'completed', output: [searchItem, pageItem, message, findItem], usage: { input_tokens: 3, output_tokens: 2 } },
+      },
+    ]))) };
+    const driver = new OpenAIResponsesAgentDriver({ provider: 'openai', transport });
+    const events = await collect(driver, request({ reasoning: { enabled: false } }));
+    expect(events.filter((event) => event.type === 'provider_tool')).toEqual([
+      { type: 'provider_tool', callId: 'ws_1', name: 'web_search', input: { query: '水浒传 拳打镇关西' }, ok: true },
+      { type: 'provider_tool', callId: 'ws_2', name: 'web_open_page', input: { url: 'https://zh.wikisource.org/wiki/水滸傳' }, ok: true },
+      { type: 'provider_tool', callId: 'ws_3', name: 'web_open_page', input: { url: 'https://example.org/a' }, ok: false },
+    ]);
+    expect(events[events.length - 1]).toEqual({ type: 'finish', reason: 'end_turn' });
+    expect(events.findIndex((event) => event.type === 'provider_tool' && event.callId === 'ws_3'))
+      .toBeLessThan(events.findIndex((event) => event.type === 'usage'));
+  });
+
+  it('rejects a stream that reports the same hosted search twice', async () => {
+    const searchItem = { id: 'ws_1', type: 'web_search_call', status: 'completed', action: { type: 'search', query: 'rain' } };
+    const transport = { request: vi.fn(async (_body: string) => new Response(sse([
+      { type: 'response.output_item.done', output_index: 0, item: searchItem },
+      { type: 'response.output_item.done', output_index: 1, item: searchItem },
+      { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ]))) };
+    const driver = new OpenAIResponsesAgentDriver({
+      provider: 'openai', transport,
+      providerAttemptRetry: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0, jitter: false },
+    });
+    await expect(collect(driver, request({ reasoning: { enabled: false } }))).rejects.toThrow('invalid Responses stream');
+  });
+
+  it('replays hosted search items with the Codex tool batch when the terminal output is empty', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const reasoningItem = { id: 'rs_1', type: 'reasoning', encrypted_content: 'encrypted', summary: [] };
+    const searchItem = {
+      id: 'ws_1', type: 'web_search_call', status: 'completed',
+      action: { type: 'search', query: 'rain', queries: ['rain'] },
+    };
+    const functionItem = {
+      id: 'fc_1', type: 'function_call', call_id: 'call-1', name: 'search',
+      arguments: '{"query":"rain"}', status: 'completed',
+    };
+    let call = 0;
+    const transport = {
+      request: vi.fn(async (body: string) => {
+        bodies.push(JSON.parse(body) as Record<string, unknown>);
+        call += 1;
+        if (call === 1) {
+          return new Response(sse([
+            { type: 'response.output_item.done', output_index: 0, item: reasoningItem },
+            { type: 'response.output_item.added', output_index: 1, item: { id: 'ws_1', type: 'web_search_call', status: 'in_progress' } },
+            { type: 'response.output_item.done', output_index: 1, item: searchItem },
+            {
+              type: 'response.output_item.added', output_index: 2,
+              item: { ...functionItem, arguments: '', status: 'in_progress' },
+            },
+            { type: 'response.function_call_arguments.delta', item_id: 'fc_1', output_index: 2, delta: '{"query":"rain"}' },
+            { type: 'response.output_item.done', output_index: 2, item: functionItem },
+            { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 4, output_tokens: 2 } } },
+          ]));
+        }
+        return new Response(sse([
+          { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 5, output_tokens: 1 } } },
+        ]));
+      }),
+    };
+    const driver = new OpenAIResponsesAgentDriver({ provider: 'openai-codex', defaultModel: 'gpt-5.6-sol', transport });
+
+    const first = await collect(driver, request({ provider: 'openai-codex' }));
+    expect(first.filter((event) => event.type === 'provider_tool')).toEqual([
+      { type: 'provider_tool', callId: 'ws_1', name: 'web_search', input: { query: 'rain' }, ok: true },
+    ]);
+    expect(first[first.length - 1]).toEqual({ type: 'finish', reason: 'tool_use' });
+
+    await collect(driver, request({
+      provider: 'openai-codex',
+      iteration: 2,
+      context: {
+        systemPrompt: 'Use only certified tools.',
+        messages: [
+          { type: 'model_message', sourceIds: ['message/user/1'], message: { role: 'user', content: 'Search rain.' } },
+          {
+            type: 'model_message', sourceIds: ['message/assistant/1/tool'],
+            message: {
+              role: 'assistant',
+              content: [{ type: 'tool_call', callId: 'call-1', name: 'search', arguments: { query: 'rain' }, rawArguments: '{"query":"rain"}' }],
+            },
+          },
+          {
+            type: 'model_message', sourceIds: ['message/tool/1'],
+            message: { role: 'tool', content: [{ callId: 'call-1', name: 'search', ok: true, content: '{"matches":[]}' }] },
+          },
+        ],
+      },
+    }));
+    expect(bodies[1]?.input).toEqual([
+      { role: 'user', content: 'Search rain.' },
+      reasoningItem,
+      searchItem,
+      functionItem,
+      { type: 'function_call_output', call_id: 'call-1', output: '{"matches":[]}' },
+    ]);
+  });
+
+  it.each(['openai', 'openai-codex'] as const)('omits a default output cap for %s even for long responses', async (provider) => {
+    const transport = { request: vi.fn(async (_body: string) => new Response(sse([
+      { type: 'response.output_text.delta', delta: 'Finished naturally.' },
+      { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 16_384 } } },
+    ]))) };
+    const driver = new OpenAIResponsesAgentDriver({ provider, transport });
+    const events = await collect(driver, request({ provider, tools: [], maxOutputTokens: null }));
+    expect(JSON.parse(transport.request.mock.calls[0]![0])).not.toHaveProperty('max_output_tokens');
+    expect(events).toContainEqual({ type: 'finish', reason: 'end_turn' });
+    expect(events.find((event) => event.type === 'usage')).toMatchObject({ usage: { outputTokens: 16_384 } });
+  });
+
+  it.each([
+    { efforts: ['low', 'ultra'], enabled: true, expected: 'ultra' },
+    { efforts: ['low', 'ultra'], enabled: false, expected: 'ultra' },
+    { efforts: [], enabled: true, expected: 'none' },
+  ])('keeps discovered capabilities stable and sends $expected reasoning', async ({ efforts, enabled, expected }) => {
+    setCodexModelCatalog([{
+      slug: 'gpt-next', displayName: 'Next', contextWindow: 256_000,
+      supportedReasoningEfforts: efforts, defaultReasoningEffort: 'low',
+      supportsReasoningSummary: false, supportsVerbosity: false,
+    }]);
+    try {
+      const transport = { request: vi.fn<(body: string, signal: AbortSignal) => Promise<Response>>(async () => new Response(sse([{
+        type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } },
+      }]))) };
+      const driver = new OpenAIResponsesAgentDriver({ provider: 'openai-codex', defaultModel: 'gpt-next', transport });
+      setCodexModelCatalog(null);
+      await collect(driver, request({ provider: 'openai-codex', model: 'gpt-next', tools: [], reasoning: { enabled, effort: 'ultra' } }));
+      const body = JSON.parse(transport.request.mock.calls[0]![0] as string);
+      expect(body).toMatchObject({ model: 'gpt-next', reasoning: { effort: expected } });
+      expect(body.reasoning).not.toHaveProperty('summary');
+      expect(body).not.toHaveProperty('text');
+      expect(driver.capabilities.context.contextWindowTokens).toBe(256_000);
+    } finally {
+      setCodexModelCatalog(null);
+    }
+  });
+  it('resamples a tool-capable attempt after a rate limit and buffers the stream', async () => {
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        return new Response('rate limited', {
+          status: 429,
+          headers: { 'retry-after': '0' },
+        });
+      }
+      return new Response(
+        sse([
+          {
+            type: 'response.completed',
+            response: {
+              status: 'completed',
+              output: [],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        ]),
+        { status: 200 },
+      );
+    });
+    const driver = new OpenAIResponsesAgentDriver({
+      apiKey: 'test',
+      fetch: fetchMock,
+      providerAttemptRetry: { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0, jitter: false },
+    });
+
+    const events = await collect(driver, request({ reasoning: { enabled: false } }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(events[events.length - 1]).toEqual({ type: 'finish', reason: 'end_turn' });
+  });
+
+  it('never resamples a tool-free synthesis attempt', async () => {
+    const fetchMock = vi.fn(async () => new Response('rate limited', { status: 429 }));
+    const driver = new OpenAIResponsesAgentDriver({
+      apiKey: 'test',
+      fetch: fetchMock,
+      providerAttemptRetry: { maxAttempts: 3, baseDelayMs: 0, maxDelayMs: 0, jitter: false },
+    });
+
+    await expect(
+      collect(driver, request({ tools: [], reasoning: { enabled: false } })),
+    ).rejects.toThrow('rate limit');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a forced completion tool to Responses tool_choice', async () => {
+    let body: Record<string, unknown> | undefined;
+    const driver = new OpenAIResponsesAgentDriver({
+      apiKey: 'test',
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          sse([
+            {
+              type: 'response.completed',
+              response: {
+                status: 'completed',
+                output: [],
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+    });
+
+    await collect(
+      driver,
+      request({ reasoning: { enabled: false }, toolChoice: { force: 'search' } }),
+    );
+
+    expect(body?.tool_choice).toEqual({ type: 'function', name: 'search' });
+  });
+
+  it('serializes a required action with reasoning effort none for one sample', async () => {
+    let body: Record<string, unknown> | undefined;
+    const driver = new OpenAIResponsesAgentDriver({
+      apiKey: 'test',
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          sse([
+            {
+              type: 'response.completed',
+              response: {
+                status: 'completed',
+                output: [],
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+    });
+
+    await collect(
+      driver,
+      request({
+        executionMode: 'required_tool_non_reasoning',
+        toolChoice: 'required',
+      }),
+    );
+
+    expect(body?.tool_choice).toBe('required');
+    expect(body?.reasoning).toEqual({ effort: 'none' });
+    expect(body).not.toHaveProperty('include');
+  });
+
+  it('replays encrypted reasoning across a tool result followed by author steering', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const reasoningItem = {
+      id: 'rs_1',
+      type: 'reasoning',
+      encrypted_content: 'encrypted-active-turn-state',
+      summary: [{ type: 'summary_text', text: 'Need to search.' }],
+    };
+    const functionItem = {
+      id: 'fc_1',
+      type: 'function_call',
+      call_id: 'call-1',
+      name: 'search',
+      arguments: '{"query":"rain"}',
+      status: 'completed',
+    };
+    let call = 0;
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      call += 1;
+      if (call === 1) {
+        return new Response(
+          sse([
+            {
+              type: 'response.reasoning_summary_text.delta',
+              delta: 'Need to search.',
+            },
+            {
+              type: 'response.output_item.added',
+              item: {
+                id: 'fc_1',
+                type: 'function_call',
+                call_id: 'call-1',
+                name: 'search',
+                arguments: '',
+              },
+            },
+            {
+              type: 'response.function_call_arguments.delta',
+              item_id: 'fc_1',
+              delta: '{"query":"rain"}',
+            },
+            { type: 'response.output_item.done', item: functionItem },
+            {
+              type: 'response.completed',
+              response: {
+                status: 'completed',
+                output: [reasoningItem, functionItem],
+                usage: {
+                  input_tokens: 40,
+                  output_tokens: 12,
+                  input_tokens_details: { cached_tokens: 7 },
+                },
+              },
+            },
+          ]),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        );
+      }
+      return new Response(
+        sse([
+          { type: 'response.output_text.delta', delta: 'Found it.' },
+          {
+            type: 'response.completed',
+            response: {
+              status: 'completed',
+              output: [
+                {
+                  id: 'msg_2',
+                  type: 'message',
+                  role: 'assistant',
+                  status: 'completed',
+                  content: [{ type: 'output_text', text: 'Found it.', annotations: [] }],
+                },
+              ],
+              usage: { input_tokens: 55, output_tokens: 8 },
+            },
+          },
+        ]),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      );
+    });
+    const driver = new OpenAIResponsesAgentDriver({
+      apiKey: 'openai-test-key',
+      endpoint: 'https://openai.test/v1/responses',
+      fetch: fetchMock,
+    });
+
+    await expect(collect(driver, request())).resolves.toEqual([
+      { type: 'thinking_delta', text: 'Need to search.' },
+      { type: 'tool_call_start', callId: 'call-1', name: 'search' },
+      { type: 'tool_args_delta', callId: 'call-1', delta: '{"query":"rain"}' },
+      { type: 'tool_call_end', callId: 'call-1' },
+      {
+        type: 'usage',
+        usage: {
+          inputTokens: 40,
+          outputTokens: 12,
+          cacheReadTokens: 7,
+          cacheWriteTokens: 0,
+          costUsd: 0,
+        },
+      },
+      { type: 'finish', reason: 'tool_use' },
+    ]);
+
+    await expect(
+      collect(
+        driver,
+        request({
+          iteration: 2,
+          context: {
+            systemPrompt: 'Use only certified tools.',
+            messages: [
+              {
+                type: 'model_message',
+                sourceIds: ['message/user/1'],
+                message: { role: 'user', content: 'Search rain.' },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/assistant/1/thinking', 'message/assistant/1/tool'],
+                message: {
+                  role: 'assistant',
+                  content: [
+                    { type: 'thinking', text: 'Need to search.' },
+                    {
+                      type: 'tool_call',
+                      callId: 'call-1',
+                      name: 'search',
+                      arguments: { query: 'rain' },
+                      rawArguments: '{"query":"rain"}',
+                    },
+                  ],
+                },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/tool/1'],
+                message: {
+                  role: 'tool',
+                  content: [
+                    {
+                      callId: 'call-1',
+                      name: 'search',
+                      ok: true,
+                      content: '{"matches":["rain"]}',
+                    },
+                  ],
+                },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/user/steering/1'],
+                message: {
+                  role: 'user',
+                  content: 'Keep the continuation inside the established world.',
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    ).resolves.toEqual([
+      { type: 'text_delta', text: 'Found it.' },
+      {
+        type: 'usage',
+        usage: {
+          inputTokens: 55,
+          outputTokens: 8,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          costUsd: 0,
+        },
+      },
+      { type: 'finish', reason: 'end_turn' },
+    ]);
+
+    expect(bodies[0]).toMatchObject({
+      model: 'gpt-5.6-sol',
+      store: false,
+      include: ['reasoning.encrypted_content'],
+      reasoning: { effort: 'max', summary: 'auto', context: 'current_turn' },
+      tool_choice: 'auto',
+      prompt_cache_key: 'drifting-agent:session-1',
+    });
+    // A stable per-session key routes iterations that share the same prompt
+    // prefix to the same automatic-cache shard.
+    expect(bodies[1]?.prompt_cache_key).toBe(bodies[0]?.prompt_cache_key);
+    expect(bodies[1]?.input).toEqual([
+      { role: 'user', content: 'Search rain.' },
+      reasoningItem,
+      functionItem,
+      {
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: '{"matches":["rain"]}',
+      },
+      {
+        role: 'user',
+        content: 'Keep the continuation inside the established world.',
+      },
+    ]);
+  });
+
+  it('reconstructs Codex tool replay when the terminal output array is empty', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const reasoningItem = {
+      id: 'rs_codex_1',
+      type: 'reasoning',
+      encrypted_content: 'encrypted-codex-state',
+      summary: [],
+    };
+    const functionItem = {
+      id: 'fc_codex_1',
+      type: 'function_call',
+      call_id: 'call-codex-1',
+      name: 'search',
+      arguments: '{"query":"rain"}',
+      status: 'completed',
+    };
+    let call = 0;
+    const transport = {
+      request: vi.fn(async (body: string) => {
+        bodies.push(JSON.parse(body) as Record<string, unknown>);
+        call += 1;
+        if (call === 1) {
+          return new Response(
+            sse([
+              {
+                type: 'response.output_item.done',
+                output_index: 0,
+                item: reasoningItem,
+              },
+              {
+                type: 'response.output_item.added',
+                output_index: 1,
+                item: {
+                  id: 'fc_codex_1',
+                  type: 'function_call',
+                  call_id: 'call-codex-1',
+                  name: 'search',
+                  arguments: '',
+                  status: 'in_progress',
+                },
+              },
+              {
+                type: 'response.function_call_arguments.delta',
+                item_id: 'fc_codex_1',
+                output_index: 1,
+                delta: '{"query":"rain"}',
+              },
+              {
+                type: 'response.output_item.done',
+                output_index: 1,
+                item: functionItem,
+              },
+              {
+                type: 'response.completed',
+                response: {
+                  status: 'completed',
+                  // The ChatGPT Codex backend streams complete output items but
+                  // currently omits them from the terminal response snapshot.
+                  output: [],
+                  usage: { input_tokens: 40, output_tokens: 12 },
+                },
+              },
+            ]),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } },
+          );
+        }
+        return new Response(
+          sse([
+            {
+              type: 'response.completed',
+              response: {
+                status: 'completed',
+                output: [],
+                usage: { input_tokens: 50, output_tokens: 8 },
+              },
+            },
+          ]),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        );
+      }),
+    };
+    const driver = new OpenAIResponsesAgentDriver({
+      provider: 'openai-codex',
+      defaultModel: 'gpt-5.6-sol',
+      transport,
+    });
+
+    await expect(
+      collect(driver, request({ provider: 'openai-codex' })),
+    ).resolves.toContainEqual({ type: 'finish', reason: 'tool_use' });
+
+    await expect(
+      collect(
+        driver,
+        request({
+          provider: 'openai-codex',
+          iteration: 2,
+          context: {
+            systemPrompt: 'Use only certified tools.',
+            messages: [
+              {
+                type: 'model_message',
+                sourceIds: ['message/user/1'],
+                message: { role: 'user', content: 'Search rain.' },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/assistant/1/tool'],
+                message: {
+                  role: 'assistant',
+                  content: [
+                    {
+                      type: 'tool_call',
+                      callId: 'call-codex-1',
+                      name: 'search',
+                      arguments: { query: 'rain' },
+                      rawArguments: '{"query":"rain"}',
+                    },
+                  ],
+                },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/tool/1'],
+                message: {
+                  role: 'tool',
+                  content: [
+                    {
+                      callId: 'call-codex-1',
+                      name: 'search',
+                      ok: true,
+                      content: '{"matches":["rain"]}',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    ).resolves.toContainEqual({ type: 'finish', reason: 'end_turn' });
+
+    expect(bodies[1]?.input).toEqual([
+      { role: 'user', content: 'Search rain.' },
+      reasoningItem,
+      functionItem,
+      {
+        type: 'function_call_output',
+        call_id: 'call-codex-1',
+        output: '{"matches":["rain"]}',
+      },
+    ]);
+  });
+
+  it('still fails locally when an active reasoning tool call has no replay state', async () => {
+    const fetchMock = vi.fn();
+    const driver = new OpenAIResponsesAgentDriver({ apiKey: 'test', fetch: fetchMock });
+
+    await expect(
+      collect(
+        driver,
+        request({
+          iteration: 2,
+          context: {
+            systemPrompt: 'Use only certified tools.',
+            messages: [
+              {
+                type: 'model_message',
+                sourceIds: ['message/user/1'],
+                message: { role: 'user', content: 'Search rain.' },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/assistant/1/tool'],
+                message: {
+                  role: 'assistant',
+                  content: [
+                    {
+                      type: 'tool_call',
+                      callId: 'missing-replay',
+                      name: 'search',
+                      arguments: { query: 'rain' },
+                      rawArguments: '{"query":"rain"}',
+                    },
+                  ],
+                },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/tool/1'],
+                message: {
+                  role: 'tool',
+                  content: [
+                    {
+                      callId: 'missing-replay',
+                      name: 'search',
+                      ok: true,
+                      content: '{"matches":[]}',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    ).rejects.toThrow(
+      'OpenAI reasoning replay state is unavailable for the active tool loop.',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails locally instead of sending a partially retained parallel reasoning batch', async () => {
+    const reasoningItem = {
+      id: 'rs_parallel',
+      type: 'reasoning',
+      encrypted_content: 'encrypted-parallel-state',
+      summary: [],
+    };
+    const firstFunction = {
+      id: 'fc_parallel_1',
+      type: 'function_call',
+      call_id: 'parallel-1',
+      name: 'read_object',
+      arguments: '{"target":"one"}',
+      status: 'completed',
+    };
+    const secondFunction = {
+      id: 'fc_parallel_2',
+      type: 'function_call',
+      call_id: 'parallel-2',
+      name: 'read_object',
+      arguments: '{"target":"two"}',
+      status: 'completed',
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        sse([
+          { type: 'response.output_item.added', item: firstFunction },
+          { type: 'response.output_item.done', item: firstFunction },
+          { type: 'response.output_item.added', item: secondFunction },
+          { type: 'response.output_item.done', item: secondFunction },
+          {
+            type: 'response.completed',
+            response: {
+              status: 'completed',
+              output: [reasoningItem, firstFunction, secondFunction],
+              usage: { input_tokens: 10, output_tokens: 5 },
+            },
+          },
+        ]),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+    const driver = new OpenAIResponsesAgentDriver({ apiKey: 'test', fetch: fetchMock });
+
+    await collect(driver, request());
+
+    await expect(
+      collect(
+        driver,
+        request({
+          iteration: 2,
+          context: {
+            systemPrompt: 'Use only certified tools.',
+            messages: [
+              {
+                type: 'model_message',
+                sourceIds: ['message/user/1'],
+                message: { role: 'user', content: 'Read both objects.' },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/assistant/parallel-2'],
+                message: {
+                  role: 'assistant',
+                  content: [
+                    {
+                      type: 'tool_call',
+                      callId: 'parallel-2',
+                      name: 'read_object',
+                      arguments: { target: 'two' },
+                      rawArguments: '{"target":"two"}',
+                    },
+                  ],
+                },
+              },
+              {
+                type: 'model_message',
+                sourceIds: ['message/tool/parallel-2'],
+                message: {
+                  role: 'tool',
+                  content: [
+                    {
+                      callId: 'parallel-2',
+                      name: 'read_object',
+                      ok: true,
+                      content: 'two result',
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    ).rejects.toThrow('OpenAI reasoning replay cannot partially retain a parallel tool batch.');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('maps thinking off to reasoning effort none without requesting encrypted state', async () => {
+    let body: Record<string, unknown> | undefined;
+    const driver = new OpenAIResponsesAgentDriver({
+      apiKey: 'test',
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          sse([
+            {
+              type: 'response.completed',
+              response: {
+                status: 'completed',
+                output: [],
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            },
+          ]),
+          { status: 200 },
+        );
+      },
+    });
+    await collect(
+      driver,
+      request({ tools: [], reasoning: { enabled: false, effort: 'high' } }),
+    );
+    expect(body?.reasoning).toEqual({ effort: 'none' });
+    expect(body).not.toHaveProperty('include');
+  });
+
+  it('uses a native transport without requiring or serializing an API key', async () => {
+    const transport = {
+      request: vi.fn(async (body: string) => {
+        expect(body).not.toContain('sk-native-secret');
+        return new Response(
+          sse([
+            {
+              type: 'response.completed',
+              response: {
+                status: 'completed',
+                output: [],
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            },
+          ]),
+          { status: 200 },
+        );
+      }),
+    };
+    const driver = new OpenAIResponsesAgentDriver({
+      defaultModel: 'gpt-5.6-luna',
+      transport,
+    });
+
+    await expect(
+      collect(
+        driver,
+        request({ model: 'gpt-5.6-luna', tools: [], reasoning: { enabled: false } }),
+      ),
+    ).resolves.toContainEqual({ type: 'finish', reason: 'end_turn' });
+    expect(transport.request).toHaveBeenCalledOnce();
+    expect(JSON.parse(transport.request.mock.calls[0]![0])).toMatchObject({
+      model: 'gpt-5.6-luna',
+      stream: true,
+      store: false,
+    });
+  });
+
+  it('mirrors the official CLI body on the ChatGPT subscription route', async () => {
+    const transport = {
+      request: vi.fn(
+        async (_body: string) =>
+          new Response(
+            sse([
+              {
+                type: 'response.completed',
+                response: {
+                  status: 'completed',
+                  output: [],
+                  usage: { input_tokens: 1, output_tokens: 1 },
+                },
+              },
+            ]),
+            { status: 200 },
+          ),
+      ),
+    };
+    const driver = new OpenAIResponsesAgentDriver({
+      provider: 'openai-codex',
+      defaultModel: 'gpt-6-luna',
+      transport,
+    });
+    expect(driver.capabilities.context.id).toBe('gpt-6-luna:responses-codex-v1');
+
+    await expect(
+      collect(
+        driver,
+        request({
+          provider: 'openai-codex',
+          model: 'gpt-6-luna',
+          tools: [],
+          reasoning: { enabled: false },
+        }),
+      ),
+    ).resolves.toContainEqual({ type: 'finish', reason: 'end_turn' });
+    const body = JSON.parse(transport.request.mock.calls[0]![0]) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      model: 'gpt-6-luna',
+      stream: true,
+      store: false,
+      text: { verbosity: 'medium' },
+    });
+    expect(typeof body.instructions).toBe('string');
+    expect(body).not.toHaveProperty('max_output_tokens');
+  });
+
+  it('tells the author to sign in when the subscription credential is missing', async () => {
+    const driver = new OpenAIResponsesAgentDriver({
+      provider: 'openai-codex',
+      transport: {
+        request: async () => {
+          throw new Error('CODEX_CREDENTIAL_MISSING: no ChatGPT subscription is signed in');
+        },
+      },
+    });
+
+    await expect(
+      collect(
+        driver,
+        request({ provider: 'openai-codex', tools: [], reasoning: { enabled: false } }),
+      ),
+    ).rejects.toThrow('ChatGPT subscription is not signed in');
+  });
+
+  it('surfaces native model entitlement and request id without raw response data', async () => {
+    const driver = new OpenAIResponsesAgentDriver({
+      transport: {
+        request: async () =>
+          new Response(null, {
+            status: 404,
+            headers: {
+              'x-drifting-openai-error-code': 'model_unavailable',
+              'x-request-id': 'req_safe_123',
+            },
+          }),
+      },
+    });
+
+    await expect(collect(driver, request())).rejects.toThrow(
+      'The selected OpenAI model is unavailable to this API key. Request ID: req_safe_123.',
+    );
+  });
+
+  it('locates a rejected request by the native identifier projection', async () => {
+    const driver = new OpenAIResponsesAgentDriver({
+      transport: {
+        request: async () =>
+          new Response(null, {
+            status: 400,
+            headers: {
+              'x-drifting-openai-error-code': 'invalid_request',
+              'x-drifting-openai-error-message':
+                'OpenAI rejected the Responses request (HTTP 400; type invalid_request_error; param input[42]).',
+            },
+          }),
+      },
+    });
+
+    await expect(collect(driver, request())).rejects.toThrow(
+      'OpenAI rejected the Responses request (HTTP 400; type invalid_request_error; param input[42]).',
+    );
+  });
+
+  it('does not leak an authentication response body', async () => {
+    const driver = new OpenAIResponsesAgentDriver({
+      apiKey: 'secret-key',
+      fetch: async () =>
+        new Response('Bearer secret-key at https://internal.invalid', { status: 401 }),
+    });
+    await expect(collect(driver, request())).rejects.toThrow(
+      'OpenAI authentication or project access failed.',
+    );
+  });
+});
+
+describe('OpenAI Responses image input', () => {
+  it('sends one-shot images as input_image parts after the question', async () => {
+    const transport = { request: vi.fn(async (_body: string) => new Response(sse([
+      { type: 'response.output_text.delta', delta: '灯塔。' },
+      { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ]))) };
+    const driver = new OpenAIResponsesAgentDriver({ provider: 'openai', transport });
+    await collect(driver, request({
+      lifecycle: 'single_request',
+      tools: [],
+      context: {
+        systemPrompt: 'Look.',
+        messages: [{
+          type: 'model_message',
+          sourceIds: ['vision/1'],
+          message: { role: 'user', content: '这是什么？', images: [{ mediaType: 'image/jpeg', data: 'AAAA' }] },
+        }],
+      },
+    }));
+    const body = JSON.parse(transport.request.mock.calls[0]![0]) as { input: Array<{ role?: string; content?: unknown }> };
+    expect(body.input.find((item) => item.role === 'user')?.content).toEqual([
+      { type: 'input_text', text: '这是什么？' },
+      { type: 'input_image', image_url: 'data:image/jpeg;base64,AAAA', detail: 'high' },
+    ]);
+  });
+});
+
+describe('OpenAI prompt cache key', () => {
+  it('keeps chat session keys and bounds long internal ids to 64 characters', () => {
+    const chat = 'session-d827c184-7f8b-4998-9850-cfe9977e01e6';
+    expect(promptCacheKey(chat)).toBe(`drifting-agent:${chat}`);
+    const checkin = promptCacheKey('project-checkin:01a18dd9-18f6-723c-9c67-281a5c3ba14c');
+    expect(checkin.length).toBeLessThanOrEqual(64);
+    expect(checkin).toBe(promptCacheKey('project-checkin:01a18dd9-18f6-723c-9c67-281a5c3ba14c'));
+    expect(checkin).not.toBe(promptCacheKey('project-checkin:01a18dd9-18f6-723c-9c67-281a5c3ba14d'));
+  });
+});
+
+describe('OpenAI Responses default fetch', () => {
+  it('calls the global fetch on the window, as WebKit requires', async () => {
+    const original = globalThis.fetch;
+    const calls: unknown[] = [];
+    globalThis.fetch = function (this: unknown, input: RequestInfo | URL) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError('Can only call Window.fetch on instances of Window');
+      }
+      calls.push(input);
+      return Promise.resolve(new Response(sse([
+        { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } } },
+      ])));
+    } as typeof fetch;
+    try {
+      await collect(new OpenAIResponsesAgentDriver({ apiKey: 'test' }), request({ tools: [] }));
+      expect(calls).toEqual(['https://api.openai.com/v1/responses']);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

@@ -1,0 +1,746 @@
+/* ─── Project Home (desktop) ─────────────────────────────────────────────
+ * One page-white plane like the editors, its column as wide as the paper.
+ * The flow: the work (title and counts, where to continue, the whole book),
+ * the create row, the Agent; 设定 is the other view. One section at a time
+ * floats at the foot of the page after an arrival (`.dash-float`), a leaner
+ * set of its own, while its place in the flow stays empty (`.is-ghost`);
+ * once that place is scrolled into view the two change over. */
+
+.dash-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: hsl(var(--page));
+}
+
+.dash {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  background: hsl(var(--page));
+  color: hsl(var(--ink-1));
+}
+
+.dash *,
+.dash *::before,
+.dash *::after {
+  box-sizing: border-box;
+}
+
+.dash::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.dash__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+  max-width: var(--editor-max-width, 720px);
+  margin: 0 auto;
+  padding: 64px 48px 128px;
+}
+
+/* Readouts, counts and times: the index type. */
+.dash-ro {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 12px);
+  line-height: 1.45;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-variant-numeric: tabular-nums;
+}
+
+p.dash-ro {
+  margin: 0;
+}
+
+/* ── Title ─────────────────────────────────────────────────────────── */
+.dash-title__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.dash-title__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dash-title__name {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-content);
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.dash-title__name::placeholder {
+  color: hsl(var(--ink-4));
+}
+
+.dash-title__views {
+  flex: none;
+  margin-top: 2px;
+}
+
+.dash-title__readouts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.dash-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dash-progress__track {
+  --sand-stroke-h: 7px;
+  flex: 1;
+  min-width: 80px;
+}
+
+/* ── Sections ──────────────────────────────────────────────────────── */
+.dash-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: opacity var(--motion-glass-bleed) ease-out;
+}
+
+/* Its floating set stands in for it until its place is in view. */
+.dash-sec.is-ghost {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dash-sec__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: hsl(var(--ink-3));
+}
+
+.dash-sec__title {
+  margin: 0;
+  color: hsl(var(--ink-2));
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.dash-sec__spacer {
+  flex: 1;
+}
+
+/* Text buttons: no glass, the ink deepens under the pointer. */
+.dash-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 12.5px);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s ease-out;
+}
+
+.dash-text-button:hover,
+.dash-text-button:focus-visible {
+  color: hsl(var(--ink-1));
+}
+
+/* ── Continue and recents: sand cells ──────────────────────────────── */
+.dash-continue {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: calc(100% + 20px);
+  margin: 0 -10px;
+  padding: 12px 10px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dash-continue__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dash-continue__title {
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dash-continue__summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: hsl(var(--ink-3));
+  font-family: var(--font-content);
+  font-size: 14px;
+  line-height: 1.75;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.dash-cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  margin-left: -10px;
+}
+
+.dash-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-size: var(--ui-font-body, 13px);
+  cursor: pointer;
+}
+
+.dash-cell__name {
+  color: hsl(var(--ink-1));
+}
+
+/* The book's storylines and categories organize it, so their names are set
+   in the serif structure face, as in the sidebars; chapters and elements in
+   Continue keep the entity face. */
+.dash-line__name,
+.dash-cell--category .dash-cell__name {
+  font-family: var(--font-structure);
+  font-weight: 400;
+}
+
+/* ── The whole book: one sand readout per storyline ────────────────── */
+.dash-lines {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -10px;
+}
+
+.dash-line {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 132px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dash-line__name {
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-body, 13px);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dash-line__track {
+  --sand-stroke-h: 6px;
+}
+
+.dash-line__count {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── Create: tiles in the flow ─────────────────────────────────────── */
+.home-create--tiles {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 -10px;
+}
+
+.home-create__slot {
+  position: relative;
+}
+
+.home-create__tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 78px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-size: var(--ui-font-body, 13px);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.home-create__tile:disabled {
+  cursor: default;
+}
+
+.home-create__mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 20px;
+}
+
+.home-create__tile .kind-mark {
+  transform: scale(1.75);
+}
+
+/* The places a kind can go: a column of small pills straight above it, all
+   as wide as the widest, while the pointer is on it or the keyboard brings the
+   focus there (the focus Home places on arrival opens nothing: `.is-quiet`).
+   A bridge of padding keeps them open on the way up; they leave 160ms after
+   the pointer does. A long list scrolls. */
+.home-create__picks {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: max-content;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding-bottom: 10px;
+  transform: translateX(-50%);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.14s ease-out 0.16s, visibility 0s linear 0.3s;
+}
+
+.home-create__picks::-webkit-scrollbar {
+  display: none;
+}
+
+.home-create__slot:is(:hover, .is-open) > .home-create__picks,
+.home-create:not(.is-quiet) .home-create__slot:has(:focus-visible) > .home-create__picks {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.14s ease-out, visibility 0s linear;
+}
+
+.home-create__pick {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 14px;
+  background: hsl(var(--page));
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 13px);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.home-create__pick:hover {
+  color: hsl(var(--ink-1));
+}
+
+.home-create__pick.is-accent {
+  color: hsl(var(--accent));
+}
+
+.home-create__pick:disabled {
+  cursor: default;
+}
+
+.home-create__error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: hsl(var(--destructive));
+  font-size: var(--ui-font-secondary, 12.5px);
+}
+
+/* ── Floating at the foot of the page ──────────────────────────────── */
+.dash-float {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  z-index: 6;
+  width: min(calc(100% - 32px), calc(var(--editor-max-width, 720px) - 96px));
+  transform: translateX(-50%);
+  animation: dash-float-in var(--motion-glass-bleed) ease-out;
+}
+
+@keyframes dash-float-in {
+  from { opacity: 0; }
+}
+
+/* Each control carries its own floating fill, like the paper's toolbar;
+   nothing frames the set. */
+.dash-float :is(.home-create__orb, .home-create__pick, .home-agent__mini) {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(1.6px);
+  backdrop-filter: blur(1.6px);
+}
+
+.home-create--float {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.home-create--float .home-create__slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.home-create__orb {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  color: hsl(var(--ink-2));
+  cursor: pointer;
+}
+
+.home-create__orb .kind-mark {
+  transform: scale(1.5);
+}
+
+/* Only the mark sits in the round; its name comes up faintly under the one
+   the pointer is on, knocked out of the prose beneath. */
+.home-create__label {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  color: hsl(var(--ink-4));
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+  text-shadow:
+    0 0 2px hsl(var(--page)),
+    0 0 4px hsl(var(--page)),
+    0 0 8px hsl(var(--page));
+}
+
+.home-create__slot:hover > .home-create__label,
+.home-create:not(.is-quiet) .home-create__slot:has(:focus-visible) > .home-create__label {
+  opacity: 1;
+}
+
+.dash-float .home-create__error {
+  justify-content: center;
+  margin-bottom: 8px;
+  text-shadow: 0 0 4px hsl(var(--page)), 0 0 8px hsl(var(--page));
+}
+
+/* ── Agent ─────────────────────────────────────────────────────────── */
+.home-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-agent--float {
+  gap: 8px;
+}
+
+.home-agent__notice {
+  margin: 0;
+  color: hsl(var(--ink-3));
+  font-size: var(--ui-font-secondary, 12.5px);
+  line-height: 1.5;
+}
+
+.home-agent__notice.is-error {
+  color: hsl(var(--destructive));
+}
+
+.home-agent__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.home-agent__card {
+  position: relative;
+  border-radius: 2px;
+}
+
+.home-agent__card-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 32px 12px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-agent__card-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: hsl(var(--ink-3));
+  font-size: var(--ui-font-caption, 12px);
+}
+
+.home-agent__card-title {
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-body, 13px);
+  line-height: 1.5;
+}
+
+.home-agent__card-detail {
+  color: hsl(var(--ink-3));
+  font-size: var(--ui-font-secondary, 12.5px);
+  line-height: 1.5;
+}
+
+.home-agent__card-go {
+  color: hsl(var(--accent));
+  font-size: var(--ui-font-caption, 12px);
+  font-weight: 500;
+}
+
+.home-agent__organize-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+}
+
+.home-agent__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 12px;
+}
+
+.home-agent__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font: inherit;
+  font-size: var(--ui-font-secondary, 12.5px);
+  cursor: pointer;
+}
+
+.home-agent__dismiss {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-4));
+  cursor: pointer;
+}
+
+.home-agent__dismiss:hover {
+  color: hsl(var(--ink-1));
+}
+
+.home-agent__composer {
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 10px 16px;
+}
+
+.home-agent__composer > textarea {
+  min-height: calc(var(--ui-line-body, 20px) * 2);
+}
+
+.home-agent__composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.home-agent__hint {
+  color: hsl(var(--ink-4));
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.home-agent__send {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.home-agent__minis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-agent__mini {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  min-width: 0;
+  border-radius: 17px;
+}
+
+.home-agent__mini-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-body, 13px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-agent__mini-target {
+  flex: none;
+  color: hsl(var(--ink-3));
+}
+
+.home-agent__mini-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home-agent__mini .home-agent__dismiss {
+  position: static;
+  flex: none;
+  margin-right: 6px;
+}
+
+/* ── 设定 ──────────────────────────────────────────────────────────── */
+.dash-plan {
+  display: grid;
+  grid-template-columns: max-content 168px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.dash-plan__label {
+  color: hsl(var(--ink-2));
+  font-size: var(--ui-font-body, 13px);
+}
+
+.dash-plan__readout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dash-plan__track {
+  --sand-stroke-h: 6px;
+  flex: 1;
+  min-width: 60px;
+}
+
+.dash-profile > textarea {
+  min-height: calc(var(--ui-line-body, 20px) * 4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-sec,
+  .home-create__picks,
+  .home-create__label {
+    transition: none;
+  }
+
+  .dash-float {
+    animation: none;
+  }
+}

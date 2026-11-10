@@ -1,0 +1,485 @@
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Ref,
+} from 'react';
+import { useTranslation } from 'react-i18next';
+import { useAutosizeTextArea } from '../../hooks/useAutosizeTextArea';
+import { EditorContent } from '@tiptap/react';
+import type { Editor } from '@tiptap/core';
+import type { OutlineItem } from '../../lib/outline';
+import { type EntityLinkRef } from '../../lib/extensions/entity-link';
+import {
+  useEntityEditor,
+  type EditorCommentRequest,
+  type EditorPersistDerived,
+} from '../../hooks/useEntityEditor';
+import { useEntityYjsDoc } from '../../hooks/useEntityYjsDoc';
+import { EditorDocumentLoadError } from './EditorDocumentLoadError';
+import { LoadingStatus } from '../ui/LoadingStatus';
+import { useFieldReview } from '../../hooks/useFieldReview';
+import { FieldReview } from './FieldReview';
+import loglevel from 'loglevel';
+import { recheckChapterPatchValidity } from '../../usecase/patch-validity';
+import { materializeCanonicalNodeProse } from '../../services/node-prose-metrics.service';
+import { PatchCreateModal } from './PatchCreateModal';
+import {
+  patchRequestFromComment,
+  type PatchCreateRequest,
+} from './patch-create-request';
+import { TodoAutoParseMount } from './TodoAutoParseMount';
+import { ChapterEmptyHints } from './ChapterEmptyHints';
+import { getPlatformRuntime } from '../../platform/runtime';
+import { useEditorSurfaceLifecycle } from './editor-surface-lifecycle-context';
+import { consumeChapterTitleFocus } from '../../features/editor/chapter-title-focus';
+const log = loglevel.getLogger('ChapterEditor');
+log.setLevel(log.levels.WARN);
+// log.setLevel(loglevel.levels.DEBUG);
+
+// editor component with built-in element tracking and outline extraction, and more
+
+interface ChapterEditorProps {
+  nodeId: string;
+  content: string | null; // legacy pm_json string (migration seed only)
+  title?: string;
+  /** Shown while the title is empty; an idea passes its own. Defaults to an untitled chapter. */
+  untitledTitle?: string;
+  summary?: string;
+  projectId: string;
+  ref?: Ref<ChapterEditorRef>;
+
+  // 内容更新回调 — wordCount is the materialized count derived from the
+  // editor's plain text via the shared `countWords` algorithm.
+  onContentUpdate: (
+    nodeId: string,
+    pmJson: string,
+    outlineJson: string,
+    wordCount: number,
+  ) => void;
+  onTitleUpdate?: (nodeId: string, title: string) => void;
+  onSummaryUpdate?: (nodeId: string, summary: string) => void;
+  onEntityClick?: (ref: EntityLinkRef) => void;
+  // Live outline of the chapter's headings (h1/h2/h3). Fires on load and
+  // after every edit. Used by NodeEditorView to render the left TOC rail.
+  onOutlineChange?: (outline: OutlineItem[]) => void;
+  onAddCommentRequest?: (request: EditorCommentRequest) => void;
+
+  // 显示选项
+  showTitle?: boolean;
+  showSummary?: boolean;
+
+  // 编辑选项
+  editableTitle?: boolean;
+  editableSummary?: boolean;
+  // Optional read-only prose body.
+  readOnly?: boolean;
+
+  // 样式选项
+  autoFocus?: boolean;
+  minHeight?: string;
+  compact?: boolean; // 紧凑模式，用于多章节显示
+  selectionKey?: string | null;
+  // When set, the editor places the caret at these viewport coords once it has
+  // mounted — used when a click promotes a static all-chapters row to this live
+  // editor, so the cursor lands where the user pressed rather than at the doc
+  // edge. Cleared (null) the rest of the time.
+  activateCaret?: { clientX: number; clientY: number } | null;
+  /** Top-level/staged callers use this to atomically reveal canonical prose. */
+  onReadyChange?: (ready: boolean) => void;
+}
+
+export interface ChapterEditorRef {
+  editor: Editor | null;
+  focusEditor: () => void;
+}
+
+export function ChapterEditor({
+  nodeId,
+  content,
+  title = '',
+  untitledTitle,
+  summary = '',
+  projectId,
+  ref: forwardedRef,
+  onContentUpdate,
+  onTitleUpdate,
+  onSummaryUpdate,
+  onEntityClick,
+  onOutlineChange,
+  onAddCommentRequest,
+  showTitle = false,
+  showSummary = false,
+  editableTitle = false,
+  editableSummary = false,
+  readOnly = false,
+  autoFocus = false,
+  minHeight = '300px',
+  compact = false,
+  selectionKey,
+  activateCaret = null,
+  onReadyChange,
+}: ChapterEditorProps) {
+  const { t } = useTranslation();
+  const { isCommandActive, isVisible } = useEditorSurfaceLifecycle();
+  if (!projectId) {
+    throw new Error('ChapterEditor requires projectId');
+  }
+
+  const [titleValue, setTitleValue] = useState(title);
+  const [summaryValue, setSummaryValue] = useState(summary);
+  // Reset local title/summary state when the parent's nodeId or props change,
+  // using the prev-snapshot pattern to avoid the setState-in-effect anti-pattern.
+  const [syncedKey, setSyncedKey] = useState({ nodeId, title, summary });
+  if (
+    syncedKey.nodeId !== nodeId ||
+    syncedKey.title !== title ||
+    syncedKey.summary !== summary
+  ) {
+    setSyncedKey({ nodeId, title, summary });
+    setTitleValue(title);
+    setSummaryValue(summary);
+  }
+
+  // New-patch pipeline: triggered from the text-selection context menu
+  // ("新建补丁"). Carries the selection's chapter/block anchor + precise text
+  // anchor so the created patch can be invalidated when that text is deleted.
+  const [patchRequest, setPatchRequest] = useState<PatchCreateRequest | null>(null);
+  const handleAddPatchRequest = useCallback((request: EditorCommentRequest) => {
+    setPatchRequest(patchRequestFromComment(request));
+  }, []);
+
+  // Yjs binding — all Yjs concerns (docId, seed, sync, snapshot) live in
+  // useEntityYjsDoc. Editor views don't talk to useYjsSync directly.
+  const { ydoc, ydocError } = useEntityYjsDoc({
+    kind: 'node-content',
+    entityId: nodeId,
+    projectId,
+    seedContentJson: content,
+  });
+
+  // Development-only escape hatch for CRDT inspection. Never retain a live
+  // manuscript document on the production window object, and clean up the
+  // reference when this editor unmounts or switches documents.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+    const devWindow = window as Window & { __ydoc?: typeof ydoc };
+    devWindow.__ydoc = ydoc;
+    return () => {
+      if (devWindow.__ydoc === ydoc) delete devWindow.__ydoc;
+    };
+  }, [ydoc]);
+
+  // Persist chapter content. pmJson + outline come pre-derived from
+  // useEntityEditor; chapter only adds wordCount, which is its only
+  // entity-specific materialized field.
+  const handlePersist = useCallback(
+    (_ed: Editor, { pmJson }: EditorPersistDerived) => {
+      void materializeCanonicalNodeProse(projectId, nodeId, pmJson)
+        .then((projection) => {
+          onContentUpdate(
+            nodeId,
+            projection.contentJson,
+            projection.outlineJson,
+            projection.wordCount,
+          );
+          // Re-evaluate text-anchored patches against the exact materialized
+          // document rather than the editor callback's potentially superseded JSON.
+          return recheckChapterPatchValidity(projectId, nodeId, projection.contentJson);
+        })
+        .catch((error) => {
+          log.error('[ChapterEditor] Failed to materialize prose projection:', error);
+        });
+    },
+    [nodeId, projectId, onContentUpdate],
+  );
+
+  const { editor, outline, ready } = useEntityEditor({
+    sourceKind: 'node',
+    sourceId: nodeId,
+    projectId,
+    content,
+    documentMode: 'yjs',
+    ydoc,
+    onPersist: handlePersist,
+    onEntityClick,
+    autoFocus,
+    minHeight,
+    typewriterScrolling: true,
+    selectionKey,
+    onAddCommentRequest,
+    onAddPatchRequest: handleAddPatchRequest,
+    // Never allow a fallback non-Yjs editor while the shared document is
+    // loading or has failed replay: those edits would have no durable owner.
+    editable: Boolean(ydoc) && !readOnly,
+  });
+
+  useLayoutEffect(() => {
+    onReadyChange?.(ready || Boolean(ydocError));
+    return () => onReadyChange?.(false);
+  }, [onReadyChange, ready, ydocError]);
+
+  // Forward the live outline up to NodeEditorView so it can render the TOC.
+  useEffect(() => {
+    onOutlineChange?.(outline);
+  }, [outline, onOutlineChange]);
+
+  // Place the caret where the user clicked when this row was promoted from
+  // static prose to a live editor. Wait two frames so the editor has mounted and
+  // its Yjs-seeded content has laid out before mapping the click coords to a doc
+  // position; fall back to a plain focus if the point misses (e.g. clicked the
+  // page margin).
+  useEffect(() => {
+    if (!editor || !activateCaret) return;
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (editor.isDestroyed) return;
+        const found = editor.view.posAtCoords({
+          left: activateCaret.clientX,
+          top: activateCaret.clientY,
+        });
+        if (found) {
+          editor.chain().setTextSelection(found.pos).focus().run();
+        } else {
+          editor.commands.focus();
+        }
+      });
+    });
+    return () => {
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [editor, activateCaret]);
+
+  // Expose editor + focus helper to the parent (NodeEditorView's ref).
+  useImperativeHandle(
+    forwardedRef,
+    () => ({
+      editor,
+      focusEditor: () => {
+        editor?.commands.focus('end');
+      },
+    }),
+    [editor],
+  );
+
+  const handleTitleSave = () => {
+    const nextTitle = titleValue.trim();
+    if (!nextTitle) {
+      setTitleValue(title);
+      return;
+    }
+    if (onTitleUpdate && nextTitle !== title) {
+      onTitleUpdate(nodeId, nextTitle);
+    }
+  };
+
+  const handleSummarySave = () => {
+    const nextSummary = summaryValue.trim();
+    if (onSummaryUpdate && nextSummary !== summary) {
+      onSummaryUpdate(nodeId, nextSummary);
+    }
+  };
+
+  // Titles and summaries grow with their content and available width.
+  const titleRef = useAutosizeTextArea(titleValue);
+  const summaryRef = useAutosizeTextArea(summaryValue);
+  const titleElementRef = useRef<HTMLTextAreaElement | null>(null);
+  const setTitleElement = useCallback(
+    (element: HTMLTextAreaElement | null) => {
+      titleElementRef.current = element;
+      titleRef(element);
+    },
+    [titleRef],
+  );
+
+  // A chapter just created from the ⁂ insert opens with its placeholder title
+  // selected (the textarea selects on focus) so the author names it first.
+  // Same two-frame wait as the caret: a promoted 通览全书 row reveals the live
+  // editor only after it reports ready. The intent is consumed inside the
+  // frame so an effect replay cannot drop it.
+  useEffect(() => {
+    if (!ready || !editableTitle) return;
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (consumeChapterTitleFocus(nodeId)) titleElementRef.current?.focus({ preventScroll: true });
+      });
+    });
+    return () => {
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [ready, editableTitle, nodeId]);
+
+  // Agent summary edits show their committed result until viewed.
+  const nodeFieldReview = useFieldReview('node', nodeId);
+  const nodeSummaryChange = nodeFieldReview.summaryChange;
+
+  if (!editor) {
+    return ydocError ? <EditorDocumentLoadError /> : <LoadingStatus label={t('common.loading')} />;
+  }
+
+  const literary = !compact;
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      {/* Title and Summary Header */}
+      {(showTitle || showSummary) && (
+        <div
+          style={{
+            display: literary ? 'block' : 'flex',
+            justifyContent: literary ? undefined : 'space-between',
+            alignItems: literary ? undefined : 'flex-start',
+            gap: literary ? 0 : '12px',
+            marginBottom: literary ? 0 : '12px',
+            padding: literary ? 0 : '16px 24px',
+            borderBottom: literary ? 'none' : '1px solid rgba(184, 153, 104, 0.15)',
+          }}
+        >
+          {/* Title */}
+          {showTitle && (
+            <div style={{ flex: literary ? undefined : 1, minWidth: 0 }}>
+              {editableTitle ? (
+                <textarea
+                  ref={setTitleElement}
+                  rows={1}
+                  value={titleValue}
+                  placeholder={untitledTitle ?? t('chapterEditor.untitledChapter')}
+                  onChange={(e) => setTitleValue(e.target.value.replace(/[\r\n]/g, ''))}
+                  onBlur={handleTitleSave}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                      setTimeout(() => editor?.commands.focus('start'), 50);
+                    } else if (
+                      e.key === 'ArrowDown' &&
+                      !e.shiftKey &&
+                      e.currentTarget.selectionStart === e.currentTarget.value.length &&
+                      e.currentTarget.selectionEnd === e.currentTarget.value.length
+                    ) {
+                      e.preventDefault();
+                      editor?.commands.focus('start');
+                    } else if (e.key === 'Escape') {
+                      setTitleValue(title);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className={literary ? 'page__title' : undefined}
+                  style={
+                    literary
+                      ? undefined
+                      : {
+                          width: '100%',
+                          fontSize: 20,
+                          fontWeight: 700,
+                          lineHeight: 1.3,
+                          background: 'transparent',
+                          outline: 'none',
+                          resize: 'none',
+                          overflow: 'hidden',
+                          overflowWrap: 'anywhere',
+                        }
+                  }
+                />
+              ) : literary ? (
+                <h1 className="page__title" style={{ margin: '0 0 10px' }}>
+                  {titleValue || untitledTitle || t('chapterEditor.untitledChapter')}
+                </h1>
+              ) : (
+                <div style={{ fontSize: 20, fontWeight: 600, background: 'transparent' }}>
+                  {titleValue || untitledTitle || t('chapterEditor.untitledChapter')}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Summary */}
+          {showSummary && (
+            <div data-agent-summary style={{ flex: literary ? undefined : 1 }}>
+              {nodeSummaryChange ? (
+                <FieldReview
+                  change={nodeSummaryChange}
+                  onAccept={() => nodeFieldReview.accept(nodeSummaryChange)}
+                />
+              ) : editableSummary ? (
+                <textarea
+                  ref={summaryRef}
+                  value={summaryValue}
+                  placeholder={literary ? t('chapterEditor.synopsisPlaceholder') : t('chapterEditor.summaryPlaceholder')}
+                  onChange={(e) => setSummaryValue(e.target.value)}
+                  onBlur={handleSummarySave}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSummaryValue(summary);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  rows={1}
+                  className={literary ? 'page__sub' : undefined}
+                  style={
+                    literary
+                      ? undefined
+                      : {
+                          width: '100%',
+                          // 概要比正文小两号，跟随用户字号设置
+                          fontSize: 'calc(var(--editor-font-size, 17.5px) - 2px)',
+                          fontWeight: 400,
+                          background: 'transparent',
+                          color: '#5a4a3a',
+                          resize: 'none',
+                          overflow: 'hidden',
+                          outline: 'none',
+                        }
+                  }
+                />
+              ) : literary ? (
+                summaryValue ? (
+                  <p className="page__sub" style={{ marginBottom: 28 }}>
+                    {summaryValue}
+                  </p>
+                ) : null
+              ) : (
+                <div style={{ fontSize: 14, fontWeight: 400, background: 'transparent' }}>
+                  {summaryValue || (editableSummary ? t('chapterEditor.summaryPlaceholder') : '')}
+                </div>
+              )}
+            </div>
+          )}
+
+
+          {literary && <hr className="page__rule" />}
+        </div>
+      )}
+
+      {/* Editor Content */}
+      <div className={literary ? 'page__body' : undefined} style={{ padding: compact ? '16px 24px' : '0' }}>
+        {ydocError ? <EditorDocumentLoadError /> : <EditorContent editor={editor} />}
+        {/* The hints name keyboard shortcuts, which a phone does not have. */}
+        {literary && ready && !readOnly && !ydocError && !getPlatformRuntime().isMobileShell && (
+          <ChapterEmptyHints editor={editor} />
+        )}
+      </div>
+
+      <PatchCreateModal
+        projectId={projectId}
+        request={patchRequest}
+        onClose={() => setPatchRequest(null)}
+      />
+
+      {/* Headless mount — projects typed TODO markers into todo comments */}
+      {ready && isVisible && isCommandActive && !readOnly && !ydocError && (
+        <TodoAutoParseMount editor={editor} projectId={projectId} nodeId={nodeId} />
+      )}
+    </div>
+  );
+}

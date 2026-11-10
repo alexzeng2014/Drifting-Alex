@@ -1,0 +1,4128 @@
+{
+  "schemaVersion": 1,
+  "kind": "reference_index_process_recovery",
+  "status": "passed",
+  "generatedAt": "2026-09-12T11:47:51.177Z",
+  "source": {
+    "commit": "62d5cc687999406959b6620f86f2039f7d98b312",
+    "fingerprint": "9369279642258c49ba0cc01f9c0a451e2966f19ca8d1af03406c5738cbe37a64",
+    "dirty": true
+  },
+  "environment": {
+    "platform": "darwin",
+    "node": "v24.19.0",
+    "sqlite": "3.53.3"
+  },
+  "fixture": {
+    "provenance": "synthetic content only",
+    "sources": "five source kinds, two spans each; stale node JSON cache; isolated second project; warm runtime scoped Yjs and cold runtime full capture",
+    "database": "file-backed WAL/FULL, complete product migrations, renderer gateway adapter over Node SQLite",
+    "identity": "native installation identity substituted; authored commands, journal, queue, service and repositories unchanged"
+  },
+  "cases": [
+    {
+      "scenario": "yjs-edit",
+      "boundary": "authored-before-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "295706393fb4ffabd9682164cafcf878b8411b6c548269884ff8e37598e88307",
+        "authorHash": "e6b7a07a6de84e117fdc5119b0d5f9d381c96d23caf23ed1a3c30a75f4616ac8",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "295706393fb4ffabd9682164cafcf878b8411b6c548269884ff8e37598e88307",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "295706393fb4ffabd9682164cafcf878b8411b6c548269884ff8e37598e88307",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "authored-before-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "36b7d189255dc264eb9bde8bd8af4421ea426d023543704d1009239e654336c6",
+        "authorHash": "acd18ff2298e95e5a22996550683860d20767d14aa6a230536367d36df7a7e2d",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "36b7d189255dc264eb9bde8bd8af4421ea426d023543704d1009239e654336c6",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "36b7d189255dc264eb9bde8bd8af4421ea426d023543704d1009239e654336c6",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "authored-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "2ca9c6d355ea9e9879c145014a9e21e9cc87f9339490a9bec4ff656880ea26e9",
+        "authorHash": "c5915a95b15e830d09d03a25c50544a18d13b94642d1a7c8d3659e6bdc36c7fc",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "c5915a95b15e830d09d03a25c50544a18d13b94642d1a7c8d3659e6bdc36c7fc",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "c5915a95b15e830d09d03a25c50544a18d13b94642d1a7c8d3659e6bdc36c7fc",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "authored-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "5812deeeea76276d2a590ac288c7ec603b8bf1b03e75495ed4b1ab63bd0b6218",
+        "authorHash": "7170708dc12ff646c73d4900ef7609e5d3bdc22c66dbe4a7c972bc0fad9f9bd0",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "7170708dc12ff646c73d4900ef7609e5d3bdc22c66dbe4a7c972bc0fad9f9bd0",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "7170708dc12ff646c73d4900ef7609e5d3bdc22c66dbe4a7c972bc0fad9f9bd0",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "queue-waiting",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "671d01a0766572bf49ff4c058a89bd4e30dcb059f3e622e74bedac4fb207a764",
+        "authorHash": "9fe1f6caa36bf40d09ee3b27fbba3c2f58ca1d16db3a3a736e501a075204e112",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "9fe1f6caa36bf40d09ee3b27fbba3c2f58ca1d16db3a3a736e501a075204e112",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "9fe1f6caa36bf40d09ee3b27fbba3c2f58ca1d16db3a3a736e501a075204e112",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "queue-waiting",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "59ff734acdbbce2a94c6ea553e8121fe68e95922ce45b14b402caa501f75749a",
+        "authorHash": "c2cf2be11f5d7c6359590ae3401276c52a50e20cf825d310564da21ef827bdd9",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "c2cf2be11f5d7c6359590ae3401276c52a50e20cf825d310564da21ef827bdd9",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "c2cf2be11f5d7c6359590ae3401276c52a50e20cf825d310564da21ef827bdd9",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "catalog-captured",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "4a7a6eefa5e0b8125e017e0e872f76e30ff6916118ecb9ff0347cb5b94d99b4e",
+        "authorHash": "d4e2b95c17ad830ef16eba5bf6c313c82f0637f4148085d23662fa4e86f70f2d",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "d4e2b95c17ad830ef16eba5bf6c313c82f0637f4148085d23662fa4e86f70f2d",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "d4e2b95c17ad830ef16eba5bf6c313c82f0637f4148085d23662fa4e86f70f2d",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "catalog-captured",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "13368ae6f202d6a36c3275876385ab3d5cba11ba333e3031f21d029eeba07c7c",
+        "authorHash": "b8ea49838513a408927e59ea7f9bfaa209c440af28f6eee5d55c8e71f34bdaf5",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "b8ea49838513a408927e59ea7f9bfaa209c440af28f6eee5d55c8e71f34bdaf5",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "b8ea49838513a408927e59ea7f9bfaa209c440af28f6eee5d55c8e71f34bdaf5",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "index-after-delete",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "65902b1a2efbe1e5bb105cf7c3c718fc9f888a24873d656243f06437681627c7",
+        "authorHash": "14ea1eb83b6a5b500aded0319df6dffdf466b93e62160f72ba4892a40b9c2b68",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "14ea1eb83b6a5b500aded0319df6dffdf466b93e62160f72ba4892a40b9c2b68",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "14ea1eb83b6a5b500aded0319df6dffdf466b93e62160f72ba4892a40b9c2b68",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "index-after-delete",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "9a6ae048e70af915cef2c3f29d424450343f9614ae43a56cd00501fc7b787425",
+        "authorHash": "c593bb7d0c353a9c01d355a853fe80a3b3a2a371e3cb780fffefb012716743a0",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "c593bb7d0c353a9c01d355a853fe80a3b3a2a371e3cb780fffefb012716743a0",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "c593bb7d0c353a9c01d355a853fe80a3b3a2a371e3cb780fffefb012716743a0",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "index-after-insert",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-insert",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "1b1d3a460b18812d9749d61704fb52bff07ae4e33ff375c434321b036c1e9325",
+        "authorHash": "2a7d063a8f33aebb046122f6dcfc64015a4c000c92b3c6c03631d008f47ed9f5",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "2a7d063a8f33aebb046122f6dcfc64015a4c000c92b3c6c03631d008f47ed9f5",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "2a7d063a8f33aebb046122f6dcfc64015a4c000c92b3c6c03631d008f47ed9f5",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "index-after-insert",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-insert",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "ff0a340000304ae0b15ac1c3371c85efde3b9f3ce4b20c0888b4a55065192558",
+        "authorHash": "8a9f858d8c4853cfece25b82a4ae4d1fe812a941a2c9a2a6b28a6c16d398efff",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "8a9f858d8c4853cfece25b82a4ae4d1fe812a941a2c9a2a6b28a6c16d398efff",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "8a9f858d8c4853cfece25b82a4ae4d1fe812a941a2c9a2a6b28a6c16d398efff",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "index-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "48482d2e2ec91cf1f53e463e0553a61f3f0006c8612258e39f430a50dc3f5366",
+        "authorHash": "b79e90e645b1747530c98a09b4e08324a1cdfee710d4302a20aaa1e3e9ff0928",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "b79e90e645b1747530c98a09b4e08324a1cdfee710d4302a20aaa1e3e9ff0928",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "b79e90e645b1747530c98a09b4e08324a1cdfee710d4302a20aaa1e3e9ff0928",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "index-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "e4f4ff39454eff6e2ed2dc763cab3176ddd8309120abfbb568d374289185c791",
+        "authorHash": "6b7daeec8f9f44493884e9704129f1aef64bb1396ebeb70bb163c8ae54b58b15",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "6b7daeec8f9f44493884e9704129f1aef64bb1396ebeb70bb163c8ae54b58b15",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "6b7daeec8f9f44493884e9704129f1aef64bb1396ebeb70bb163c8ae54b58b15",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "queue-acknowledged",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "yjs-edit",
+        "seed": 1,
+        "baselineAuthorHash": "325092fd6660e18a773a60a76d8df7b7ce7602ec07bb42f83698aab11f9dc858",
+        "authorHash": "182d76a45af1ebdf4176910f6bd84fe659d90e3fb69643753872bb7698e1f4de",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "182d76a45af1ebdf4176910f6bd84fe659d90e3fb69643753872bb7698e1f4de",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-edit",
+          "seed": 1,
+          "authorHash": "182d76a45af1ebdf4176910f6bd84fe659d90e3fb69643753872bb7698e1f4de",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-edit",
+      "boundary": "queue-acknowledged",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "yjs-edit",
+        "seed": 2,
+        "baselineAuthorHash": "0e3f81c71d4fb4f4929bb19e5024ac2ff86b8eada43b131dc8ee22ef1db0c690",
+        "authorHash": "b2a88e039c22571f32cb868de3bee8e20be8f05f617d58c8d795a81020fe12a5",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "b2a88e039c22571f32cb868de3bee8e20be8f05f617d58c8d795a81020fe12a5",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-edit",
+          "seed": 2,
+          "authorHash": "b2a88e039c22571f32cb868de3bee8e20be8f05f617d58c8d795a81020fe12a5",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "authored-before-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "35b8e96903aba1b398a2db55513f3e4e75ac9e92211792c9a5a642c03e264b6e",
+        "authorHash": "2dcabe844c5d48252450b0dfadd916a8303f577f97ce69b8e7c6a7952d7b974e",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "35b8e96903aba1b398a2db55513f3e4e75ac9e92211792c9a5a642c03e264b6e",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "35b8e96903aba1b398a2db55513f3e4e75ac9e92211792c9a5a642c03e264b6e",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "authored-before-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "8b9d094980b6f4419a8e31b64b60893ddfb0ba5f3111e48a6fad66b2190a0dcc",
+        "authorHash": "360c2d176a8dae329e9e49be800f7123b30056647aa9d83ab398ac39699fb713",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "8b9d094980b6f4419a8e31b64b60893ddfb0ba5f3111e48a6fad66b2190a0dcc",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "8b9d094980b6f4419a8e31b64b60893ddfb0ba5f3111e48a6fad66b2190a0dcc",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "authored-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "1d51d121f17103e7cde530259e51a4baf1482d7d25d0afdb7b6fa08ea65477be",
+        "authorHash": "64f14480acb7171216692a7817e12cc74589be996b1803101f671e513967db19",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "64f14480acb7171216692a7817e12cc74589be996b1803101f671e513967db19",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "64f14480acb7171216692a7817e12cc74589be996b1803101f671e513967db19",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "authored-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "251c0f9b9118d780012e95a2b0bdd55fe3ae9f85838b7d2162fc31ad6507597f",
+        "authorHash": "d1c152e0ae4eed0663957407353fe1839e13540ba9b2d9f2b839da6304eccaf0",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "d1c152e0ae4eed0663957407353fe1839e13540ba9b2d9f2b839da6304eccaf0",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "d1c152e0ae4eed0663957407353fe1839e13540ba9b2d9f2b839da6304eccaf0",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "queue-waiting",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "2dc6e5c5c27c8c5d910ae19e23b3778c44d35fafd3998c0bd1837cd8a53a5803",
+        "authorHash": "12dd9f5c042b44392458069f52742fe2a86ff87cef8faf4d77bfe95311e61775",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "12dd9f5c042b44392458069f52742fe2a86ff87cef8faf4d77bfe95311e61775",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "12dd9f5c042b44392458069f52742fe2a86ff87cef8faf4d77bfe95311e61775",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "queue-waiting",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "d55bf1be146e366b1ecc6a59ed16c9f71216418186226a249d8d9bd7a75868bb",
+        "authorHash": "0ab700fc2bb3f62da26068989678e207f082d8c072149b2ff46c0c2f92e69cf8",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "0ab700fc2bb3f62da26068989678e207f082d8c072149b2ff46c0c2f92e69cf8",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "0ab700fc2bb3f62da26068989678e207f082d8c072149b2ff46c0c2f92e69cf8",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "catalog-captured",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "e74037c77452f9eddbeb72240fa5ba4a8ea9a4b5183c6b0b61b50a3241126dd2",
+        "authorHash": "d33b4f2b0a0e078a0be5d2112091e93b25a335afcc4af850c25020643d7be86d",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "d33b4f2b0a0e078a0be5d2112091e93b25a335afcc4af850c25020643d7be86d",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "d33b4f2b0a0e078a0be5d2112091e93b25a335afcc4af850c25020643d7be86d",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "catalog-captured",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "9faff937f3ce0c9e7e0049ecd0f53cec9d046fa0da77928c9726ef09769f3c71",
+        "authorHash": "f64e637f894426e62dc32b0fb629d3bd8645a4e7623995e3c439d26d8b9523b5",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "f64e637f894426e62dc32b0fb629d3bd8645a4e7623995e3c439d26d8b9523b5",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "f64e637f894426e62dc32b0fb629d3bd8645a4e7623995e3c439d26d8b9523b5",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "index-after-delete",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "1474e6d0f920342f1107202d7b7fb8a93317a5d577a751a01bfb009641544369",
+        "authorHash": "446dca0af62b48bb14ad188883d95d97ddb8aa4e7dbffc69a2f1afbf5d01f996",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "446dca0af62b48bb14ad188883d95d97ddb8aa4e7dbffc69a2f1afbf5d01f996",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "446dca0af62b48bb14ad188883d95d97ddb8aa4e7dbffc69a2f1afbf5d01f996",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "index-after-delete",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "49074dfa08f31415119b8b681d1fdd9bc4f6ae00bc5a146cbe883536e1a3d766",
+        "authorHash": "394433a4505d7623788e069d9cc9f2a3266f61e5d0eddf19dc53333bfb3d578f",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "394433a4505d7623788e069d9cc9f2a3266f61e5d0eddf19dc53333bfb3d578f",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "394433a4505d7623788e069d9cc9f2a3266f61e5d0eddf19dc53333bfb3d578f",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "index-after-insert",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-insert",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "6199ef43967ce5891736fcfd38fe6a3644d6e8180af92c98bdec53518ae3e649",
+        "authorHash": "9a6ddceb1b593e616a93a94c3e48815b4d7038b6b0b019c1be96b56ae66e90d0",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "9a6ddceb1b593e616a93a94c3e48815b4d7038b6b0b019c1be96b56ae66e90d0",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "9a6ddceb1b593e616a93a94c3e48815b4d7038b6b0b019c1be96b56ae66e90d0",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "index-after-insert",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-insert",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "0bdb0fae636216319fe20eb6c477e3d1abf60e23475f519cf97d6c20ae01d03e",
+        "authorHash": "9b68cec1be48a6a679e413f989ec67343afa417e76524a9104feb98e1fdbfb9f",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "9b68cec1be48a6a679e413f989ec67343afa417e76524a9104feb98e1fdbfb9f",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "9b68cec1be48a6a679e413f989ec67343afa417e76524a9104feb98e1fdbfb9f",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "index-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "5e4b17263c38c98d96eb0231cd1e72660298f3f9205c6f96637b535d546f0c47",
+        "authorHash": "d6886cdbd0aa0a7963d0228a084b3b447eb774dd30f811ec7c058dc393ca72d3",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "d6886cdbd0aa0a7963d0228a084b3b447eb774dd30f811ec7c058dc393ca72d3",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "d6886cdbd0aa0a7963d0228a084b3b447eb774dd30f811ec7c058dc393ca72d3",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "index-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "3adada4afd4a1f12a9b85e7324c9ce680590e5659d0686216f1268a9f7c8f3e5",
+        "authorHash": "e814ac3a93466f08950d62f84db9529c4d45196b73d3bbb49e0e734fc4e7248e",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "e814ac3a93466f08950d62f84db9529c4d45196b73d3bbb49e0e734fc4e7248e",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "e814ac3a93466f08950d62f84db9529c4d45196b73d3bbb49e0e734fc4e7248e",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "queue-acknowledged",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "yjs-scoped",
+        "seed": 1,
+        "baselineAuthorHash": "9eace278411596f52da2130c1bd869c2bf1a56cd4807e5d4e1a6dabd587f82aa",
+        "authorHash": "af24f3d9f139d363d624c4a23edac42d8d25552a87d95675afce59bfd4750dc0",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "af24f3d9f139d363d624c4a23edac42d8d25552a87d95675afce59bfd4750dc0",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-scoped",
+          "seed": 1,
+          "authorHash": "af24f3d9f139d363d624c4a23edac42d8d25552a87d95675afce59bfd4750dc0",
+          "projectionHash": "80522a31642c0cc6f5f990fb709d70cae0e20eb29a3ebdf0a2bca9db9768988a",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "yjs-scoped",
+      "boundary": "queue-acknowledged",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "yjs-scoped",
+        "seed": 2,
+        "baselineAuthorHash": "3d246ca6a241daaa8c86df9aa8aae09418840bdf87295acb3e529025caaf9dbc",
+        "authorHash": "16571ea778fb0f0c9f4ba6a7cfb333f4156b0e10fd1474c4f5e8e0d93083094a",
+        "observedScopedCatalog": true,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "16571ea778fb0f0c9f4ba6a7cfb333f4156b0e10fd1474c4f5e8e0d93083094a",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "yjs-scoped",
+          "seed": 2,
+          "authorHash": "16571ea778fb0f0c9f4ba6a7cfb333f4156b0e10fd1474c4f5e8e0d93083094a",
+          "projectionHash": "efa88fa9c9383fbaab04593ac81ff059c26d5e70efaca4bce85116fb9ba63230",
+          "referenceRows": 10,
+          "nodeRevision": 2,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "authored-before-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "48cb09318c6d329af21a468f4c7bec9cce092f018b6d803c0af9c8ab7fb7d9ab",
+        "authorHash": "f469eacd2babfa505f9afcacdd73b210b60e40fe03c5fc8c5db0aabc2e2ed0ae",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "48cb09318c6d329af21a468f4c7bec9cce092f018b6d803c0af9c8ab7fb7d9ab",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "48cb09318c6d329af21a468f4c7bec9cce092f018b6d803c0af9c8ab7fb7d9ab",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "authored-before-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "2af7363d4ad469f14aedb80de4b5b6a91738fbb70fd055861f840f30a26fee35",
+        "authorHash": "a8f25d47c3d216bc3a5a706bbfd9b093e9947dabacb8e160e70a64b940b29918",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "2af7363d4ad469f14aedb80de4b5b6a91738fbb70fd055861f840f30a26fee35",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "2af7363d4ad469f14aedb80de4b5b6a91738fbb70fd055861f840f30a26fee35",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "authored-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "c87fb4919437d263e491997d581201e7b4daec8a7f0fbf90cc73c75716b28f04",
+        "authorHash": "255a6882a8f44dbfd59449d294cc102d73ac1aa172be0c0409d5b4c45720a98f",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "255a6882a8f44dbfd59449d294cc102d73ac1aa172be0c0409d5b4c45720a98f",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "255a6882a8f44dbfd59449d294cc102d73ac1aa172be0c0409d5b4c45720a98f",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "authored-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "c699ce00273def2ba9591f9ee2b1464a02674515a4bdf529ab22aa99328e34c5",
+        "authorHash": "253c0108c35cf6a4752bb2b9da1d44cee92135bb447715f0bd35489bdd6e72fc",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "253c0108c35cf6a4752bb2b9da1d44cee92135bb447715f0bd35489bdd6e72fc",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "253c0108c35cf6a4752bb2b9da1d44cee92135bb447715f0bd35489bdd6e72fc",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "queue-waiting",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "86e8e4d5bcd6d99193aa75918d03f6ac6afb511dddeaf37c7a978d3b636f5b32",
+        "authorHash": "1f341853711ba7f6c72652d57443c3343de3219a81391269400f8c24a0da09db",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "1f341853711ba7f6c72652d57443c3343de3219a81391269400f8c24a0da09db",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "1f341853711ba7f6c72652d57443c3343de3219a81391269400f8c24a0da09db",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "queue-waiting",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "8b24906e6133224f5d9a980f3a048d5bd8fa43c6d5e582aefe5bbf272fbb80f9",
+        "authorHash": "b0b614e3f87957a871c928869098b1368b574701e432d6d2ac9c16eb897d5f54",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "b0b614e3f87957a871c928869098b1368b574701e432d6d2ac9c16eb897d5f54",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "b0b614e3f87957a871c928869098b1368b574701e432d6d2ac9c16eb897d5f54",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "catalog-captured",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "7d2fb520469799e57d30cdf7f1c46106cbfe10bd4e4e134d3643aa31b0fc376b",
+        "authorHash": "51528016402328a4a30eb4349a012edc005535695523fddbfe247626fbb678dc",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "51528016402328a4a30eb4349a012edc005535695523fddbfe247626fbb678dc",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "51528016402328a4a30eb4349a012edc005535695523fddbfe247626fbb678dc",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "catalog-captured",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "68e4d6da9b5f5f61487a501cd8c7a29b7040d3635342f5209d66f8ab5565d968",
+        "authorHash": "85af05e299a2a626326823a25d2239a99cad1c1c4de7c574c9da7fa43ac94307",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "85af05e299a2a626326823a25d2239a99cad1c1c4de7c574c9da7fa43ac94307",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "85af05e299a2a626326823a25d2239a99cad1c1c4de7c574c9da7fa43ac94307",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "index-after-delete",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "47c17159939661ad211326d9470d8823b12311bafa97b4343987899ce4ee8954",
+        "authorHash": "1eb5c6bc1d555cd5f9b64b2bf59ee5dc9492dc0c670c185af00422804b4907fd",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "1eb5c6bc1d555cd5f9b64b2bf59ee5dc9492dc0c670c185af00422804b4907fd",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "1eb5c6bc1d555cd5f9b64b2bf59ee5dc9492dc0c670c185af00422804b4907fd",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "index-after-delete",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "0725ca4ecaebf9299998aff80f99ffaca60822162df2c742513b7ddbdba65ee5",
+        "authorHash": "505537779d9986c0644d20bc68d5a236fb48284e1d8abbde8cbb74fb255b4b77",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "505537779d9986c0644d20bc68d5a236fb48284e1d8abbde8cbb74fb255b4b77",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "505537779d9986c0644d20bc68d5a236fb48284e1d8abbde8cbb74fb255b4b77",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "index-after-insert",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-insert",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "9a455e580f1935df593228ad4cd0c28d38315876328cbaa1c764b551d7106f2c",
+        "authorHash": "318264f17f13722259043f0616864deb7d6bb2e732fa3050617060f2012fec79",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "318264f17f13722259043f0616864deb7d6bb2e732fa3050617060f2012fec79",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "318264f17f13722259043f0616864deb7d6bb2e732fa3050617060f2012fec79",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "index-after-insert",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-insert",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "faef0a41a89601164d292519bd0ce356a83218cbca2954589a0af8c7f86dabd2",
+        "authorHash": "fa7bc34ba8bda4521306fe09de6b80f5e2630dbbb45ba4c7ae3e4e53af934616",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "fa7bc34ba8bda4521306fe09de6b80f5e2630dbbb45ba4c7ae3e4e53af934616",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-insert",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "fa7bc34ba8bda4521306fe09de6b80f5e2630dbbb45ba4c7ae3e4e53af934616",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "index-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "42abfcb98f0e265c49f147938be9fa72bc6328ca1dac19def541e1ef4d115724",
+        "authorHash": "cc5f66a6a0ccce5e91284fd434158794eedff6374cfcc7f09f3ec52ac3f56a9d",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "cc5f66a6a0ccce5e91284fd434158794eedff6374cfcc7f09f3ec52ac3f56a9d",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "cc5f66a6a0ccce5e91284fd434158794eedff6374cfcc7f09f3ec52ac3f56a9d",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "index-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "8c6e4e319901d6cd9465705c5532fa3e6621456383d228b020c0ab9dec4a75d3",
+        "authorHash": "17a1371e6651e82f89a0092adbdf80bf343be341eb990e5c88f4e02cb75e4ca1",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "17a1371e6651e82f89a0092adbdf80bf343be341eb990e5c88f4e02cb75e4ca1",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "17a1371e6651e82f89a0092adbdf80bf343be341eb990e5c88f4e02cb75e4ca1",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "queue-acknowledged",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "json-patch",
+        "seed": 1,
+        "baselineAuthorHash": "fd3e8b76a3885983e25691775e364de66e54118464760501d7196839dc004883",
+        "authorHash": "b7f944c9922b0f5f4d57137918b120575a8655f2d4fd1678d903377ef0a6d0f2",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "b7f944c9922b0f5f4d57137918b120575a8655f2d4fd1678d903377ef0a6d0f2",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "json-patch",
+          "seed": 1,
+          "authorHash": "b7f944c9922b0f5f4d57137918b120575a8655f2d4fd1678d903377ef0a6d0f2",
+          "projectionHash": "2128245d52e967c2d5796a56e1726b49fc5c78d9d65256e9844418efd8f1bcb4",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "json-patch",
+      "boundary": "queue-acknowledged",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "json-patch",
+        "seed": 2,
+        "baselineAuthorHash": "d2d510c3a4d63f3465a3b68210c158b69c7ae4034120c94dee8e8d0b76eb2e45",
+        "authorHash": "db8d0317686657576f49e4a41f5b0786a412a3c7e16f3d0b90e2eb5a69288faf",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "db8d0317686657576f49e4a41f5b0786a412a3c7e16f3d0b90e2eb5a69288faf",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "json-patch",
+          "seed": 2,
+          "authorHash": "db8d0317686657576f49e4a41f5b0786a412a3c7e16f3d0b90e2eb5a69288faf",
+          "projectionHash": "64a58f6d801eacf31e425d3514eb5b5eb43232aa604b23c7eaa92c6cc3a69a19",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "authored-before-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "delete-patch",
+        "seed": 1,
+        "baselineAuthorHash": "bc46f21312475ffb2b9f4959b517075b5f866ded5fb103e80c11ee177fba865b",
+        "authorHash": "55067da0665628ad9fd8f86f4552e409554e02493e7809de92bd7000b300ac41",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "bc46f21312475ffb2b9f4959b517075b5f866ded5fb103e80c11ee177fba865b",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "bc46f21312475ffb2b9f4959b517075b5f866ded5fb103e80c11ee177fba865b",
+          "projectionHash": "1473f9aecaec3b80674129d89040efaf601505a923a4015774958c90cd4b628c",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "authored-before-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-before-commit",
+        "scenario": "delete-patch",
+        "seed": 2,
+        "baselineAuthorHash": "798117b51542af713e001e9e5c53d5c75a2356865bfada49c67638d0cec80828",
+        "authorHash": "f29e2f80f82af1fb1c3b562e0ba8b043c0615a4f4f07172de6a7e088d9024f4b",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "798117b51542af713e001e9e5c53d5c75a2356865bfada49c67638d0cec80828",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-before-commit",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "798117b51542af713e001e9e5c53d5c75a2356865bfada49c67638d0cec80828",
+          "projectionHash": "d92efbc6a743c093f878c61e3ab2a4ec50622a7d8c4cc1c36050f09063818412",
+          "referenceRows": 10,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "authored-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "delete-patch",
+        "seed": 1,
+        "baselineAuthorHash": "2b17b24d4e0b38caf8017bc7a031a537978cbd1fd651ae72a362d2d263cf519c",
+        "authorHash": "00082e1932e9addfb4433bf70c4e930e169bce20111b63979378092b1102b172",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "00082e1932e9addfb4433bf70c4e930e169bce20111b63979378092b1102b172",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "00082e1932e9addfb4433bf70c4e930e169bce20111b63979378092b1102b172",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "authored-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "authored-after-commit",
+        "scenario": "delete-patch",
+        "seed": 2,
+        "baselineAuthorHash": "af61926fb3892dd6fc9bc3b0cacf5673e6e4a4891d202d8785212d8a8df38bf3",
+        "authorHash": "dc3ed4138305fa5bfc29fa36590be8c842ce46b2d8be56a9bab4c17cf0d7a6c4",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "dc3ed4138305fa5bfc29fa36590be8c842ce46b2d8be56a9bab4c17cf0d7a6c4",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "authored-after-commit",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "dc3ed4138305fa5bfc29fa36590be8c842ce46b2d8be56a9bab4c17cf0d7a6c4",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "queue-waiting",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "delete-patch",
+        "seed": 1,
+        "baselineAuthorHash": "bd98f9e19fadcdcd5c7a5e8fe0f3270d59889a990625ad49e6c126386affdf7e",
+        "authorHash": "b4c71b299cb254b0f6aaee8c22c8cd4a2b229c1f5a9015693814f0872f9bea88",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "b4c71b299cb254b0f6aaee8c22c8cd4a2b229c1f5a9015693814f0872f9bea88",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "b4c71b299cb254b0f6aaee8c22c8cd4a2b229c1f5a9015693814f0872f9bea88",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "queue-waiting",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-waiting",
+        "scenario": "delete-patch",
+        "seed": 2,
+        "baselineAuthorHash": "78c6fc820c7f59710b8648d9002b82d9282d7319aefee2f566d074c2d32f46bc",
+        "authorHash": "d486c07d30e39b2eb24a86ceed5af0e850f730a27f81db84932d2366de837c90",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "d486c07d30e39b2eb24a86ceed5af0e850f730a27f81db84932d2366de837c90",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-waiting",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "d486c07d30e39b2eb24a86ceed5af0e850f730a27f81db84932d2366de837c90",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "catalog-captured",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "delete-patch",
+        "seed": 1,
+        "baselineAuthorHash": "5149ea6861ffc63e08b83710ffb562b255d0e05d993069a9a7a0f98166b89b32",
+        "authorHash": "57dea4e2b1932769e7fd42f969b1d0ece79b6fa19ef6e767aba210fa73c447fa",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "57dea4e2b1932769e7fd42f969b1d0ece79b6fa19ef6e767aba210fa73c447fa",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "57dea4e2b1932769e7fd42f969b1d0ece79b6fa19ef6e767aba210fa73c447fa",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "catalog-captured",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "catalog-captured",
+        "scenario": "delete-patch",
+        "seed": 2,
+        "baselineAuthorHash": "fc5770d2507378e4310b0a7dbfea074eb57222c25f4f9244ab0fbba6296f9d1b",
+        "authorHash": "754d1bedd7bbee71d17eef0664ec087df1d0e9b6087a6ed6819e620c860418cc",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "754d1bedd7bbee71d17eef0664ec087df1d0e9b6087a6ed6819e620c860418cc",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "catalog-captured",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "754d1bedd7bbee71d17eef0664ec087df1d0e9b6087a6ed6819e620c860418cc",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "index-after-delete",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "delete-patch",
+        "seed": 1,
+        "baselineAuthorHash": "20ff5649fa211de7a359fa1d57fdb62f7ef866c1f3c0dae21ad94d58fe6ab825",
+        "authorHash": "7fc5f60dd9afe3c788a25aba8db53db88631a15d6dfed39c465063b5ab9d8aac",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "7fc5f60dd9afe3c788a25aba8db53db88631a15d6dfed39c465063b5ab9d8aac",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "7fc5f60dd9afe3c788a25aba8db53db88631a15d6dfed39c465063b5ab9d8aac",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "index-after-delete",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-delete",
+        "scenario": "delete-patch",
+        "seed": 2,
+        "baselineAuthorHash": "cd47df5784057728d55aab51259a6efc7ee9468cfe0e0b8716597441d4870c80",
+        "authorHash": "e278256211b53a7c2a6fbd58f216d78d2177e133e2a120c827fede4a61b2938e",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "e278256211b53a7c2a6fbd58f216d78d2177e133e2a120c827fede4a61b2938e",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-delete",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "e278256211b53a7c2a6fbd58f216d78d2177e133e2a120c827fede4a61b2938e",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "index-after-commit",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "delete-patch",
+        "seed": 1,
+        "baselineAuthorHash": "c159fb10805fbdb702c1f71c3a0e3440a29e749e1625af5e1b85672e335eac53",
+        "authorHash": "fabfc386074631bf7e20d99a06f6743d663406298e53b1328c923276ea50eca0",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "fabfc386074631bf7e20d99a06f6743d663406298e53b1328c923276ea50eca0",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "fabfc386074631bf7e20d99a06f6743d663406298e53b1328c923276ea50eca0",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "index-after-commit",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "index-after-commit",
+        "scenario": "delete-patch",
+        "seed": 2,
+        "baselineAuthorHash": "0a072b10a4da0ed1f825d12002e2788377361b3f89afbcd361541dd5af7b718d",
+        "authorHash": "bbccfb992c531d70c0a533d615962ba539562bfd8126728cb0dd64294414b61e",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "bbccfb992c531d70c0a533d615962ba539562bfd8126728cb0dd64294414b61e",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "index-after-commit",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "bbccfb992c531d70c0a533d615962ba539562bfd8126728cb0dd64294414b61e",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "queue-acknowledged",
+      "seed": 1,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "delete-patch",
+        "seed": 1,
+        "baselineAuthorHash": "cf84eba751d0187d51192c440a76fc018e12f7cd37b7f688d2645105d6e90765",
+        "authorHash": "065d93730fd7fff05830c50dcc4d8f94b93a49097b6939e7afe2f80ca42463cf",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "065d93730fd7fff05830c50dcc4d8f94b93a49097b6939e7afe2f80ca42463cf",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "delete-patch",
+          "seed": 1,
+          "authorHash": "065d93730fd7fff05830c50dcc4d8f94b93a49097b6939e7afe2f80ca42463cf",
+          "projectionHash": "e654e1d36bccd9d6e2eef6c1e7415d8ca4be9b292a3f2372cc0cc99c0c7c4986",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "delete-patch",
+      "boundary": "queue-acknowledged",
+      "seed": 2,
+      "kill": {
+        "ready": true,
+        "boundary": "queue-acknowledged",
+        "scenario": "delete-patch",
+        "seed": 2,
+        "baselineAuthorHash": "5bc09c1c882185292caba818e9bfd079f94d87846aa2fd75457d64cde36d1852",
+        "authorHash": "05da5b437a5277add88902b75a82e8a961a3e4164a361a05036c67c9d50c84d7",
+        "observedScopedCatalog": false,
+        "exit": {
+          "code": null,
+          "signal": "SIGKILL"
+        }
+      },
+      "restarts": [
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "05da5b437a5277add88902b75a82e8a961a3e4164a361a05036c67c9d50c84d7",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        },
+        {
+          "recovered": true,
+          "boundary": "queue-acknowledged",
+          "scenario": "delete-patch",
+          "seed": 2,
+          "authorHash": "05da5b437a5277add88902b75a82e8a961a3e4164a361a05036c67c9d50c84d7",
+          "projectionHash": "0e487519bee16344026dfc2fa11b1838e4324f4221261821ae0dc48f9ee8b221",
+          "referenceRows": 8,
+          "nodeRevision": 1,
+          "checks": [
+            "fixture-span-oracle",
+            "uncached-full-rebuild",
+            "author-state-unchanged",
+            "project-isolation",
+            "integrity",
+            "foreign-keys",
+            "revision"
+          ],
+          "exit": {
+            "code": 0,
+            "signal": null
+          }
+        }
+      ]
+    }
+  ],
+  "acceptance": {
+    "processRecovery": "passed",
+    "nativeGateway": "not-run",
+    "powerLoss": "not-run",
+    "performance": "not-measured"
+  },
+  "limitations": [
+    "This exercises renderer persistence through the real adapter and a Node SQLite gateway, not the native Rust process or a device.",
+    "SIGKILL proves process termination recovery; it does not simulate OS crash, disk failure or power loss.",
+    "Warm-runtime scoped Yjs capture is interrupted as well as full capture. Every recovery still rebuilds all authoritative sources; database/input latency is not measured here.",
+    "Rebuilds can allocate new derived row IDs/timestamps; idempotency compares semantic references, while author state and unrelated project rows remain byte-for-byte unchanged."
+  ]
+}

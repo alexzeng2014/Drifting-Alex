@@ -1,0 +1,164 @@
+import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { StandaloneSettingsPanel } from '../../../features/settings/StandaloneSettingsPanel';
+import {
+  hostedAccountSettingsEnabled,
+  withoutHostedAccountSettings,
+} from '../../../features/settings/hosted-settings-policy';
+import { useMobileAndroidBack } from '../useMobileAndroidBack';
+import { BrushIcon, type BrushIconName } from '../../../components/ui/BrushIcon';
+import { GhostIconButton } from '../../../components/ui/GhostIconButton';
+import '../../../../styles/mobile-settings.css';
+
+type MobileSettingsId =
+  | 'account'
+  | 'subscription'
+  | 'appearance'
+  | 'editor'
+  | 'language'
+  | 'models'
+  | 'sync'
+  | 'privacy'
+  | 'about';
+
+interface MobileSettingsItem {
+  id: MobileSettingsId;
+  /** The desktop settings rail's brush icon for the same section. */
+  icon: BrushIconName | null;
+  labelKey: string;
+}
+
+interface MobileSettingsGroup {
+  labelKey: string;
+  items: MobileSettingsItem[];
+}
+
+const MOBILE_SETTINGS_GROUPS: MobileSettingsGroup[] = [
+  {
+    labelKey: 'settings.groups.account',
+    items: [
+      { id: 'account', icon: 'name-seal', labelKey: 'settings.rail.account' },
+      { id: 'subscription', icon: 'name-seal', labelKey: 'settings.rail.subscription' },
+    ],
+  },
+  {
+    labelKey: 'settings.groups.preferences',
+    items: [
+      { id: 'appearance', icon: 'taiji', labelKey: 'settings.rail.appearance' },
+      { id: 'editor', icon: 'edit', labelKey: 'settings.rail.editor' },
+      { id: 'language', icon: 'wen', labelKey: 'settings.rail.language' },
+    ],
+  },
+  {
+    labelKey: 'settings.groups.intelligence',
+    items: [
+      { id: 'models', icon: 'inkstone', labelKey: 'settings.rail.models' },
+    ],
+  },
+  {
+    labelKey: 'settings.groups.control',
+    items: [
+      // A phone has no keyboard shortcuts to bind.
+      { id: 'sync', icon: 'cloud', labelKey: 'settings.rail.sync' },
+    ],
+  },
+  {
+    labelKey: 'settings.groups.about',
+    items: [
+      { id: 'privacy', icon: 'lock-shut', labelKey: 'settings.rail.privacy' },
+      { id: 'about', icon: null, labelKey: 'settings.rail.about_app' },
+    ],
+  },
+];
+
+
+function isMobileSettingsId(
+  value: string | null,
+  groups: MobileSettingsGroup[],
+): value is MobileSettingsId {
+  return !!value && groups.some((group) => group.items.some((item) => item.id === value));
+}
+
+export function MobileSettingsView() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const accountSettingsEnabled = hostedAccountSettingsEnabled();
+  const settingsGroups = MOBILE_SETTINGS_GROUPS.map((group) => ({
+    ...group,
+    items: withoutHostedAccountSettings(group.items, accountSettingsEnabled),
+  })).filter((group) => group.items.length > 0);
+  const requestedSection = searchParams.get('section');
+  const active = isMobileSettingsId(requestedSection, settingsGroups) ? requestedSection : null;
+  const activeItem = settingsGroups.flatMap((group) => group.items).find(
+    (item) => item.id === active,
+  );
+
+  const closeSection = useCallback(() => {
+    setSearchParams({}, { replace: true, state: location.state });
+  }, [location.state, setSearchParams]);
+
+  const handleBack = () => {
+    if (active) closeSection();
+    else {
+      const from = (location.state as { from?: unknown } | null)?.from;
+      navigate(typeof from === 'string' && from.startsWith('/') ? from : '/', { replace: true });
+    }
+  };
+
+  useMobileAndroidBack(handleBack);
+
+  return (
+    <div className="m-settings set-overlay">
+      <header className="m-settings__head set-head">
+        <div className="set-head__left">
+          <GhostIconButton
+            glass="round"
+            className="set-head__back glass--rest"
+            onClick={handleBack}
+            aria-label={t('navigation.back')}
+            icon={<BrushIcon name="arrow-back" />}
+          />
+          <span className="set-head__title">
+            {activeItem ? t(activeItem.labelKey) : t('settings.title')}
+          </span>
+        </div>
+      </header>
+
+      <div className="m-settings__body set-body">
+        {active ? (
+          <main
+            className="m-settings__content set-main"
+            aria-label={activeItem && t(activeItem.labelKey)}
+          >
+            {active !== 'subscription' && <StandaloneSettingsPanel id={active} />}
+          </main>
+        ) : (
+          <nav className="m-settings__index set-rail" aria-label={t('settings.title')}>
+            {settingsGroups.map((group) => (
+              <section className="set-rail__group" key={group.labelKey}>
+                <h2 className="set-rail__group-title">{t(group.labelKey)}</h2>
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="set-rail__item"
+                    onClick={() => setSearchParams({ section: item.id }, { state: location.state })}
+                  >
+                    <span className="set-rail__icon" aria-hidden="true">
+                      {item.icon && <BrushIcon name={item.icon} />}
+                    </span>
+                    <span className="set-rail__label">{t(item.labelKey)}</span>
+                    <BrushIcon name="chevron-right" size={14} className="set-rail__more" />
+                  </button>
+                ))}
+              </section>
+            ))}
+          </nav>
+        )}
+      </div>
+    </div>
+  );
+}

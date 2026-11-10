@@ -1,0 +1,82 @@
+/**
+ * DOCX → ProseMirror JSON via mammoth.
+ *
+ * Mammoth converts DOCX to clean HTML — it discards Word's styling
+ * minutiae (font, color, mysterious spacings) and emits semantic tags
+ * (h1..h6, p, ul/ol/li, strong, em, blockquote). We then run Tiptap's
+ * `generateJSON` over that HTML so we land in the same JSON shape as
+ * markdown imports. Lists and code aren't in the editor schema, so
+ * <ul>/<ol>/<li> degrade to paragraphs and <pre>/<code> to plain text.
+ *
+ * Images: mammoth can convert images to data URIs, but the editor's
+ * StarterKit doesn't currently render images. We drop them with a
+ * warning so the user sees in the dialog that something was lost.
+ */
+import * as mammoth from 'mammoth';
+import { generateJSON } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import Underline from '@tiptap/extension-underline';
+import Link from '@tiptap/extension-link';
+import TextAlign from '@tiptap/extension-text-align';
+import type { JSONContent } from '@tiptap/core';
+import { EntityLink } from '../../lib/extensions/entity-link';
+import { takeTitle } from './title';
+import type { ParsedDoc } from './types';
+
+const PARSER_EXTENSIONS = [
+  StarterKit.configure({
+    // Mirror the editor (useEntityEditor): a novel-writing surface with no
+    // lists or code. Dropping these from the parser schema makes ProseMirror
+    // descend through <ul>/<ol>/<li> into paragraphs and flatten <pre>/<code>
+    // to plain text, instead of emitting nodes the editor can't load.
+    bulletList: false,
+    orderedList: false,
+    listItem: false,
+    listKeymap: false,
+    code: false,
+    codeBlock: false,
+  }),
+  Underline,
+  Link.configure({ openOnClick: false, autolink: true }),
+  TextAlign.configure({ types: ['heading', 'paragraph'] }),
+  EntityLink,
+];
+
+export async function parseDocx(file: File): Promise<ParsedDoc> {
+  const buf = await file.arrayBuffer();
+  // mammoth ignores images by default in `convertToHtml`; we don't
+  // configure transformImage so they're dropped quietly. Track that in
+  // a warning so the importer can surface it.
+  const result = await mammoth.convertToHtml(
+    { arrayBuffer: buf },
+    {
+      // Style map: lets us promote Word's "Title" and "Heading 1" to the
+      // same h1, and "Quote" to <blockquote>. Defaults already handle
+      // most cases; we just add the common Word style names so Chinese
+      // localizations also map correctly.
+      styleMap: [
+        "p[style-name='Title'] => h1:fresh",
+        "p[style-name='标题 1'] => h1:fresh",
+        "p[style-name='标题 2'] => h2:fresh",
+        "p[style-name='标题 3'] => h3:fresh",
+        "p[style-name='Quote'] => blockquote",
+      ],
+    },
+  );
+
+  const html = result.value;
+  const { doc, title } = takeTitle(generateJSON(html, PARSER_EXTENSIONS) as JSONContent, file.name);
+  const warnings: string[] = [];
+  if (/<img\b/i.test(html)) warnings.push('Images were not imported because the editor does not support embedded images yet.');
+  for (const m of result.messages ?? []) {
+    if (m.type === 'warning') warnings.push(m.message);
+  }
+
+  return {
+    doc,
+    guessedTitle: title,
+    filename: file.name,
+    format: 'docx',
+    warnings: warnings.length ? warnings : undefined,
+  };
+}

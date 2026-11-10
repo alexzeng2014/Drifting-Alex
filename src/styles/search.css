@@ -1,0 +1,265 @@
+/* ============================================================================
+   Search components — Global search modal + Editor find panel.
+
+   Both are floating layers: the menu shell (--menu-surface-*: the sidebar's
+   opaque colour, square, a half-pixel ink hairline and the floating shadow),
+   a single-line field of glass for the query, rows that carry the menu row's
+   ring of glass, sand marks for kinds, the index face for counts and field
+   names. A hit is marked by darker, heavier ink, never a wash. Only the
+   matches inside the manuscript stay a flat tint (::highlight() honours only
+   colours), taken from the accent so a custom accent follows.
+   ============================================================================ */
+
+@layer base {
+  :root {
+    --search-find-match-bg:        hsl(var(--accent) / 0.16);
+    --search-find-match-cur-bg:    hsl(var(--accent) / 0.34);
+  }
+}
+
+/* ============================================================
+   Global search modal
+   ============================================================ */
+.gsearch-overlay {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  /* The dialogs' thin mist of the desk's own colour. */
+  background: color-mix(in srgb, var(--workspace-ui-bg) 58%, transparent);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 80px 16px 16px;
+  z-index: var(--z-modal);
+}
+
+.gsearch-modal {
+  box-sizing: border-box;
+  width: min(620px, 100%);
+  min-width: 0;
+  max-width: 100%;
+  max-height: 80vh;
+  background: var(--menu-surface-bg);
+  color: hsl(var(--ink-1));
+  border-radius: var(--menu-surface-radius);
+  box-shadow: var(--menu-surface-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.gsearch-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 6px 10px;
+}
+
+.gsearch-header > .ui-field {
+  flex: 1;
+}
+
+.gsearch-results {
+  flex: 1;
+  min-height: 0;
+  overflow-anchor: none;
+  overflow-y: auto;
+  padding: 2px 0 6px;
+  font-size: var(--ui-font-body, 12.5px);
+}
+.gsearch-results.is-empty-state {
+  padding: 0;
+}
+
+.gsearch-empty {
+  padding: 22px 14px 26px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 13px);
+  text-align: center;
+}
+
+.gsearch-group-header.menu-surface__item {
+  gap: 8px;
+  min-height: 0;
+  padding-block: 0;
+}
+
+.gsearch-group-icon {
+  display: inline-flex;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.gsearch-group-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: hsl(var(--ink-1));
+  font-weight: 500;
+}
+
+.gsearch-count,
+.gsearch-kind {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10.5px);
+  line-height: 1;
+}
+
+.gsearch-count {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.gsearch-kind {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.gsearch-row.menu-surface__item {
+  gap: 10px;
+  min-height: 0;
+  padding-block: 0;
+  padding-left: 36px;
+}
+
+.gsearch-field-tag {
+  flex-shrink: 0;
+  min-width: 28px;
+  white-space: nowrap;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  line-height: 1;
+}
+
+.gsearch-excerpt {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--ui-font-secondary, 12.5px);
+  line-height: 1.5;
+}
+
+/* A hit: darker, heavier ink; no wash. Shared with the find results. */
+.search-hit {
+  padding: 0;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font-weight: 600;
+}
+
+/* ============================================================
+   Editor find panel (in-document Cmd+F)
+   ============================================================ */
+/* The dock owns positioning + stacks the find bar over its results list.
+   Anchored inside the central editor column (.app-mid / .editor-shell, both
+   position:relative) rather than fixed to the viewport, so it doesn't overlap
+   the right sidebar. */
+.editor-find-dock {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 100;
+  width: min(360px, calc(100% - 32px));
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+html[data-shell-mode='mobile'] .gsearch-overlay {
+  padding: max(12px, var(--safe-area-top)) max(12px, var(--safe-area-right))
+    max(12px, var(--safe-area-bottom)) max(12px, var(--safe-area-left));
+}
+
+html[data-shell-mode='mobile'] .gsearch-modal {
+  max-height: 100%;
+}
+
+/* The find bar is a floating layer too: the menu shell, a field of glass,
+   flat brush-icon buttons for previous, next and close. */
+.editor-find-panel {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  background: var(--menu-surface-bg);
+  border-radius: var(--menu-surface-radius);
+  box-shadow: var(--menu-surface-shadow);
+  font-family: var(--font-sans);
+  color: hsl(var(--ink-1));
+}
+
+.editor-find-panel > .ui-field {
+  flex: 1;
+  min-height: 30px;
+  margin-right: 2px;
+}
+
+/* ============================================================
+   ProseMirror find-match decorations — owned by EditorFindPanel
+   (registered via editor.registerPlugin). Painted regardless of
+   editor focus.
+   ============================================================ */
+.ProseMirror .find-match {
+  background-color: var(--search-find-match-bg);
+  border-radius: 1px;
+}
+.ProseMirror .find-match-current {
+  background-color: var(--search-find-match-cur-bg);
+}
+
+/* ============================================================
+   Find results list (under the find bar) — shared by the
+   whole-book find (通览全书) and the single-editor find.
+   Each row is a one-line context snippet for one match, a menu
+   row; the match the bar is on keeps the still ring.
+   ============================================================ */
+.find-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px 0;
+  background: var(--menu-surface-bg);
+  border-radius: var(--menu-surface-radius);
+  box-shadow: var(--menu-surface-shadow);
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 12.5px);
+}
+
+.find-list-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 3px;
+  font-weight: 500;
+  color: hsl(var(--ink-2));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.find-list-row.menu-surface__item {
+  display: block;
+  min-height: 0;
+  padding-block: 4px;
+  font-size: inherit;
+}
+
+.find-list-excerpt {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.6;
+}
+
+.find-list-more {
+  padding: 4px 14px;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 11px);
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}

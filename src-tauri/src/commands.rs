@@ -1,0 +1,388 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri_plugin_opener::OpenerExt;
+
+use crate::state::{CloseCoordinator, DeepLinkQueue, ShutdownAction};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    name: String,
+    version: String,
+    platform: &'static str,
+    architecture: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformCapabilities {
+    desktop_window_controls: bool,
+    deep_links: bool,
+    external_url_opener: bool,
+    secure_storage: bool,
+    sync_object_store: bool,
+    material_files: bool,
+    asset_store: bool,
+    ai_log: bool,
+    app_updater: bool,
+    oauth: bool,
+    mcp_stdio: bool,
+    image_codecs: ImageCodecCapabilities,
+    general_agent: bool,
+    general_agent_unavailable_reason: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageCodecCapabilities {
+    rust: &'static [&'static str],
+    native_system: &'static [&'static str],
+    runtime_checked: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LifecycleStatus {
+    pending_flush_request_id: Option<u64>,
+}
+
+#[derive(Deserialize)]
+pub struct WindowControlPosition {
+    x: f64,
+    y: f64,
+}
+
+#[tauri::command]
+pub fn app_get_info(app: AppHandle) -> AppInfo {
+    let package_info = app.package_info();
+    AppInfo {
+        name: package_info.name.clone(),
+        version: package_info.version.to_string(),
+        platform: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+    }
+}
+
+/// Both names resolve to the App-local root, which a development launch moves.
+fn app_data_path(app: &AppHandle) -> Result<String, String> {
+    Ok(crate::data_paths::app_local_root(app)?
+        .to_string_lossy()
+        .into_owned())
+}
+
+#[tauri::command]
+pub fn app_get_path(app: AppHandle, name: String) -> Result<String, String> {
+    let resolver = app.path();
+    let path: PathBuf = match name.as_str() {
+        "home" => resolver.home_dir(),
+        "appData" | "userData" => return app_data_path(&app),
+        "temp" => Ok(std::env::temp_dir()),
+        "documents" => resolver.document_dir(),
+        _ => return Err(format!("unsupported app path: {name}")),
+    }
+    .map_err(|error| error.to_string())?;
+
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn platform_capabilities() -> PlatformCapabilities {
+    PlatformCapabilities {
+        desktop_window_controls: cfg!(desktop),
+        deep_links: true,
+        external_url_opener: true,
+        secure_storage: cfg!(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "android"
+        )),
+        sync_object_store: true,
+        material_files: true,
+        asset_store: true,
+        ai_log: true,
+        app_updater: cfg!(desktop)
+            && option_env!("DRIFTING_UPDATER_PUBLIC_KEY")
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty()),
+        oauth: true,
+        // Streamable HTTP is renderer-owned on every target. The native stdio
+        // process host is deliberately desktop-only.
+        mcp_stdio: cfg!(desktop),
+        image_codecs: ImageCodecCapabilities {
+            rust: &["jpeg", "png", "gif", "webp", "bmp", "ico", "tiff"],
+            native_system: if cfg!(any(
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "android"
+            )) {
+                &["heic", "heif", "avif"]
+            } else {
+                &[]
+            },
+            // OS version and installed codec support are checked when the source is decoded.
+            runtime_checked: true,
+        },
+        // The provider-neutral runtime executes in the renderer and calls
+        // Drifting's own use cases. It does not require a native sidecar.
+        general_agent: true,
+        general_agent_unavailable_reason: "",
+    }
+}
+
+#[tauri::command]
+pub async fn window_minimize(window: WebviewWindow) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        window.minimize().map_err(|error| error.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = window;
+        Err("window minimize is unsupported on mobile".into())
+    }
+}
+
+#[tauri::command]
+pub async fn window_toggle_maximize(window: WebviewWindow) -> Result<bool, String> {
+    #[cfg(desktop)]
+    {
+        let maximized = window.is_maximized().map_err(|error| error.to_string())?;
+        if maximized {
+            window.unmaximize().map_err(|error| error.to_string())?;
+        } else {
+            window.maximize().map_err(|error| error.to_string())?;
+        }
+        Ok(!maximized)
+    }
+    #[cfg(mobile)]
+    {
+        let _ = window;
+        Err("window maximize is unsupported on mobile".into())
+    }
+}
+
+#[tauri::command]
+pub async fn window_is_maximized(window: WebviewWindow) -> Result<bool, String> {
+    #[cfg(desktop)]
+    {
+        window.is_maximized().map_err(|error| error.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = window;
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub async fn window_close(window: WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|error| error.to_string())
+}
+
+/// The workspace owns this flag: on while a project is open, off on the shelf.
+#[tauri::command]
+pub fn window_set_close_returns_to_shelf(
+    coordinator: State<'_, Arc<CloseCoordinator>>,
+    enabled: bool,
+) {
+    coordinator.set_close_returns_to_shelf(enabled);
+}
+
+#[tauri::command]
+pub fn window_set_traffic_light_position(
+    window: WebviewWindow,
+    position: WindowControlPosition,
+) -> Result<(), String> {
+    if !position.x.is_finite()
+        || !position.y.is_finite()
+        || !(0.0..=128.0).contains(&position.x)
+        || !(0.0..=128.0).contains(&position.y)
+    {
+        return Err("invalid traffic-light position".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        window
+            .with_webview(move |webview| unsafe {
+                use objc2_app_kit::{NSWindow, NSWindowButton};
+
+                let native_window: &NSWindow = &*webview.ns_window().cast();
+                let Some(close) = native_window.standardWindowButton(NSWindowButton::CloseButton)
+                else {
+                    return;
+                };
+                let Some(minimize) =
+                    native_window.standardWindowButton(NSWindowButton::MiniaturizeButton)
+                else {
+                    return;
+                };
+                let Some(zoom) = native_window.standardWindowButton(NSWindowButton::ZoomButton)
+                else {
+                    return;
+                };
+                let Some(button_row) = close.superview() else {
+                    return;
+                };
+                let Some(title_bar_container) = button_row.superview() else {
+                    return;
+                };
+
+                let close_frame = close.frame();
+                let title_bar_height = close_frame.size.height + position.y;
+                let mut title_bar_frame = title_bar_container.frame();
+                title_bar_frame.size.height = title_bar_height;
+                title_bar_frame.origin.y = native_window.frame().size.height - title_bar_height;
+                title_bar_container.setFrame(title_bar_frame);
+
+                let spacing = minimize.frame().origin.x - close_frame.origin.x;
+                for (index, button) in [close, minimize, zoom].into_iter().enumerate() {
+                    let mut origin = button.frame().origin;
+                    origin.x = position.x + index as f64 * spacing;
+                    button.setFrameOrigin(origin);
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        Err("traffic-light positioning is supported only on macOS".into())
+    }
+}
+
+/// Windows keeps its native title bar, which otherwise follows the system
+/// theme instead of Drifting's own light or dark choice. Elsewhere the window
+/// keeps following the system: macOS draws Drifting's own top area under a
+/// transparent title bar.
+#[tauri::command]
+pub fn window_set_theme(window: WebviewWindow, theme: String) -> Result<(), String> {
+    let theme = match theme.as_str() {
+        "light" => tauri::Theme::Light,
+        "dark" => tauri::Theme::Dark,
+        _ => return Err("window theme must be light or dark".into()),
+    };
+    #[cfg(target_os = "windows")]
+    {
+        window
+            .set_theme(Some(theme))
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, theme);
+        Err("the window theme follows the system on this platform".into())
+    }
+}
+
+/// Immersive writing hides the traffic lights; the window's top edge brings
+/// them back while the pointer stays there. Changing a standard window
+/// button's alpha (or hidden flag) makes AppKit lay the title bar out again
+/// at once, dropping the inset `window_set_traffic_light_position` gave it,
+/// so the buttons' and their container's frames are put back in the same
+/// main-thread turn: no frame ever shows them at the stock position. A
+/// pointer that reaches the faded buttons is already in the top band that
+/// shows them.
+#[tauri::command]
+pub fn window_set_traffic_lights_hidden(window: WebviewWindow, hidden: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        window
+            .with_webview(move |webview| unsafe {
+                use objc2_app_kit::{NSWindow, NSWindowButton};
+
+                let native_window: &NSWindow = &*webview.ns_window().cast();
+                let buttons: Vec<_> = [
+                    NSWindowButton::CloseButton,
+                    NSWindowButton::MiniaturizeButton,
+                    NSWindowButton::ZoomButton,
+                ]
+                .into_iter()
+                .filter_map(|kind| native_window.standardWindowButton(kind))
+                .collect();
+                let container = buttons
+                    .first()
+                    .and_then(|button| button.superview())
+                    .and_then(|row| row.superview());
+                let container_frame = container.as_ref().map(|view| view.frame());
+                let origins: Vec<_> = buttons.iter().map(|button| button.frame().origin).collect();
+
+                for button in &buttons {
+                    button.setAlphaValue(if hidden { 0.0 } else { 1.0 });
+                }
+
+                if let (Some(view), Some(frame)) = (container.as_ref(), container_frame) {
+                    view.setFrame(frame);
+                }
+                for (button, origin) in buttons.iter().zip(origins) {
+                    button.setFrameOrigin(origin);
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, hidden);
+        Err("traffic-light visibility is supported only on macOS".into())
+    }
+}
+
+#[tauri::command]
+pub fn opener_open_external(app: AppHandle, url: String) -> Result<(), String> {
+    let parsed = tauri::Url::parse(&url).map_err(|_| "invalid URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https" | "mailto" | "tel") {
+        return Err("unsupported external URL scheme".into());
+    }
+
+    app.opener()
+        .open_url(parsed, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn deep_link_take_pending(queue: State<'_, DeepLinkQueue>, prefix: String) -> Vec<String> {
+    queue.drain_matching(&prefix)
+}
+
+#[tauri::command]
+pub fn lifecycle_get_status(coordinator: State<'_, Arc<CloseCoordinator>>) -> LifecycleStatus {
+    LifecycleStatus {
+        pending_flush_request_id: coordinator.pending_request_id(),
+    }
+}
+
+#[tauri::command]
+pub fn lifecycle_complete_flush(
+    app: AppHandle,
+    window: WebviewWindow,
+    coordinator: State<'_, Arc<CloseCoordinator>>,
+    request_id: u64,
+) -> Result<bool, String> {
+    let Some(action) = coordinator.complete(request_id) else {
+        return Ok(false);
+    };
+
+    match action {
+        ShutdownAction::CloseWindow => {
+            #[cfg(target_os = "macos")]
+            window.hide().map_err(|error| error.to_string())?;
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                coordinator.permit_next_close();
+                coordinator.permit_next_exit();
+                window.close().map_err(|error| error.to_string())?;
+            }
+        }
+        ShutdownAction::ExitApp => app.exit(0),
+        ShutdownAction::RestartApp => crate::relaunch_app(&app),
+    }
+    Ok(true)
+}

@@ -1,0 +1,147 @@
+name: next
+
+# The Rust + GPUI rewrite workspace (next/, docs/rust-rewrite). It has its own
+# toolchain (next/rust-toolchain.toml) and lockfile, and runs only when what it
+# checks changes: next/, the plan and its evidence (the gates scan them), the
+# 0.1 client's resources next/ still builds from (until stage 7 moves them),
+# the public-boundary script and this workflow. ci.yml keeps covering the 0.1
+# client.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'next/**'
+      - 'docs/rust-rewrite/**'
+      - 'src/assets/design/**'
+      - 'src/assets/icon.*'
+      - 'src/renderer/locales/**'
+      - 'scripts/check-public-boundaries.mjs'
+      - '.github/workflows/next.yml'
+  pull_request:
+    paths:
+      - 'next/**'
+      - 'docs/rust-rewrite/**'
+      - 'src/assets/design/**'
+      - 'src/assets/icon.*'
+      - 'src/renderer/locales/**'
+      - 'scripts/check-public-boundaries.mjs'
+      - '.github/workflows/next.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: next-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    name: next / ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-26
+          - platform: windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    # A cold GPUI build takes several minutes on a desktop Mac.
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: next
+    env:
+      # dr-ui's font check fails instead of skipping when the fonts are absent.
+      DR_UI_REQUIRE_FONTS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Keep in step with next/rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, toolchain input
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy, rust-src
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: next
+          key: ${{ matrix.platform }}
+      # dr-ui's fonts are built, never committed: build-fonts.py downloads the
+      # sources pinned in provenance.json, checks their hashes, merges the
+      # faces and checks the result. Cached on the pins and the script.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: fonts
+        with:
+          path: next/.cache/fonts
+          key: dr-ui-fonts-${{ matrix.platform }}-${{ hashFiles('next/crates/dr-ui/assets/fonts/provenance.json', 'next/crates/dr-ui/script/build-fonts.py') }}
+      - if: steps.fonts.outputs.cache-hit != 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - if: steps.fonts.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install fonttools==4.60.1
+          python crates/dr-ui/script/build-fonts.py
+      - run: cargo fmt --all --check
+      - if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - if: ${{ !cancelled() }}
+        run: cargo test --workspace --locked
+      - if: ${{ !cancelled() }}
+        run: cargo build --workspace --locked
+      # The gates (simplifications.md §6): privacy, large files, retired
+      # products, terms, published migrations, licences, dependency
+      # direction, measured evidence and cargo audit. They read the
+      # workspace's metadata and text, the same on both platforms.
+      # rust-cache keeps ~/.cargo/bin, so the install is a no-op on a hit.
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        run: cargo xtask check
+      # The repository-wide public boundary (credentials, private paths,
+      # required public files) also covers next/.
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.1
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        working-directory: ${{ github.workspace }}
+        run: node scripts/check-public-boundaries.mjs
+      # The unsigned development bundle: Info.plist, icons and the ad-hoc
+      # seal (codesign --verify) without opening a window; then the disk image
+      # and the updater archive a release ships (F7).
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        run: script/bundle-mac --debug --dmg --archive
+      # F8's debug bridge never ships (simplifications.md §6 rule 9): the
+      # bundle's executable must not carry it; the development build that
+      # does must still compile.
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        run: cargo xtask check-binary "target/bundle/Drifting Next.app/Contents/MacOS/drifting"
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        run: cargo check --locked -p drifting --features debug-bridge
+      # The release side of updates with a throwaway key (never the release
+      # key): sign the archive as `tauri signer` does and verify it; then mount
+      # the disk image and find the app and the /Applications link in it.
+      - if: ${{ !cancelled() && matrix.platform == 'macos' }}
+        name: Check the disk image and the signed update archive
+        run: |
+          keys="$RUNNER_TEMP/test-updater"
+          cargo run --locked -q -p dr-platform --example update-tool -- keygen "$keys"
+          archive=$(find target/bundle -maxdepth 1 -name '*.app.tar.gz' -print -quit)
+          test -n "$archive"
+          TAURI_SIGNING_PRIVATE_KEY="$keys/test-updater.key" \
+            cargo run --locked -q -p dr-platform --example update-tool -- sign "$archive"
+          cargo run --locked -q -p dr-platform --example update-tool -- verify "$archive" "$keys/test-updater.pub"
+          dmg=$(find target/bundle -maxdepth 1 -name '*.dmg' -print -quit)
+          mount="$RUNNER_TEMP/drifting-dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
+          trap 'hdiutil detach "$mount" -quiet || true' EXIT
+          test -x "$mount/Drifting Next.app/Contents/MacOS/drifting"
+          test -L "$mount/Applications"
+          codesign --verify --strict "$mount/Drifting Next.app"
+          ls -l target/bundle
+      # The NSIS installer: build it from the debug executable, install it for
+      # the runner's user, update over it with Tauri's flags, uninstall.
+      - if: ${{ !cancelled() && matrix.platform == 'windows' }}
+        name: Check the Windows installer
+        shell: pwsh
+        run: script/check-windows-installer.ps1

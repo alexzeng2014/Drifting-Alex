@@ -1,0 +1,2009 @@
+import { readLocalRelationalMarkdownSource } from '../../../services/export/relational-markdown.local-source';
+import { buildRelationalMarkdownEntries } from '../../../services/export/relational-markdown.service';
+import { ExternalToolSession, MCP_PRESENTATION_META_KEY } from './external-tool-session';
+import { publishMarkdownProjectionStatus } from '../../../services/markdown-projection-status';
+import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import migrationJournal from '../../../../../drizzle/meta/_journal.json';
+
+import type { DbClient } from '../../../lib/db';
+import { createDatabaseClient } from '../../../lib/db';
+import type { CommentAction } from '../../../domain/comment';
+import { countWords } from '../../word-count';
+import {
+  AgentConversationTable,
+  BookNodeTable,
+  CommentActionTable,
+  NodeStorylineLinkTable,
+  ProjectTable,
+  StorylineTable,
+} from '../../../schema/drizzle';
+import { createAgentMemoryRepository } from '../../../sqlite-repo/agent-memory-repo';
+import { createAgentConversationRepository } from '../../../sqlite-repo/agent-conversation-repo';
+import { replaceEntityKvEntriesInTransaction } from '../../../usecase/normalized-kv-alias-authority';
+import { withAtomicSyncTransaction } from '../../../usecase/sync-helpers';
+import { invalidateSqliteReducerStateCache } from '../../../sync/reducer/sqlite-materializer';
+import { useAgentEditStore } from '../../../store/agent-edit-store';
+import { useDataStore } from '../../../store/data-store';
+import { useProjectStore } from '../../../store/project-store';
+import type { AgentToolContext } from '../tool-handlers';
+import { ProductFileBackedSqliteGateway } from './acceptance/p3-file-backed-sqlite';
+import { createTestAgentAuthoredJournal } from './agent-authored-journal.test-support';
+import {
+  createDriftingAgentProductComposition,
+  type DriftingAgentProductComposition,
+} from './drifting-product-composition';
+import { getDriftingWriteStrategy } from './drifting-write-strategies';
+import type {
+  DriftingDomainReadToolName,
+  DriftingDomainWriteToolName,
+} from './drifting-workspace-tool-contract';
+import type {
+  AgentModelDriver,
+  AgentRuntimeContext,
+  AgentToolExecutionRequest,
+  AgentToolExecutionPresentation,
+  AgentToolExecutionResult,
+} from './types';
+
+const databaseSlot = vi.hoisted(() => ({ current: null as unknown }));
+const secureStorage = vi.hoisted(() => new Map<string, string>());
+
+vi.mock('../../../lib/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../lib/db')>();
+  return {
+    ...actual,
+    getDb: () => {
+      if (!databaseSlot.current) throw new Error('Domain CRUD test database is not installed');
+      return databaseSlot.current as ReturnType<typeof actual.getDb>;
+    },
+  };
+});
+
+vi.mock('../../../platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../platform')>();
+  return {
+    ...actual,
+    platform: {
+      ...actual.platform,
+      app: { ...actual.platform.app, getInstallationIdentity: async () => `install-${'a'.repeat(64)}` },
+      keychain: {
+        get: async (key: string) => secureStorage.get(key) ?? null,
+        has: async (key: string) => secureStorage.has(key),
+        set: async (key: string, value: string) => {
+          secureStorage.set(key, value);
+          return true;
+        },
+        delete: async (key: string) => secureStorage.delete(key),
+      },
+    },
+  };
+});
+
+// This suite verifies atomic domain writes together with their durable
+// SyncEngine change-sets. Network use remains disabled throughout.
+vi.mock('../../../lib/config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../lib/config')>();
+  return {
+    ...actual,
+    APP_CONFIG: {
+      ...actual.APP_CONFIG,
+      LOCAL_ONLY_MODE: false,
+    },
+    canUseNetwork: () => false,
+  };
+});
+
+const PROJECT_ID = 'domain-crud-project';
+const USER_ID = 'domain-crud-user';
+const CONVERSATION_ID = 'domain-crud-conversation';
+const SESSION_ID = 'domain-crud-session';
+const MAIN_STORYLINE_ID = 'storyline-main';
+const SECONDARY_STORYLINE_ID = 'storyline-secondary';
+const CHAPTER_ONE_ID = 'chapter-one';
+const CHAPTER_TWO_ID = 'chapter-two';
+const AT = '2026-08-02T00:00:00.000Z';
+const LATEST_MIGRATION_TIMESTAMP =
+  migrationJournal.entries[migrationJournal.entries.length - 1]?.when;
+
+const initialDataState = useDataStore.getState();
+const initialProjectState = useProjectStore.getState();
+
+const unusedDriver: AgentModelDriver = {
+  id: 'domain-crud-unused-driver',
+  stream() {
+    throw new Error('Domain CRUD integration invokes the tool runtime directly');
+  },
+};
+
+describe('workspace domain CRUD transactions', () => {
+  let fixture: DomainCrudFixture;
+
+  beforeEach(async () => {
+    secureStorage.clear();
+    useAgentEditStore.getState().clearAll();
+    fixture = await DomainCrudFixture.create();
+  });
+
+  afterEach(async () => {
+    useAgentEditStore.getState().clearAll();
+    useDataStore.setState(initialDataState, true);
+    useProjectStore.setState(initialProjectState, true);
+    await fixture.close();
+  });
+
+  function mcpSession(id: string) {
+    return new ExternalToolSession({ sessionId: `mcp-test:${id}`, projectId: PROJECT_ID,
+      grant: { id, name: 'Synthetic external agent' },
+      composition: fixture.composition,
+      ensureConversation: async (conversationId) => {
+        await fixture.database.insert(AgentConversationTable).values({ id: conversationId,
+          projectId: PROJECT_ID, title: 'Synthetic MCP', source: 'external_mcp', mode: 'byok', messagesJson: '[]',
+          createdAt: AT, updatedAt: AT });
+      },
+    });
+  }
+  let mcpCallId = 0;
+  async function mcpCall(session: ExternalToolSession, name: string, args: Record<string, unknown>) {
+    return session.handle({ jsonrpc: '2.0', id: ++mcpCallId, method: 'tools/call',
+      params: { name, arguments: args } }, new AbortController().signal) as Promise<{
+        isError: boolean; content: { type: string; text: string }[];
+        structuredContent?: unknown;
+        _meta?: Record<string, AgentToolExecutionPresentation | undefined>;
+      }>;
+  }
+
+  it('MCP exposes every canonical schema to a connection and validates before mutation', async () => {
+    const reader = mcpSession('reader');
+    const list = async (session: ExternalToolSession) => session.handle({ jsonrpc: '2.0', id: 0,
+      method: 'tools/list' }, new AbortController().signal) as Promise<{ tools: { name: string }[] }>;
+    expect((await list(reader)).tools).toHaveLength(89);
+    expect((await list(reader)).tools.map((t) => t.name)).not.toContain('ask_user');
+    expect(await mcpCall(reader, 'get_project_overview', {})).toMatchObject({ isError: false });
+    // A cleared projection error must not leave an undefined field that the
+    // durable tool-call record rejects.
+    publishMarkdownProjectionStatus(PROJECT_ID, { state: 'error', error: 'Synthetic failure' });
+    publishMarkdownProjectionStatus(PROJECT_ID, { state: 'ready', error: undefined });
+    const overview = await mcpCall(reader, 'get_project_overview', {});
+    expect(overview, JSON.stringify(overview)).toMatchObject({ isError: false });
+    expect(JSON.parse(overview.content[0]!.text).markdownProjection).toMatchObject({ state: 'ready' });
+    expect(JSON.parse(overview.content[0]!.text).markdownProjection).not.toHaveProperty('error');
+    // A connection follows whichever book is open; the overview names it.
+    expect(JSON.parse(overview.content[0]!.text).bookId).toBe(PROJECT_ID);
+    expect(await mcpCall(reader, 'create_chapter', {})).toMatchObject({ isError: true });
+    expect(fixture.scalar("SELECT count(*) FROM book_node WHERE deleted_at IS NULL")).toBe(2);
+    await reader.close();
+  });
+
+  it('MCP retries a failed session initialization instead of replaying the failure', async () => {
+    let attempts = 0;
+    const session = new ExternalToolSession({ sessionId: 'mcp-test:init-retry', projectId: PROJECT_ID,
+      grant: { id: 'init-retry', name: 'Synthetic external agent' },
+      composition: fixture.composition,
+      ensureConversation: async (conversationId) => {
+        if (++attempts === 1) throw new Error('Synthetic initialization failure');
+        await fixture.database.insert(AgentConversationTable).values({ id: conversationId,
+          projectId: PROJECT_ID, title: 'Synthetic MCP', source: 'external_mcp', mode: 'byok', messagesJson: '[]',
+          createdAt: AT, updatedAt: AT });
+      },
+    });
+    expect(await mcpCall(session, 'list_chapters', {})).toMatchObject({ isError: true });
+    const retried = await mcpCall(session, 'list_chapters', {});
+    expect(retried, JSON.stringify(retried)).toMatchObject({ isError: false });
+    expect(retried.content[0]!.text).toContain('Chapter One');
+    await session.close();
+  });
+
+  it('MCP sends chapter prose once, with shared numbering, range reads and version guards', async () => {
+    const writer = mcpSession('compact-reader');
+    await mcpCall(writer, 'create_chapter', { title: 'Numbered fixture', body: 'UniqueSyntheticBody.\n\nSecond paragraph.' });
+    const result = await mcpCall(writer, 'read_chapter', { chapter: 'Numbered fixture' });
+    expect(result, JSON.stringify(result)).toMatchObject({ isError: false });
+    expect(JSON.stringify(result).match(/UniqueSyntheticBody/g)).toHaveLength(1);
+    // Clients such as Claude Code show structuredContent instead of content.
+    expect(result).not.toHaveProperty('structuredContent');
+    expect(result).not.toHaveProperty('_meta');
+    expect(result.content[0]!.text).toContain('1\tUniqueSyntheticBody.');
+    expect(result.content[0]!.text).toContain('3\tSecond paragraph.');
+    const version = /sha256:[a-f0-9]{64}/u.exec(result.content[0]!.text)![0];
+    const restarted = await mcpCall(writer, 'read_chapter', {
+      chapter: 'Numbered fixture', cursor: 0, startLine: 1, endLine: 2000,
+      maxCharacters: 32_000, lineNumbers: true, version: '',
+    });
+    expect(restarted.isError).toBe(false);
+    expect(restarted.content[0]!.text).toBe(result.content[0]!.text);
+    const captured = await readLocalRelationalMarkdownSource(PROJECT_ID);
+    expect(captured.books.map(book => book.project.id)).toEqual([PROJECT_ID]);
+    const mirror = await buildRelationalMarkdownEntries(captured, true);
+    const bodyFile = mirror.entries.find(entry => entry.path.startsWith('正文/') && entry.text.includes('UniqueSyntheticBody'))!;
+    expect(bodyFile.text).toMatch(/^UniqueSyntheticBody\.$/mu);
+    expect(bodyFile.text).toMatch(/^Second paragraph\.$/mu);
+    expect(mirror.documents.find(document => document.path === bodyFile.path)!.sourceVersion).toBe(version);
+    expect(`sha256:${createHash('sha256').update(bodyFile.text).digest('hex')}`).not.toBe(version);
+    const range = await mcpCall(writer, 'read_chapter', { chapter: 'Numbered fixture', startLine: 3, endLine: 3, version });
+    expect(range.content[0]!.text).toContain('3\tSecond paragraph.');
+    expect(range.content[0]!.text).not.toContain('UniqueSyntheticBody');
+    const search = await mcpCall(writer, 'search_prose', { query: 'Second paragraph.', matchMode: 'exact', scope: 'chapters' });
+    expect(search.isError).toBe(false);
+    expect(JSON.parse(search.content[0]!.text).result.matches).toContainEqual(expect.objectContaining({ title: 'Numbered fixture', block: 2, line: 3 }));
+    await mcpCall(writer, 'replace_chapter_body', { chapter: 'Numbered fixture', body: 'Changed.' });
+    expect(await mcpCall(writer, 'read_chapter', { chapter: 'Numbered fixture', version })).toMatchObject({ isError: true });
+    await mcpCall(writer, 'create_chapter', { title: 'Hard break fixture', body: 'Before<br>After\n\nFinal paragraph.' });
+    const hardBreakRead = await mcpCall(writer, 'read_chapter', { chapter: 'Hard break fixture' });
+    expect(hardBreakRead.content[0]!.text).toContain('1\tBefore<br>After\n2\t\n3\tFinal paragraph.');
+    await mcpCall(writer, 'create_inspiration', { title: 'Search scope fixture', body: 'Changed.' });
+    const chaptersOnly = await mcpCall(writer, 'search_prose', { query: 'Changed.', matchMode: 'exact', scope: 'chapters' });
+    expect(JSON.parse(chaptersOnly.content[0]!.text).result.matches.every((match: { kind: string }) => match.kind === 'chapter')).toBe(true);
+    const allBodies = await mcpCall(writer, 'search_prose', { query: 'Changed.', matchMode: 'exact', scope: 'all' });
+    expect(JSON.parse(allBodies.content[0]!.text).result.matches.some((match: { kind: string }) => match.kind === 'drift')).toBe(true);
+    await writer.close();
+  });
+
+  it('MCP writes use Yjs, durable receipts, read coverage and a settled receipt', async () => {
+    const writer = mcpSession('prose-writer');
+    const created = await mcpCall(writer, 'create_chapter', { title: 'External chapter', body: 'Initial synthetic prose.' });
+    expect(created, JSON.stringify(created)).toMatchObject({ isError: false });
+    expect(await mcpCall(writer, 'read_chapter', { chapter: 'External chapter' })).toMatchObject({ isError: false });
+    const changed = await mcpCall(writer, 'replace_chapter_body', { chapter: 'External chapter', body: 'Revised synthetic prose.' });
+    expect(changed, JSON.stringify(changed)).toMatchObject({ isError: false });
+    expect(fixture.scalar("SELECT count(*) FROM agent_runtime_write_effect WHERE session_id = 'mcp-test:prose-writer' AND phase = 'result_committed'")).toBe(2);
+    const read = await mcpCall(writer, 'read_chapter', { chapter: 'External chapter' });
+    expect(JSON.stringify(read)).toContain('Revised synthetic prose.');
+    const effects = await fixture.composition.repositories.writeEffects.listEffects('mcp-test:prose-writer');
+    const changedEffect = effects.find((effect) => effect.toolName === 'replace_chapter_body');
+    expect(changedEffect?.authorization?.kind).toBe('author_approved');
+    expect(changed).not.toHaveProperty('structuredContent');
+    const review = changed._meta?.[MCP_PRESENTATION_META_KEY]?.review;
+    expect(review?.id).toBeTruthy();
+    if (!review) throw new Error('Missing MCP write review');
+    const conversations = createAgentConversationRepository();
+    expect((await conversations.listByProject(PROJECT_ID)).some(row => row.id === 'mcp-test:prose-writer:conversation')).toBe(false);
+    await conversations.softDeleteAllByProject(PROJECT_ID, AT);
+    expect(fixture.scalar("SELECT count(*) FROM agent_conversation WHERE id = 'mcp-test:prose-writer:conversation' AND deleted_at IS NULL")).toBe(1);
+    expect(fixture.scalar("SELECT count(*) FROM agent_runtime_write_effect WHERE session_id = 'mcp-test:prose-writer' AND phase = 'result_committed'")).toBe(2);
+    expect(await fixture.composition.repositories.writeEffects.getReview(review.id)).toMatchObject({
+      status: 'accepted_effect',
+    });
+    await writer.close();
+    await expect(mcpCall(writer, 'read_chapter', { chapter: 'External chapter' })).rejects.toThrow('closed');
+    const reconnected = mcpSession('reconnected');
+    const unobserved = await mcpCall(reconnected, 'replace_chapter_body', { chapter: 'External chapter', body: 'Must read first.' });
+    expect(unobserved).toMatchObject({ isError: true });
+    await reconnected.close();
+  });
+
+  it('MCP connections run destructive operations without asking', async () => {
+    const session = mcpSession('destructive');
+    expect(await mcpCall(session, 'create_chapter', { title: 'Destructive fixture', body: 'Synthetic.' })).toMatchObject({ isError: false });
+    await mcpCall(session, 'read_chapter', { chapter: 'Destructive fixture' });
+    const deleted = await mcpCall(session, 'delete_chapter', { chapter: 'Destructive fixture' });
+    expect(deleted, JSON.stringify(deleted)).toMatchObject({ isError: false });
+    expect(fixture.scalar("SELECT count(*) FROM book_node WHERE title = 'Destructive fixture' AND deleted_at IS NULL")).toBe(0);
+    // No confirmation dialog stands in the way either: nothing would answer one.
+    expect(await mcpCall(session, 'create_element_category', { name: 'Destructive category' })).toMatchObject({ isError: false });
+    expect(await mcpCall(session, 'create_element', { category: 'Destructive category', name: 'Destructive element' })).toMatchObject({ isError: false });
+    expect(fixture.scalar("SELECT count(*) FROM element WHERE name = 'Destructive element' AND deleted_at IS NULL")).toBe(1);
+    await mcpCall(session, 'read_element', { element: 'Destructive element' });
+    const element = await mcpCall(session, 'delete_element', { element: 'Destructive element' });
+    expect(element, JSON.stringify(element)).toMatchObject({ isError: false });
+    expect(fixture.scalar("SELECT count(*) FROM element WHERE name = 'Destructive element' AND deleted_at IS NULL")).toBe(0);
+    await session.close();
+  });
+
+  it('MCP stops stale concurrent prose writes and cancelled calls without crossing project scope', async () => {
+    const owner = mcpSession('concurrent-owner');
+    await mcpCall(owner, 'create_chapter', { title: 'Shared synthetic chapter', body: 'Original.' });
+    const other = mcpSession('concurrent-other');
+    for (const session of [owner, other]) {
+      expect(await mcpCall(session, 'read_chapter', { chapter: 'Shared synthetic chapter' })).toMatchObject({ isError: false });
+    }
+    const results = await Promise.all([
+      mcpCall(owner, 'replace_chapter_body', { chapter: 'Shared synthetic chapter', body: 'First external writer.' }),
+      mcpCall(other, 'replace_chapter_body', { chapter: 'Shared synthetic chapter', body: 'Second external writer.' }),
+    ]);
+    expect(results.filter((result) => !result.isError)).toHaveLength(1);
+    expect(results.filter((result) => result.isError)).toHaveLength(1);
+    const cancelled = new AbortController(); cancelled.abort();
+    await expect(owner.handle({ jsonrpc: '2.0', id: 998, method: 'tools/call',
+      params: { name: 'create_chapter', arguments: { title: 'Cancelled chapter' } } }, cancelled.signal)).rejects.toThrow();
+    expect(fixture.scalar("SELECT count(*) FROM book_node WHERE title = 'Cancelled chapter'")).toBe(0);
+    fixture.context.projectId = 'another-project';
+    await expect(owner.handle({ jsonrpc: '2.0', id: 999, method: 'tools/list' }, new AbortController().signal)).rejects.toThrow('active Drifting project');
+    fixture.context.projectId = PROJECT_ID;
+    await owner.close(); await other.close();
+  });
+
+  it('materializes the prose word count when a new chapter or drift is created', async () => {
+    const prose = '# 灰港\n\n潮声越过旧码头。The tide turns twice.';
+    // The leading H1 repeats the semantic object title and is normalized out
+    // before Yjs becomes canonical, so the persisted count is body-only.
+    const persistedProse = '潮声越过旧码头。The tide turns twice.';
+    const created = await fixture.write('node-create-with-prose', 'create_inspiration', {
+      title: '灰港',
+      body: prose,
+    });
+
+    expect(created).toMatchObject({
+      ok: true,
+      data: {
+        result: {
+          path: '/drifts/灰港/prose.md',
+          operation: 'created',
+          wordCount: countWords(persistedProse),
+        },
+      },
+    });
+    if (!created.ok) throw new Error(created.error);
+    expect(created.modelData).toContain(`当前 ${countWords(persistedProse)} 字`);
+    expect(
+      fixture.scalar(
+        "SELECT word_count FROM book_node WHERE title = '灰港' AND deleted_at IS NULL",
+      ),
+    ).toBe(countWords(persistedProse));
+    expect(
+      fixture.text(
+        "SELECT word_count_basis_kind FROM book_node WHERE title = '灰港' AND deleted_at IS NULL",
+      ),
+    ).toBe('seed');
+    expect(
+      fixture.text(
+        "SELECT word_count_basis_hash FROM book_node WHERE title = '灰港' AND deleted_at IS NULL",
+      ),
+    ).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM sync_mutation WHERE target_kind = 'node' AND action = 'entity.create' AND target_id = (SELECT id FROM book_node WHERE title = '灰港' AND deleted_at IS NULL)",
+      ),
+    ).toBe(1);
+  });
+
+  it('rejects a second Agent create with an existing node title instead of suffixing it', async () => {
+    const before = fixture.scalar(
+      `SELECT count(*) FROM book_node WHERE project_id = '${PROJECT_ID}' AND deleted_at IS NULL`,
+    );
+
+    await expect(
+      fixture.write('duplicate-chapter-title', 'create_chapter', {
+        title: 'Chapter One',
+        body: 'This retry must not become Chapter One 2.',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining('already exists'),
+    });
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM book_node WHERE project_id = '${PROJECT_ID}' AND deleted_at IS NULL`,
+      ),
+    ).toBe(before);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM book_node WHERE project_id = '${PROJECT_ID}' AND title = 'Chapter One 2' AND deleted_at IS NULL`,
+      ),
+    ).toBe(0);
+  });
+
+  it('rejects a relation whose two endpoints are the same authored object', async () => {
+    await expect(
+      fixture.write('self-relation', 'create_relation', {
+        fromType: 'chapter',
+        fromName: 'Chapter One',
+        toType: 'chapter',
+        toName: 'Chapter One',
+        relationType: 'self',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining('two different authored objects'),
+    });
+    expect(fixture.scalar('SELECT count(*) FROM entity_relation')).toBe(0);
+  });
+
+  it('uses the schema-safe Markdown adapter for every newly created authored prose object', async () => {
+    const body = '## 初始档案\n\n这是**粗体**与<u>下划线</u>。\n\n> 引用';
+
+    const creations = [
+      ['formatted-category-create', 'create_element_category', { name: '信件', body }],
+      [
+        'formatted-element-create',
+        'create_element',
+        {
+          category: '信件',
+          name: '远方来函',
+          body,
+          facts: [{ key: '来源', value: '北境' }],
+          aliases: ['北境来函'],
+        },
+      ],
+      ['formatted-storyline-create', 'create_storyline', { name: '格式故事线', body }],
+      ['formatted-drift-create', 'create_inspiration', { title: '格式构想', body }],
+      ['formatted-chapter-create', 'create_chapter', { title: '格式章节', body }],
+    ] as const;
+
+    for (const [callId, toolName, args] of creations) {
+      const result = await fixture.write(callId, toolName, args);
+      expect(result, JSON.stringify(result)).toMatchObject({
+        ok: true,
+        data: { result: { operation: 'created' } },
+      });
+    }
+
+    const createdBodies = [
+      fixture.text(
+        "SELECT content_json FROM element_category WHERE name = '信件' AND deleted_at IS NULL",
+      ),
+      fixture.text(
+        "SELECT content_json FROM element WHERE name = '远方来函' AND deleted_at IS NULL",
+      ),
+      fixture.text(
+        "SELECT content_json FROM storylines WHERE name = '格式故事线' AND deleted_at IS NULL",
+      ),
+      fixture.text(
+        "SELECT nc.content_json FROM node_content nc JOIN book_node n ON n.id = nc.node_id WHERE n.title = '格式构想' AND n.deleted_at IS NULL",
+      ),
+      fixture.text(
+        "SELECT nc.content_json FROM node_content nc JOIN book_node n ON n.id = nc.node_id WHERE n.title = '格式章节' AND n.deleted_at IS NULL",
+      ),
+    ];
+
+    for (const contentJson of createdBodies) {
+      expect(JSON.parse(contentJson)).toMatchObject({
+        type: 'doc',
+        content: [
+          {
+            type: 'heading',
+            attrs: { id: expect.any(String), level: 2 },
+            content: [{ type: 'text', text: '初始档案' }],
+          },
+          {
+            type: 'paragraph',
+            attrs: { id: expect.any(String) },
+            content: expect.arrayContaining([
+              {
+                type: 'text',
+                text: '粗体',
+                marks: [{ type: 'bold', attrs: {} }],
+              },
+              {
+                type: 'text',
+                text: '下划线',
+                marks: [{ type: 'underline', attrs: {} }],
+              },
+            ]),
+          },
+          { type: 'blockquote', attrs: { id: expect.any(String) } },
+        ],
+      });
+    }
+    const createdDocs = `
+      SELECT 'category:' || id AS doc_id, 'element-category' AS owner_kind, id AS owner_id
+      FROM element_category WHERE name = '信件' AND deleted_at IS NULL
+      UNION ALL
+      SELECT 'element:' || id, 'element', id
+      FROM element WHERE name = '远方来函' AND deleted_at IS NULL
+      UNION ALL
+      SELECT 'storyline:' || id, 'storyline', id
+      FROM storylines WHERE name = '格式故事线' AND deleted_at IS NULL
+      UNION ALL
+      SELECT 'node-content:' || id, 'node', id
+      FROM book_node WHERE title IN ('格式构想', '格式章节') AND deleted_at IS NULL
+    `;
+    expect(
+      fixture.scalar(`
+        WITH created_docs AS (${createdDocs})
+        SELECT count(*)
+        FROM created_docs d
+        JOIN yjs_updates u ON u.document_id = d.doc_id
+        JOIN yjs_document_revision r ON r.document_id = d.doc_id AND r.revision = 1
+        JOIN yjs_document_revision_provenance p
+          ON p.document_id = d.doc_id AND p.revision = 1 AND p.source_kind = 'agent'
+      `),
+    ).toBe(5);
+    expect(
+      fixture.scalar(`
+        WITH created_docs AS (${createdDocs})
+        SELECT count(*)
+        FROM created_docs d
+        JOIN sync_mutation y
+          ON y.target_kind = 'prose-document'
+          AND y.target_id = d.doc_id
+          AND y.action = 'yjs.update'
+        JOIN sync_mutation owner
+          ON owner.change_set_id = y.change_set_id
+          AND owner.target_kind = d.owner_kind
+          AND owner.target_id = d.owner_id
+          AND owner.action = 'entity.create'
+      `),
+    ).toBe(5);
+    expect(
+      fixture.text(
+        "SELECT aliases_json FROM element WHERE name = '远方来函' AND deleted_at IS NULL",
+      ),
+    ).toBe('["北境来函"]');
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM sync_set_tag WHERE set_key = 'aliases' AND value_key = '北境来函' AND removed_by_change_set_id IS NULL",
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM entity_kv_entry kv JOIN element e ON e.id = kv.owner_id WHERE e.name = '远方来函' AND kv.owner_kind = 'element' AND kv.namespace = 'facts' AND kv.key = '来源' AND kv.value = '北境'",
+      ),
+    ).toBe(1);
+  });
+
+  it('keeps entity receipts owned by the public domain tool', async () => {
+    const result = await fixture.write('authored-project-facts', 'update_project_facts', {
+      facts: [{ key: '气候', value: '终年多雨' }],
+    });
+
+    expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+    expect(fixture.text(`SELECT kv_json FROM project WHERE id = '${PROJECT_ID}'`)).toContain(
+      '终年多雨',
+    );
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM agent_runtime_entity_write_receipt WHERE tool_name = 'update_project_facts'",
+      ),
+    ).toBe(1);
+  });
+
+  it('clones template authority with fresh IDs for Agent element and storyline creates', async () => {
+    await expect(
+      fixture.write('template-category-create', 'create_element_category', {
+        name: 'Template People',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      fixture.write('template-category-update', 'update_element_category', {
+        category: 'Template People',
+        templateFacts: [{ key: 'Role', value: 'Unknown' }],
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      fixture.write('template-element-create', 'create_element', {
+        category: 'Template People',
+        name: 'Template Ada',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    const categoryTemplateEntryId = fixture.text(
+      "SELECT kv.id FROM entity_kv_entry kv JOIN element_category c ON c.id = kv.owner_id WHERE c.name = 'Template People' AND kv.owner_kind = 'element-category' AND kv.namespace = 'element-template' AND kv.key = 'Role' AND kv.value = 'Unknown'",
+    );
+    const clonedElementEntryId = fixture.text(
+      "SELECT kv.id FROM entity_kv_entry kv JOIN element e ON e.id = kv.owner_id WHERE e.name = 'Template Ada' AND kv.owner_kind = 'element' AND kv.namespace = 'facts' AND kv.key = 'Role' AND kv.value = 'Unknown'",
+    );
+    expect(categoryTemplateEntryId).toBeTruthy();
+    expect(clonedElementEntryId).toBeTruthy();
+    expect(clonedElementEntryId).not.toBe(categoryTemplateEntryId);
+    expect(
+      fixture.text("SELECT kv_json FROM element WHERE name = 'Template Ada'"),
+    ).toBe('[{"key":"Role","value":"Unknown"}]');
+    await fixture.revert('template-category-update');
+    expect(
+      fixture.text("SELECT element_template_kv_json FROM element_category WHERE name = 'Template People'"),
+    ).toBe('[]');
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM entity_kv_entry kv JOIN element_category c ON c.id = kv.owner_id WHERE c.name = 'Template People' AND kv.owner_kind = 'element-category' AND kv.namespace = 'element-template'",
+      ),
+    ).toBe(0);
+    expect(
+      fixture.text("SELECT kv_json FROM element WHERE name = 'Template Ada'"),
+    ).toBe('[{"key":"Role","value":"Unknown"}]');
+
+    await fixture.database.transaction(async (tx) => {
+      const changes = fixture.authoredJournal.createChangeSet();
+      await replaceEntityKvEntriesInTransaction(tx, changes, {
+        projectId: PROJECT_ID,
+        ownerKind: 'project',
+        ownerId: PROJECT_ID,
+        namespace: 'storyline-template',
+        nextJson: '[{"key":"Tense","value":"Past"}]',
+      });
+      await fixture.authoredJournal.record(tx, {
+        projectId: PROJECT_ID,
+        changes,
+        committedAt: AT,
+      });
+    });
+    await fixture.write('template-storyline-create', 'create_storyline', {
+      name: 'Template Arc',
+    });
+    const projectTemplateEntryId = fixture.text(
+      "SELECT id FROM entity_kv_entry WHERE owner_kind = 'project' AND owner_id = 'domain-crud-project' AND namespace = 'storyline-template' AND key = 'Tense' AND value = 'Past'",
+    );
+    const clonedStorylineEntryId = fixture.text(
+      "SELECT kv.id FROM entity_kv_entry kv JOIN storylines s ON s.id = kv.owner_id WHERE s.name = 'Template Arc' AND kv.owner_kind = 'storyline' AND kv.namespace = 'facts' AND kv.key = 'Tense' AND kv.value = 'Past'",
+    );
+    expect(projectTemplateEntryId).toBeTruthy();
+    expect(clonedStorylineEntryId).toBeTruthy();
+    expect(clonedStorylineEntryId).not.toBe(projectTemplateEntryId);
+    expect(
+      fixture.text("SELECT kv_json FROM storylines WHERE name = 'Template Arc'"),
+    ).toBe('[{"key":"Tense","value":"Past"}]');
+  });
+
+  it('places a newly created numbered chapter at the midpoint of an available reading-order gap', async () => {
+    fixture.gateway.database.exec(`
+      UPDATE book_node
+      SET book_order = CASE title
+        WHEN 'Chapter One' THEN 6
+        WHEN 'Chapter Two' THEN 11
+        ELSE book_order
+      END,
+      title = CASE title
+        WHEN 'Chapter One' THEN '01'
+        WHEN 'Chapter Two' THEN '03'
+        ELSE title
+      END
+      WHERE project_id = '${PROJECT_ID}'
+    `);
+    useDataStore.setState((state) => ({
+      bookNodes: state.bookNodes.map((node) =>
+        node.id === CHAPTER_ONE_ID && node.kind === 'chapter'
+          ? { ...node, title: '01', bookOrder: 6 }
+          : node.id === CHAPTER_TWO_ID && node.kind === 'chapter'
+            ? { ...node, title: '03', bookOrder: 11 }
+            : node,
+      ),
+    }));
+
+    const created = await fixture.write('create-missing-chapter-02', 'create_chapter', {
+      title: '02',
+      body: '二章补齐。',
+      summary: '奥伦与凯尔在茶镇遭遇异变。',
+    });
+    expect(created, JSON.stringify(created)).toMatchObject({ ok: true });
+
+    expect(
+      fixture.scalar("SELECT book_order FROM book_node WHERE title = '02' AND deleted_at IS NULL"),
+    ).toBe(8);
+    expect(
+      fixture.text("SELECT summary FROM book_node WHERE title = '02' AND deleted_at IS NULL"),
+    ).toBe('奥伦与凯尔在茶镇遭遇异变。');
+  });
+
+  it('normalizes a unique contained category and seeds a separate summary from initial body', async () => {
+    await fixture.write('create-organization-category', 'create_element_category', {
+      name: '势力与组织',
+      body: '组织与势力。',
+    });
+
+    const created = await fixture.write('create-organization-with-summary', 'create_element', {
+      category: '势力',
+      name: '灰潮档案局',
+      body: '## 摘要\n\n负责灰港旧档。\n\n## 详细资料\n\n保管船籍与潮汐记录。',
+    });
+
+    expect(created).toMatchObject({
+      ok: true,
+      data: {
+        result: {
+          path: '/elements/势力与组织/灰潮档案局/body.md',
+          requestedPath: '/elements/势力/灰潮档案局/body.md',
+          canonicalPath: '/elements/势力与组织/灰潮档案局/body.md',
+          operation: 'created',
+          summaryInitialized: true,
+        },
+      },
+    });
+    if (!created.ok) throw new Error(created.error);
+    expect(created.modelData).toContain('要素「灰潮档案局」设定已创建');
+    expect(created.modelData).toContain('摘要已同时建立');
+    const category = useDataStore
+      .getState()
+      .bookElementCategories.find((item) => item.name === '势力与组织');
+    expect(category).toBeDefined();
+    expect(useDataStore.getState().bookElements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: '灰潮档案局',
+          categoryId: category?.id,
+          summary: '负责灰港旧档。',
+        }),
+      ]),
+    );
+  });
+
+  it('atomically replaces the complete storyline graph and restores the exact preimage', async () => {
+    const write = await fixture.write(
+      'membership-forward',
+      'replace_storyline_chapters',
+      {
+        storyline: 'Main',
+        chapters: ['Chapter One', 'Chapter Two'],
+      },
+      'author_approved',
+    );
+    expect(write).toMatchObject({
+      ok: true,
+      data: {
+        result: {
+          path: '/storylines/Main/chapters.json',
+          operation: 'updated',
+        },
+      },
+    });
+    expect(fixture.memberships()).toEqual([
+      { node_id: CHAPTER_ONE_ID, storyline_id: MAIN_STORYLINE_ID, is_primary: 1 },
+      { node_id: CHAPTER_TWO_ID, storyline_id: MAIN_STORYLINE_ID, is_primary: 0 },
+      { node_id: CHAPTER_TWO_ID, storyline_id: SECONDARY_STORYLINE_ID, is_primary: 1 },
+    ]);
+    expect(useDataStore.getState().primaryStorylineByNode).toMatchObject({
+      [CHAPTER_ONE_ID]: MAIN_STORYLINE_ID,
+      [CHAPTER_TWO_ID]: SECONDARY_STORYLINE_ID,
+    });
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM agent_runtime_entity_write_receipt WHERE entity_kind = 'storyline_membership' AND direction = 'forward'",
+      ),
+    ).toBe(1);
+
+    await fixture.revert('membership-forward');
+    expect(fixture.memberships()).toEqual([
+      { node_id: CHAPTER_ONE_ID, storyline_id: MAIN_STORYLINE_ID, is_primary: 1 },
+      { node_id: CHAPTER_TWO_ID, storyline_id: SECONDARY_STORYLINE_ID, is_primary: 1 },
+    ]);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM agent_runtime_entity_write_receipt WHERE entity_kind = 'storyline_membership' AND direction = 'inverse'",
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        "SELECT count(DISTINCT change_set_id) FROM sync_mutation WHERE target_kind IN ('membership', 'node-storyline-primary')",
+      ),
+    ).toBe(2);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM sync_mutation WHERE target_kind = 'membership' AND action IN ('set.add', 'set.remove')",
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM sync_mutation WHERE target_kind = 'node-storyline-primary' AND action = 'field.set'",
+      ),
+    ).toBeGreaterThan(0);
+  });
+
+  it('rolls back every graph row and journal mutation when a transaction write fails', async () => {
+    fixture.gateway.failNextExecute(
+      (sql) => sql.includes('insert into "node_storyline_link"'),
+      'injected membership insert failure',
+    );
+    const result = await fixture.write(
+      'membership-fault',
+      'replace_storyline_chapters',
+      {
+        storyline: 'Main',
+        chapters: ['Chapter One', 'Chapter Two'],
+      },
+      'author_approved',
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('insert into "node_storyline_link"'),
+    });
+    expect(fixture.memberships()).toEqual([
+      { node_id: CHAPTER_ONE_ID, storyline_id: MAIN_STORYLINE_ID, is_primary: 1 },
+      { node_id: CHAPTER_TWO_ID, storyline_id: SECONDARY_STORYLINE_ID, is_primary: 1 },
+    ]);
+    expect(fixture.scalar('SELECT count(*) FROM sync_change_set')).toBe(0);
+    expect(fixture.scalar('SELECT count(*) FROM agent_runtime_entity_write_receipt')).toBe(0);
+  });
+
+  it('creates, addresses, updates, soft-deletes, and exactly reverts project memory', async () => {
+    const created = await fixture.write('memory-create', 'create_project_memory', {
+      body: 'Keep dialogue terse.',
+    });
+    expect(created).toMatchObject({
+      ok: true,
+      data: {
+        result: {
+          operation: 'created',
+          canonicalPath: expect.stringMatching(/^\/memory\/.+\.json$/u),
+        },
+      },
+    });
+    const createdData = (created as { data: { result: { canonicalPath: string } } }).data.result;
+    const canonicalPath = createdData.canonicalPath;
+    const memoryId = canonicalPath.slice('/memory/'.length, -'.json'.length);
+    expect(await fixture.memory(memoryId)).toMatchObject({
+      body: 'Keep dialogue terse.',
+      status: 'active',
+      source: 'agent',
+    });
+
+    const directory = await fixture.read('memory-list', 'list_project_memory', {});
+    expect(directory).toMatchObject({
+      ok: true,
+      data: {
+        files: [
+          expect.objectContaining({
+            path: canonicalPath,
+            writable: true,
+          }),
+        ],
+      },
+    });
+    await expect(
+      fixture.write('memory-update', 'update_project_memory', {
+        memoryId,
+        body: 'Keep dialogue terse and character-specific.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect((await fixture.memory(memoryId))?.body).toBe(
+      'Keep dialogue terse and character-specific.',
+    );
+
+    await fixture.revert('memory-update');
+    expect((await fixture.memory(memoryId))?.body).toBe('Keep dialogue terse.');
+
+    await expect(
+      fixture.write('memory-delete', 'delete_project_memory', { memoryId }),
+    ).resolves.toMatchObject({ ok: true });
+    expect((await fixture.memory(memoryId))?.deletedAt).not.toBeNull();
+
+    await fixture.revert('memory-delete');
+    expect(await fixture.memory(memoryId)).toMatchObject({
+      body: 'Keep dialogue terse.',
+      deletedAt: null,
+    });
+
+    await expect(fixture.revert('memory-create')).rejects.toThrow(
+      'The authored domain state changed; exact reject is unavailable',
+    );
+    expect(await fixture.memory(memoryId)).not.toBeNull();
+
+    const disposable = await fixture.write('memory-create-disposable', 'create_project_memory', {
+      body: 'Temporary guidance.',
+    });
+    const disposablePath = (disposable as { data: { result: { canonicalPath: string } } }).data
+      .result.canonicalPath;
+    const disposableId = disposablePath.slice('/memory/'.length, -'.json'.length);
+    await fixture.revert('memory-create-disposable');
+    expect(await fixture.memory(disposableId)).toMatchObject({
+      id: disposableId,
+      deletedAt: expect.any(String),
+    });
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'agent-memory' AND target_id = '${disposableId}' AND action = 'entity.trash' AND incarnation = 0`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'agent-memory' AND target_id = '${disposableId}' AND action = 'entity.purge'`,
+      ),
+    ).toBe(0);
+    expect(
+      fixture.text(
+        `SELECT state FROM sync_entity_lifecycle WHERE entity_kind = 'agent-memory' AND entity_id = '${disposableId}'`,
+      ),
+    ).toBe('trashed');
+    expect(
+      fixture.scalar(
+        `SELECT incarnation FROM sync_entity_lifecycle WHERE entity_kind = 'agent-memory' AND entity_id = '${disposableId}'`,
+      ),
+    ).toBe(0);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM agent_runtime_entity_write_receipt WHERE entity_kind = 'memory'",
+      ),
+    ).toBe(7);
+    expect(
+      fixture.scalar(
+        "SELECT count(DISTINCT change_set_id) FROM sync_mutation WHERE target_kind = 'agent-memory'",
+      ),
+    ).toBe(7);
+  });
+
+  it('reconciles a lost outer acknowledgement once and survives a file reopen', async () => {
+    fixture.gateway.failNextExecute(
+      (sql, parameters) =>
+        sql.includes('update "agent_runtime_write_effect"') &&
+        parameters.includes('effect_committed'),
+      'lost outer effect acknowledgement',
+    );
+    const arguments_ = {
+      body: 'Preserve the unresolved ending.',
+    };
+    const interrupted = await fixture.write('memory-reconcile', 'create_project_memory', arguments_);
+    expect(interrupted).toMatchObject({ ok: false });
+    expect(fixture.scalar('SELECT count(*) FROM agent_memory')).toBe(1);
+    expect(fixture.scalar('SELECT count(*) FROM agent_runtime_entity_write_receipt')).toBe(1);
+
+    const recovered = await fixture.replayWrite(
+      'memory-reconcile',
+      'create_project_memory',
+      arguments_,
+    );
+    expect(recovered).toMatchObject({
+      ok: true,
+      data: {
+        result: {
+          operation: 'created',
+          canonicalPath: expect.stringMatching(/^\/memory\/.+\.json$/u),
+        },
+      },
+    });
+    expect(fixture.scalar('SELECT count(*) FROM agent_memory')).toBe(1);
+    expect(fixture.scalar('SELECT count(*) FROM agent_runtime_entity_write_receipt')).toBe(1);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM agent_runtime_write_effect WHERE phase = 'result_committed'",
+      ),
+    ).toBe(1);
+
+    await expect(fixture.restartEvidence()).resolves.toEqual({
+      memories: 1,
+      receipts: 1,
+      committedEffects: 1,
+      latestMigration: LATEST_MIGRATION_TIMESTAMP,
+    });
+  });
+
+  it('lets the Agent revise and delete any live project memory without approval', async () => {
+    const created = await fixture.write('memory-author-create', 'create_project_memory', {
+      body: 'Use restrained imagery.',
+    });
+    const canonicalPath = (created as { data: { result: { canonicalPath: string } } }).data.result
+      .canonicalPath;
+    const memoryId = canonicalPath.slice('/memory/'.length, -'.json'.length);
+    await createAgentMemoryRepository(PROJECT_ID, fixture.database).update(memoryId, {
+      source: 'author',
+      updatedAt: '2026-08-02T00:10:00.000Z',
+    });
+
+    const directory = await fixture.read('memory-author-list', 'list_project_memory', {});
+    expect(directory).toMatchObject({
+      ok: true,
+      data: {
+        files: [expect.objectContaining({ path: canonicalPath, writable: true })],
+      },
+    });
+    await expect(
+      fixture.write('memory-author-revise', 'update_project_memory', {
+        memoryId,
+        body: 'Use restrained imagery except in dream sequences.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(await fixture.memory(memoryId)).toMatchObject({
+      body: 'Use restrained imagery except in dream sequences.',
+      status: 'active',
+      source: 'author',
+      kind: 'preference',
+    });
+
+    await expect(
+      fixture.write('memory-author-delete', 'delete_project_memory', { memoryId }),
+    ).resolves.toMatchObject({ ok: true });
+    expect((await fixture.memory(memoryId))?.deletedAt).not.toBeNull();
+  });
+
+  it('creates and exactly removes every structural resource class', async () => {
+    await expect(
+      fixture.write('create-category-disposable', 'create_element_category', {
+        name: 'Disposable',
+        body: 'Disposable category body.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      fixture.write('create-element-disposable', 'create_element', {
+        category: 'Disposable',
+        name: 'Temporary Person',
+        body: 'Disposable element body.',
+        facts: [{ key: 'Role', value: 'Decoy' }],
+        aliases: ['Temporary Alias'],
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      fixture.write('create-storyline-disposable', 'create_storyline', {
+        name: 'Disposable Arc',
+        body: 'Disposable storyline body.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      fixture.write('create-node-disposable', 'create_inspiration', {
+        title: 'Disposable Idea',
+        body: 'Disposable drift body.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(useDataStore.getState().bookElementCategories).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Disposable' })]),
+    );
+    expect(useDataStore.getState().bookElements).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Temporary Person' })]),
+    );
+    expect(useDataStore.getState().storylines).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Disposable Arc' })]),
+    );
+    expect(useDataStore.getState().bookNodes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: 'Disposable Idea' })]),
+    );
+    const disposableElementId = fixture.text(
+      "SELECT id FROM element WHERE name = 'Temporary Person'",
+    );
+
+    await fixture.revert('create-element-disposable');
+    await fixture.revert('create-category-disposable');
+    await fixture.revert('create-node-disposable');
+    await fixture.revert('create-storyline-disposable');
+    expect(useDataStore.getState().bookElementCategories).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Disposable' })]),
+    );
+    expect(useDataStore.getState().bookElements).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Temporary Person' })]),
+    );
+    expect(useDataStore.getState().storylines).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Disposable Arc' })]),
+    );
+    expect(useDataStore.getState().bookNodes).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: 'Disposable Idea' })]),
+    );
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM entity_kv_entry WHERE owner_kind = 'element' AND owner_id = '${disposableElementId}'`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_set_tag WHERE owner_kind = 'alias' AND owner_id = '${disposableElementId}' AND removed_by_change_set_id IS NULL`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM element WHERE id = '${disposableElementId}' AND deleted_at IS NOT NULL`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_entity_lifecycle WHERE entity_kind = 'element' AND entity_id = '${disposableElementId}' AND incarnation = 0 AND state = 'trashed'`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'element' AND target_id = '${disposableElementId}' AND action = 'entity.purge'`,
+      ),
+    ).toBe(0);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM agent_runtime_entity_write_receipt WHERE direction = 'forward'",
+      ),
+    ).toBe(4);
+    expect(
+      fixture.scalar(
+        "SELECT count(*) FROM agent_runtime_entity_write_receipt WHERE direction = 'inverse'",
+      ),
+    ).toBe(4);
+  });
+
+  it('updates, guards field deletion, and restores structural resource deletes', async () => {
+    await fixture.write('create-category-lifecycle', 'create_element_category', {
+      name: 'People',
+      body: 'People category body.',
+    });
+    await fixture.write('create-element-lifecycle', 'create_element', {
+      category: 'People',
+      name: 'Ada',
+      body: 'Ada body.',
+    });
+    await fixture.write('create-storyline-lifecycle', 'create_storyline', {
+      name: 'Side Arc',
+      body: 'Side arc body.',
+    });
+    await fixture.write('create-node-lifecycle', 'create_inspiration', {
+      title: 'Idea',
+      body: 'Idea body.',
+    });
+
+    await expect(
+      fixture.write('update-category-lifecycle', 'update_element_category', {
+        category: 'People',
+        name: 'Cast',
+        templateFacts: [{ key: 'Role', value: 'Unknown' }],
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(useDataStore.getState().bookElementCategories).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Cast' })]),
+    );
+    await fixture.revert('update-category-lifecycle');
+    expect(useDataStore.getState().bookElementCategories).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'People' })]),
+    );
+
+    await expect(
+      fixture.write('update-element-lifecycle', 'update_element', {
+        element: 'Ada',
+        summary: 'A precise investigator.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(useDataStore.getState().bookElements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Ada', summary: 'A precise investigator.' }),
+      ]),
+    );
+    await fixture.revert('update-element-lifecycle');
+    expect(useDataStore.getState().bookElements).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Ada', summary: '' })]),
+    );
+
+    await expect(
+      fixture.write('update-storyline-lifecycle', 'update_storyline', {
+        storyline: 'Side Arc',
+        summary: 'A secondary investigation.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await fixture.revert('update-storyline-lifecycle');
+    expect(useDataStore.getState().storylines).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Side Arc', summary: '' })]),
+    );
+
+    await fixture.write(
+      'delete-element-lifecycle',
+      'delete_element',
+      { element: 'Ada' },
+      'author_approved',
+    );
+    expect(useDataStore.getState().bookElements).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Ada' })]),
+    );
+    await fixture.revert('delete-element-lifecycle');
+    expect(useDataStore.getState().bookElements).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Ada' })]),
+    );
+    const restoredElementId = fixture.text("SELECT id FROM element WHERE name = 'Ada'");
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'element' AND target_id = '${restoredElementId}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'element' AND target_id = '${restoredElementId}' AND action = 'entity.purge'`,
+      ),
+    ).toBe(0);
+
+    await fixture.write(
+      'delete-node-lifecycle',
+      'delete_inspiration',
+      { inspiration: 'Idea' },
+      'author_approved',
+    );
+    await fixture.revert('delete-node-lifecycle');
+    expect(useDataStore.getState().bookNodes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: 'Idea' })]),
+    );
+    const restoredNodeId = fixture.text("SELECT id FROM book_node WHERE title = 'Idea'");
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'node' AND target_id = '${restoredNodeId}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'prose-document' AND target_id = 'node-content:${restoredNodeId}' AND action = 'yjs.update' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+
+    await fixture.write(
+      'delete-storyline-lifecycle',
+      'delete_storyline',
+      { storyline: 'Side Arc' },
+      'author_approved',
+    );
+    await fixture.revert('delete-storyline-lifecycle');
+    expect(useDataStore.getState().storylines).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Side Arc' })]),
+    );
+    const restoredStorylineId = fixture.text(
+      "SELECT id FROM storylines WHERE name = 'Side Arc'",
+    );
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'storyline' AND target_id = '${restoredStorylineId}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+
+    await fixture.write(
+      'delete-element-before-category',
+      'delete_element',
+      { element: 'Ada' },
+      'author_approved',
+    );
+    await fixture.write(
+      'delete-category-lifecycle',
+      'delete_element_category',
+      { category: 'People' },
+      'author_approved',
+    );
+    await fixture.revert('delete-category-lifecycle');
+    expect(useDataStore.getState().bookElementCategories).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'People' })]),
+    );
+    const restoredCategoryId = fixture.text(
+      "SELECT id FROM element_category WHERE name = 'People'",
+    );
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'element-category' AND target_id = '${restoredCategoryId}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+  });
+
+  it('provides natural JSON CRUD and guarded inverses for TODOs and relations', async () => {
+    const disposableComment = await fixture.write('comment-create-disposable', 'create_comment', {
+      kind: 'todo',
+      body: 'Disposable TODO.',
+      targetType: 'chapter',
+      targetName: 'Chapter One',
+    });
+    expect(disposableComment).toMatchObject({
+      ok: true,
+      data: {
+        result: {
+          path: expect.stringMatching(/^\/comments\/.+\.json$/u),
+          requestedPath: expect.stringMatching(/^\/comments\/new-.+\.json$/u),
+          canonicalPath: expect.stringMatching(/^\/comments\/.+\.json$/u),
+        },
+      },
+    });
+    await fixture.revert('comment-create-disposable');
+    expect(useDataStore.getState().comments).toHaveLength(0);
+
+    const comment = await fixture.write('comment-create-lifecycle', 'create_comment', {
+      kind: 'todo',
+      body: 'Check the clue.',
+      targetType: 'chapter',
+      targetName: 'Chapter One',
+    });
+    const commentPath = (comment as { data: { result: { canonicalPath: string } } }).data.result
+      .canonicalPath;
+    await expect(
+      fixture.write('comment-body-lifecycle', 'update_comment', {
+        commentId: commentPath.slice('/comments/'.length, -'.json'.length),
+        body: 'Check the clue in Chapter One.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(useDataStore.getState().comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetId: CHAPTER_ONE_ID,
+          bodyJson: expect.stringContaining('Check the clue in Chapter One.'),
+        }),
+      ]),
+    );
+    await fixture.revert('comment-body-lifecycle');
+    expect(useDataStore.getState().comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetId: CHAPTER_ONE_ID,
+          bodyJson: expect.stringContaining('Check the clue.'),
+        }),
+      ]),
+    );
+    await expect(
+      fixture.write('comment-update-lifecycle', 'update_comment', {
+        commentId: commentPath.slice('/comments/'.length, -'.json'.length),
+        kind: 'note',
+        status: 'resolved',
+        body: 'The clue is consistent.',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(useDataStore.getState().comments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'note', status: 'resolved' })]),
+    );
+    await fixture.revert('comment-update-lifecycle');
+    expect(useDataStore.getState().comments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'todo', status: 'open' })]),
+    );
+    const commentId = commentPath.slice('/comments/'.length, -'.json'.length);
+    const action: CommentAction = {
+      id: 'comment-action-history',
+      projectId: PROJECT_ID,
+      commentId,
+      kind: 'accept_suggestion',
+      label: 'Accepted earlier suggestion',
+      payloadJson: '{}',
+      status: 'applied',
+      resultJson: '{"ok":true}',
+      createdByKind: 'user',
+      createdById: USER_ID,
+      createdAt: AT,
+      updatedAt: AT,
+      appliedAt: AT,
+    };
+    await withAtomicSyncTransaction(PROJECT_ID, async (tx, sync) => {
+      await tx.insert(CommentActionTable).values(action);
+      await sync('commentAction', 'create', action.id, PROJECT_ID, { ...action });
+    });
+    useDataStore.getState().addCommentAction(action);
+    await fixture.write(
+      'comment-delete-lifecycle',
+      'delete_comment',
+      { commentId },
+      'author_approved',
+    );
+    expect(useDataStore.getState().comments).toHaveLength(0);
+    expect(useDataStore.getState().commentActions).toHaveLength(0);
+    expect(fixture.scalar('SELECT count(*) FROM comment_action')).toBe(0);
+    await fixture.revert('comment-delete-lifecycle');
+    expect(useDataStore.getState().comments).toHaveLength(1);
+    expect(useDataStore.getState().commentActions).toEqual([action]);
+    expect(fixture.scalar('SELECT count(*) FROM comment_action')).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'comment' AND target_id = '${commentId}' AND action = 'entity.trash' AND incarnation = 0`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'comment' AND target_id = '${commentId}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'comment-action' AND target_id = '${action.id}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+
+    for (const name of ['foreshadows', 'contrasts']) {
+      const createdType = await fixture.write(
+        `relation-type-create-${name}`,
+        'create_relation_type',
+        {
+          name,
+          description: '',
+          orientation: 'directed',
+          sourceRole: 'chapter',
+          targetRole: 'storyline',
+          sourceKinds: ['chapter'],
+          targetKinds: ['storyline'],
+        },
+      );
+      expect(createdType, JSON.stringify(createdType)).toMatchObject({ ok: true });
+    }
+    const foreshadowsTypeId = useDataStore
+      .getState()
+      .entityRelationTypes.find((type) => type.name === 'foreshadows')?.id;
+    const contrastsTypeId = useDataStore
+      .getState()
+      .entityRelationTypes.find((type) => type.name === 'contrasts')?.id;
+    expect(foreshadowsTypeId).toBeTruthy();
+    expect(contrastsTypeId).toBeTruthy();
+
+    const relationPayload = {
+      fromType: 'chapter',
+      fromName: 'Chapter One',
+      toType: 'storyline',
+      toName: 'Main',
+      relationType: 'foreshadows',
+    };
+    const disposableRelation = await fixture.write(
+      'relation-create-disposable',
+      'create_relation',
+      relationPayload,
+    );
+    expect(disposableRelation).toMatchObject({
+      ok: true,
+      data: {
+        result: {
+          path: expect.stringMatching(/^\/relations\/.+\.json$/u),
+          requestedPath: expect.stringMatching(/^\/relations\/new-.+\.json$/u),
+          canonicalPath: expect.stringMatching(/^\/relations\/.+\.json$/u),
+        },
+      },
+    });
+    await fixture.revert('relation-create-disposable');
+    expect(useDataStore.getState().entityRelations).toHaveLength(0);
+
+    const relation = await fixture.write(
+      'relation-create-lifecycle',
+      'create_relation',
+      relationPayload,
+    );
+    const relationPath = (relation as { data: { result: { canonicalPath: string } } }).data.result
+      .canonicalPath;
+    await fixture.write('relation-update-lifecycle', 'update_relation', {
+      relationId: relationPath.slice('/relations/'.length, -'.json'.length),
+      relationType: 'contrasts',
+    });
+    expect(useDataStore.getState().entityRelations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fromId: CHAPTER_ONE_ID,
+          toId: MAIN_STORYLINE_ID,
+          relationTypeId: contrastsTypeId,
+        }),
+      ]),
+    );
+    await fixture.revert('relation-update-lifecycle');
+    expect(useDataStore.getState().entityRelations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fromId: CHAPTER_ONE_ID,
+          toId: MAIN_STORYLINE_ID,
+          relationTypeId: foreshadowsTypeId,
+        }),
+      ]),
+    );
+    await fixture.write(
+      'relation-delete-lifecycle',
+      'delete_relation',
+      { relationId: relationPath.slice('/relations/'.length, -'.json'.length) },
+      'author_approved',
+    );
+    expect(useDataStore.getState().entityRelations).toHaveLength(0);
+    await fixture.revert('relation-delete-lifecycle');
+    expect(useDataStore.getState().entityRelations).toHaveLength(1);
+    const restoredRelationId = relationPath.slice('/relations/'.length, -'.json'.length);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'entity-relation' AND target_id = '${restoredRelationId}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+
+    const typeUpdate = await fixture.write(
+      'relation-type-update-lifecycle',
+      'update_relation_type',
+      {
+        relationType: 'foreshadows',
+        name: 'sets-up',
+        description: 'A setup that resolves on a storyline.',
+        orientation: 'directed',
+        sourceRole: 'setup',
+        targetRole: 'payoff',
+        sourceKinds: ['chapter'],
+        targetKinds: ['storyline'],
+      },
+    );
+    expect(typeUpdate).toMatchObject({ ok: true });
+    expect(useDataStore.getState().entityRelationTypes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'sets-up' })]),
+    );
+    expect(useDataStore.getState().entityRelations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relationTypeId: foreshadowsTypeId }),
+      ]),
+    );
+    await fixture.revert('relation-type-update-lifecycle');
+    expect(useDataStore.getState().entityRelations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relationTypeId: foreshadowsTypeId }),
+      ]),
+    );
+
+    await expect(
+      fixture.write(
+        'relation-type-delete-used',
+        'delete_relation_type',
+        { relationType: 'foreshadows' },
+        'author_approved',
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining('used by 1 relations'),
+    });
+
+    await fixture.write(
+      'relation-type-delete-unused',
+      'delete_relation_type',
+      { relationType: 'contrasts' },
+      'author_approved',
+    );
+    expect(
+      useDataStore.getState().entityRelationTypes.some((type) => type.name === 'contrasts'),
+    ).toBe(false);
+    await fixture.revert('relation-type-delete-unused');
+    expect(useDataStore.getState().entityRelationTypes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'contrasts' })]),
+    );
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE target_kind = 'entity-relation-type' AND target_id = '${contrastsTypeId}' AND action = 'entity.restore' AND incarnation = 1`,
+      ),
+    ).toBe(1);
+    expect(
+      fixture.scalar(
+        `SELECT count(*) FROM sync_mutation WHERE action = 'entity.purge' AND target_id IN ('${commentId}', '${action.id}', '${restoredRelationId}', '${contrastsTypeId}')`,
+      ),
+    ).toBe(0);
+  });
+
+  it('names every blocking workspace resource when an entity delete is unsafe', async () => {
+    const blockerType = await fixture.write(
+      'delete-blocker-relation-type-create',
+      'create_relation_type',
+      {
+        name: 'belongs-to',
+        description: '',
+        orientation: 'directed',
+        sourceRole: 'chapter',
+        targetRole: 'storyline',
+        sourceKinds: ['chapter'],
+        targetKinds: ['storyline'],
+      },
+    );
+    expect(blockerType, JSON.stringify(blockerType)).toMatchObject({ ok: true });
+    const relation = await fixture.write('delete-blocker-relation-create', 'create_relation', {
+      fromType: 'chapter',
+      fromName: 'Chapter One',
+      toType: 'storyline',
+      toName: 'Main',
+      relationType: 'belongs-to',
+    });
+    const relationPath = (relation as { data: { result: { canonicalPath: string } } }).data.result
+      .canonicalPath;
+    const relationId = relationPath.slice('/relations/'.length, -'.json'.length);
+    await expect(
+      fixture.write(
+        'delete-blocked-by-relation',
+        'delete_chapter',
+        { chapter: 'Chapter One' },
+        'author_approved',
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining(`实体关系「${relationId}」`),
+    });
+    await fixture.write(
+      'delete-blocker-relation-remove',
+      'delete_relation',
+      { relationId },
+      'author_approved',
+    );
+
+    const comment = await fixture.write('delete-blocker-comment-create', 'create_comment', {
+      kind: 'todo',
+      body: 'Keep this evidence.',
+      targetType: 'chapter',
+      targetName: 'Chapter One',
+    });
+    const commentPath = (comment as { data: { result: { canonicalPath: string } } }).data.result
+      .canonicalPath;
+    const commentId = commentPath.slice('/comments/'.length, -'.json'.length);
+    await expect(
+      fixture.write(
+        'delete-blocked-by-comment',
+        'delete_chapter',
+        { chapter: 'Chapter One' },
+        'author_approved',
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining(`批注或待办「${commentId}」`),
+    });
+    await fixture.write(
+      'delete-blocker-comment-remove',
+      'delete_comment',
+      { commentId },
+      'author_approved',
+    );
+
+    await expect(
+      fixture.write(
+        'delete-blocked-by-membership',
+        'delete_chapter',
+        { chapter: 'Chapter One' },
+        'author_approved',
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining('故事线「Main」章节关系'),
+    });
+  });
+});
+
+class DomainCrudFixture {
+  readonly composition: DriftingAgentProductComposition;
+  readonly context: AgentToolContext;
+  readonly authoredJournal = createTestAgentAuthoredJournal('domain-crud');
+  private tick = 0;
+  private closed = false;
+
+  private constructor(
+    readonly directory: string,
+    readonly gateway: ProductFileBackedSqliteGateway,
+    readonly database: DbClient,
+  ) {
+    this.context = {
+      projectId: PROJECT_ID,
+      write: {} as AgentToolContext['write'],
+    };
+    this.composition = createDriftingAgentProductComposition({
+      driver: unusedDriver,
+      database,
+      getContext: () => this.context,
+      authoredJournal: this.authoredJournal,
+    });
+  }
+
+  static async create(): Promise<DomainCrudFixture> {
+    invalidateSqliteReducerStateCache();
+    const directory = await mkdtemp(path.join(tmpdir(), 'drifting-domain-crud-'));
+    const gateway = new ProductFileBackedSqliteGateway(path.join(directory, 'drifting.db'));
+    const database = createDatabaseClient(gateway);
+    databaseSlot.current = database;
+    try {
+      await gateway.open('drifting.db');
+      await seed(database);
+      hydrateStores();
+      const fixture = new DomainCrudFixture(directory, gateway, database);
+      await fixture.composition.repositories.runtime.createSession({
+        id: SESSION_ID,
+        projectId: PROJECT_ID,
+        routeKind: 'chat',
+        conversationId: CONVERSATION_ID,
+        provider: 'test',
+        model: 'test',
+        providerEpoch: 0,
+        status: 'running',
+        createdAt: AT,
+        updatedAt: AT,
+        endedAt: null,
+      });
+      return fixture;
+    } catch (error) {
+      databaseSlot.current = null;
+      await gateway.close();
+      await rm(directory, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
+  async write(
+    callId: string,
+    name: DriftingDomainWriteToolName,
+    arguments_: Record<string, unknown>,
+    authorization: 'automatic' | 'author_approved' = 'automatic',
+  ): Promise<AgentToolExecutionResult> {
+    const request = await this.request(callId, name, 'write', arguments_);
+    request.authorization = this.authorization(callId, arguments_, authorization);
+    return this.composition.tools.execute(request);
+  }
+
+  async read(
+    callId: string,
+    name: DriftingDomainReadToolName,
+    arguments_: Record<string, unknown>,
+  ): Promise<AgentToolExecutionResult> {
+    const request = await this.request(callId, name, 'read', arguments_);
+    return this.composition.workspaceTools.execute(request);
+  }
+
+  async replayWrite(
+    callId: string,
+    name: DriftingDomainWriteToolName,
+    arguments_: Record<string, unknown>,
+    authorization: 'automatic' | 'author_approved' = 'automatic',
+  ): Promise<AgentToolExecutionResult> {
+    const request: AgentToolExecutionRequest = {
+      sessionId: SESSION_ID,
+      turnId: `turn:${callId}`,
+      callId,
+      idempotencyKey: this.idempotencyKey(callId),
+      name,
+      arguments: arguments_,
+      access: 'write',
+      authorization: this.authorization(callId, arguments_, authorization),
+      context: runtimeContext(),
+      control: {
+        requestUserInput: async () => {
+          throw new Error('No interactive prompt is expected in the direct CRUD harness');
+        },
+      },
+      signal: new AbortController().signal,
+    };
+    return this.composition.tools.execute(request);
+  }
+
+  async revert(callId: string): Promise<void> {
+    const idempotencyKey = this.idempotencyKey(callId);
+    const effect = await this.composition.repositories.writeEffects.getEffect(
+      `agent-write:${idempotencyKey}`,
+    );
+    if (!effect) throw new Error(`Missing effect for ${callId}`);
+    const strategy = getDriftingWriteStrategy(effect.toolName, {
+      freshness: this.composition.repositories.freshness,
+      elementPatchDb: this.database,
+      authoredJournal: this.authoredJournal,
+    });
+    if (!strategy) throw new Error(`Missing strategy for ${effect.toolName}`);
+    await strategy.applyInverse(effect, this.context, new AbortController().signal);
+  }
+
+  memberships(): Array<Record<string, unknown>> {
+    return this.gateway.database
+      .prepare(
+        'SELECT node_id, storyline_id, is_primary FROM node_storyline_link ORDER BY node_id, storyline_id',
+      )
+      .all() as Array<Record<string, unknown>>;
+  }
+
+  memory(memoryId: string) {
+    return createAgentMemoryRepository(PROJECT_ID, this.database).findById(memoryId);
+  }
+
+  scalar(sql: string): number {
+    const row = this.gateway.database.prepare(sql).get() as Record<string, unknown>;
+    return Number(Object.values(row)[0] ?? 0);
+  }
+
+  text(sql: string): string {
+    const row = this.gateway.database.prepare(sql).get() as Record<string, unknown>;
+    return String(Object.values(row)[0] ?? '');
+  }
+
+  async restartEvidence(): Promise<{
+    memories: number;
+    receipts: number;
+    committedEffects: number;
+    latestMigration: number;
+  }> {
+    if (this.closed) throw new Error('The fixture is already closed');
+    if (databaseSlot.current === this.database) databaseSlot.current = null;
+    await this.gateway.close();
+    const reopened = new ProductFileBackedSqliteGateway(
+      path.join(this.directory, 'drifting.db'),
+      false,
+    );
+    try {
+      await reopened.open('drifting.db');
+      const scalar = (sql: string) => {
+        const row = reopened.database.prepare(sql).get() as Record<string, unknown>;
+        return Number(Object.values(row)[0] ?? 0);
+      };
+      return {
+        memories: scalar('SELECT count(*) FROM agent_memory'),
+        receipts: scalar('SELECT count(*) FROM agent_runtime_entity_write_receipt'),
+        committedEffects: scalar(
+          "SELECT count(*) FROM agent_runtime_write_effect WHERE phase = 'result_committed'",
+        ),
+        latestMigration: scalar('SELECT max(created_at) FROM __drizzle_migrations'),
+      };
+    } finally {
+      await reopened.close();
+      this.closed = true;
+      await rm(this.directory, { recursive: true, force: true });
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    if (databaseSlot.current === this.database) databaseSlot.current = null;
+    await this.gateway.close();
+    await rm(this.directory, { recursive: true, force: true });
+  }
+
+  private async request(
+    callId: string,
+    name: DriftingDomainReadToolName | DriftingDomainWriteToolName,
+    access: 'read' | 'write',
+    arguments_: Record<string, unknown>,
+  ): Promise<AgentToolExecutionRequest> {
+    const turnId = `turn:${callId}`;
+    const at = this.now();
+    const persistence = this.composition.repositories.runtime;
+    await persistence.createTurn({
+      id: turnId,
+      sessionId: SESSION_ID,
+      ordinal: ++this.tick,
+      status: 'running',
+      promptMessageId: null,
+      acceptedAt: at,
+      startedAt: at,
+      endedAt: null,
+      errorCode: null,
+      errorMessage: null,
+      updatedAt: at,
+    });
+    const request: AgentToolExecutionRequest = {
+      sessionId: SESSION_ID,
+      turnId,
+      callId,
+      idempotencyKey: this.idempotencyKey(callId),
+      name,
+      arguments: arguments_,
+      access,
+      context: runtimeContext(),
+      control: {
+        requestUserInput: async () => {
+          throw new Error('No interactive prompt is expected in the direct CRUD harness');
+        },
+      },
+      signal: new AbortController().signal,
+    };
+    await persistence.createToolCall({
+      id: `agent-tool:${SESSION_ID}:${turnId}:${callId}`,
+      sessionId: SESSION_ID,
+      turnId,
+      callId,
+      name,
+      access,
+      status: 'running',
+      idempotencyKey: request.idempotencyKey,
+      arguments: arguments_,
+      result: null,
+      errorCode: null,
+      createdAt: at,
+      startedAt: at,
+      completedAt: null,
+    });
+    return request;
+  }
+
+  private idempotencyKey(callId: string): string {
+    return `${SESSION_ID}:turn:${callId}:${callId}`;
+  }
+
+  private authorization(
+    callId: string,
+    arguments_: Record<string, unknown>,
+    kind: 'automatic' | 'author_approved',
+  ) {
+    return {
+      kind,
+      requestId: kind === 'author_approved' ? `permission:${callId}` : null,
+      argumentsHash: `sha256:${createHash('sha256')
+        .update(JSON.stringify(sortJson(arguments_)))
+        .digest('hex')}`,
+    };
+  }
+
+  private now(): string {
+    return new Date(Date.parse(AT) + ++this.tick).toISOString();
+  }
+}
+
+async function seed(database: DbClient): Promise<void> {
+  await database.insert(ProjectTable).values({
+    id: PROJECT_ID,
+    userId: USER_ID,
+    name: 'Domain CRUD Book',
+    summary: '',
+    kvJson: '[]',
+    storylineTemplateKvJson: '[]',
+    createdAt: AT,
+    updatedAt: AT,
+  });
+  await database
+    .insert(BookNodeTable)
+    .values([chapter(CHAPTER_ONE_ID, 'Chapter One', 0), chapter(CHAPTER_TWO_ID, 'Chapter Two', 1)]);
+  await database
+    .insert(StorylineTable)
+    .values([
+      storyline(MAIN_STORYLINE_ID, 'Main', 0),
+      storyline(SECONDARY_STORYLINE_ID, 'Secondary', 1),
+    ]);
+  await database.insert(NodeStorylineLinkTable).values([
+    { nodeId: CHAPTER_ONE_ID, storylineId: MAIN_STORYLINE_ID, isPrimary: true },
+    { nodeId: CHAPTER_TWO_ID, storylineId: SECONDARY_STORYLINE_ID, isPrimary: true },
+  ]);
+  await database.insert(AgentConversationTable).values({
+    id: CONVERSATION_ID,
+    projectId: PROJECT_ID,
+    title: 'Domain CRUD acceptance',
+    runtimeSessionId: null,
+    mode: 'byok',
+    messagesJson: '[]',
+    deletedAt: null,
+    createdAt: AT,
+    updatedAt: AT,
+  });
+}
+
+function chapter(id: string, title: string, bookOrder: number) {
+  return {
+    id,
+    projectId: PROJECT_ID,
+    title,
+    summary: '',
+    bookOrder,
+    narrativeOrder: null,
+    wordCount: 0,
+    writingStatus: 'draft' as const,
+    kind: 'chapter' as const,
+    driftGroupId: null,
+    deletedAt: null,
+    createdAt: AT,
+    updatedAt: AT,
+    positionX: 0,
+    positionY: 0,
+  };
+}
+
+function storyline(id: string, name: string, orderKey: number) {
+  return {
+    id,
+    projectId: PROJECT_ID,
+    name,
+    color: '#8B7355',
+    summary: '',
+    orderKey,
+    contentJson: '{}',
+    kvJson: '[]',
+    nodeContentTemplateJson: '{}',
+    deletedAt: null,
+    createdAt: AT,
+    updatedAt: AT,
+  };
+}
+
+function hydrateStores(): void {
+  const nodes = [
+    chapterDomain(CHAPTER_ONE_ID, 'Chapter One', 0),
+    chapterDomain(CHAPTER_TWO_ID, 'Chapter Two', 1),
+  ];
+  const storylines = [
+    storyline(MAIN_STORYLINE_ID, 'Main', 0),
+    storyline(SECONDARY_STORYLINE_ID, 'Secondary', 1),
+  ];
+  useProjectStore.setState({
+    ...initialProjectState,
+    currentProject: {
+      id: PROJECT_ID,
+      userId: USER_ID,
+      name: 'Domain CRUD Book',
+      summary: '',
+      kvJson: '[]',
+      storylineTemplateKvJson: '[]',
+      createdAt: AT,
+      updatedAt: AT,
+    },
+    projects: [],
+  });
+  useDataStore.setState({
+    ...initialDataState,
+    bookNodes: nodes,
+    storylines,
+    bookElements: [],
+    bookElementCategories: [],
+    comments: [],
+    entityRelations: [],
+    storylineNodeMapping: {
+      [MAIN_STORYLINE_ID]: [CHAPTER_ONE_ID],
+      [SECONDARY_STORYLINE_ID]: [CHAPTER_TWO_ID],
+    },
+    primaryStorylineByNode: {
+      [CHAPTER_ONE_ID]: MAIN_STORYLINE_ID,
+      [CHAPTER_TWO_ID]: SECONDARY_STORYLINE_ID,
+    },
+  });
+}
+
+function chapterDomain(id: string, title: string, bookOrder: number) {
+  const row = chapter(id, title, bookOrder);
+  const { positionX, positionY, ...value } = row;
+  return {
+    ...value,
+    position: { x: positionX, y: positionY },
+  };
+}
+
+function runtimeContext(): AgentRuntimeContext {
+  return {
+    route: {
+      kind: 'chat',
+      projectId: PROJECT_ID,
+      conversationId: CONVERSATION_ID,
+    },
+  };
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right, 'en'))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
+}

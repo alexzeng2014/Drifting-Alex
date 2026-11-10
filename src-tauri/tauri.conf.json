@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Drifting-Alex",
+  "version": "0.1.0-alpha.10",
+  "identifier": "cc.driftingalex.client",
+  "build": {
+    "beforeDevCommand": "pnpm exec vite --config vite.renderer.config.ts",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm exec vite build --config vite.renderer.config.ts",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Drifting-Alex",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "dragDropEnabled": false,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 23
+        },
+        "backgroundThrottling": "disabled",
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.deepseek.com https://api.anthropic.com https://api.openai.com https://dashscope.aliyuncs.com https://opencode.ai; img-src 'self' asset: http://asset.localhost blob: data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:3000 ws://localhost:3000 ws://localhost:5173 http://127.0.0.1:4317 http://localhost:4317 http://127.0.0.1:4318 http://localhost:4318 https://api.drifting.cc wss://api.drifting.cc https://api.deepseek.com https://api.anthropic.com https://api.openai.com https://dashscope.aliyuncs.com https://opencode.ai; img-src 'self' asset: http://asset.localhost blob: data: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPLOCALDATA/assets/**",
+          "$APPLOCALDATA/imports/**",
+          "$APPLOCALDATA/generation-inbox/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "icon": ["../src/assets/icon.png", "../src/assets/icon.ico", "../src/assets/icon.icns"],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["drifting-alex"]
+      },
+      "mobile": [
+        {
+          "scheme": ["drifting-alex"],
+          "appLink": false
+        }
+      ]
+    }
+  }
+}

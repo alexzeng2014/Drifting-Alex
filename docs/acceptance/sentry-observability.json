@@ -1,0 +1,499 @@
+{
+  "contract": {
+    "milestone": "sentry-client-operational-diagnostics",
+    "delivery": "optional-direct-sentry-with-existing-hosted-fallback-when-unconfigured",
+    "automatedTransport": "real-sdk-unit-and-minified-browser-loopback-https",
+    "liveCloudEvidence": {
+      "report": "docs/acceptance/sentry-cloud.json",
+      "status": "cloud-error-log-and-alert-verified",
+      "diagnosticSourcesMatch": false,
+      "emailDelivery": "confirmed-by-owner"
+    },
+    "packagedEvidence": {
+      "report": "docs/acceptance/sentry-packaged.json",
+      "status": "passed",
+      "sourcesMatch": false,
+      "artifact": "isolated-signed-debug-app-with-production-renderer"
+    },
+    "sourceSha256": {
+      ".env.example": "sha256:338a5a4db58995c66d2dced89cfa454e6fc6d04bb3c1e689cdf4f532be310f57",
+      "PRIVACY.md": "sha256:3ff732c9a5299f9030fd25864f30188e1cad1705f61af53880bd3cfa6d1f58d5",
+      "docs/acceptance/sentry-cloud.json": "sha256:06f5ed0d0186a8c69850583ac2ddc2f46b1638d3abd144e7ce07cee8306502c3",
+      "docs/acceptance/sentry-packaged.json": "sha256:b53fe1a1bd6697290542a1b532fb522fea1c36e06cb92a3701e27251f0546f77",
+      "docs/crash-reports.md": "sha256:b3ae47f9d20ba3c19a483d747fbe3dcbedc1f4ea16903e2d604aa70f7a898679",
+      "docs/sentry-observability.md": "sha256:dd9590ffeba6e597bc67e28d49ce3ffc5688be66fef9bcb543703022e7897963",
+      "docs/worktree-development.md": "sha256:2724296cef86904e49537a67ac8efe3d12250a25d48836894d1f8ff91e557752",
+      "package.json": "sha256:11b1ecf5200d17031ae1cb1fee162e0d8437745dd07d4269d9dbbb76cbd5e650",
+      "pnpm-lock.yaml": "sha256:c332c645523276d2359048b524d8925258c5a92adf7f9054ceca5782858ddc3b",
+      "pnpm-workspace.yaml": "sha256:25c6867abe08ae8573ca4dc2e9bf19da3f6163952c868148808d8355b536599e",
+      "scripts/check-frontend-debug-release.mjs": "sha256:4b23b372810e017c7131739dd2437e2742d537e22c3ebb7dff0d613d9df50fcf",
+      "scripts/generate-sentry-observability.ts": "sha256:fb0005e37f79624446d03c41c77e8e9191d4f58fa6ebebadecced9ef0ec81914",
+      "scripts/renderer-headless-browser.mjs": "sha256:4b16c348700d3ae57ccc13e679f557c116a84c6d688992e11a8dd6114290510f",
+      "scripts/renderer-sentry-acceptance.html": "sha256:4b0b7d85dcd7a7ede09538f81942f9adc44a27f7aaaf5abf1ff0842dab8d7e95",
+      "scripts/renderer-sentry-acceptance.ts": "sha256:8207c0bb4401ed9026553cf76fbb49c87504bc6234871b301a92a6c5de7ed8ca",
+      "scripts/run-desktop-tauri.mjs": "sha256:44e35add512388eea4689f43217a0d823205e816549c87e87989272bb671ee77",
+      "scripts/run-hosted-client.mjs": "sha256:6ae15929a131bca10537c69cc51b5e799f8a33b9cdcd94f061d12f0c0bbe8e81",
+      "scripts/run-sentry-browser.mjs": "sha256:1eb97d4faae9b5d4389c2453cc2b78388376e947493c682921f80405b686a02b",
+      "scripts/run-worktree-dev.mjs": "sha256:05900de18172dbe379901e27ab0ed9affd464e82699a6ea25f1bdc8ffe07e561",
+      "scripts/sentry-environment.mjs": "sha256:59ff67241cde61d8f37bbdb393e6060cd3914450e5d3d9bce8a050d8f2b67242",
+      "scripts/sentry-packaged-acceptance.ts": "sha256:710b59ceb7c86d6814ad718152f9c2c5f042cdf9d5a072fbcb9e31f1cd1ee722",
+      "scripts/verify-sentry-cloud.mjs": "sha256:8a74bf919a4a6cc99a8317bdc8d303ab6b377697c009257d9f1fea7161e73367",
+      "scripts/verify-sentry-packaged.mjs": "sha256:b583b3d71d0b9c1d93073caa1921bf5795de6e72f76b29077ca829ddf7fb963c",
+      "src/renderer/locales/en.json": "sha256:0e4d3820ece58b77a570d4718a17102addbd658b5441063d24ff686dd7fdb20f",
+      "src/renderer/locales/zh-CN.json": "sha256:2f964941fa662ec8ad57a6c54be82a4ff19900a459985d37530536f146fd9062",
+      "src/renderer/platform/desktop-tauri-launcher.acceptance.test.ts": "sha256:36ecd46d7e7d453ab0b4815f81a6c32cbd8e3449bacd4d4acda9df60b58bc7c6",
+      "src/renderer/platform/sentry-environment.acceptance.test.ts": "sha256:6455ae63404c4981649d2378bda5cdbfb2c9dcea25d29c9c8a225d7599ec2353",
+      "src/renderer/platform/worktree-dev-launcher.acceptance.test.ts": "sha256:6399941c1e0db3691c847d325e4c823b4f2cd5ab1afbb181cbbc0b5885454ce3",
+      "src/renderer/services/diagnostics/crash-reporter.test.ts": "sha256:b85307299aad16fb746a13a5bfa4ce31d9a0155fe41798730833c006dd0e2b9b",
+      "src/renderer/services/diagnostics/crash-reporter.ts": "sha256:6a6c92b7cba350c9a9ce6b9be4630188692fba36eea30e3d9db28884a7a0e9d4",
+      "src/renderer/services/diagnostics/crash-sanitize.test.ts": "sha256:90341c3c212a627371ddb95344c9634d01c8ef267e5524af1110f478491f9789",
+      "src/renderer/services/diagnostics/crash-sanitize.ts": "sha256:e2cc6d6c0ed369a0ada8c979420ce9a7f76f381c1f9ab83b9f95595f5105d704",
+      "src/renderer/services/diagnostics/sentry-policy.test.ts": "sha256:7535e7fd7b34909e5c6d9ca0c3b1cd86f70be433daef6f925f9cee666d616c2e",
+      "src/renderer/services/diagnostics/sentry-policy.ts": "sha256:a4b16e18ea94733be5b934197ab0cfce92a33ae976bb4ccf660a0c7289531429",
+      "src/renderer/services/diagnostics/sentry-reporter.test.ts": "sha256:9ade8e7041ac436a10a3d41bff55f4cd5c60dd5e99ecae0562f93693dc5d3fc3",
+      "src/renderer/services/diagnostics/sentry-reporter.ts": "sha256:772ad6d19fade1352eec03d5e9fc6615609bac1bbe220e53897da98cfe13535e",
+      "src/renderer/services/update/update-service.test.ts": "sha256:2998d11ba2813e618301bc102d11b3522d7ab5ae7118d94953344877889d584e",
+      "src/renderer/services/update/update-service.ts": "sha256:4425c4533f0305c163bfa942ac21044dd3afaf5e770c57c5651e3d34beb087db",
+      "src/renderer/sync/production-runtime.ts": "sha256:584fb7c69a264ea69f81076c8219675cc5fdc0f5d17f54233a17abbf651f2b07",
+      "src/renderer/vite-env.d.ts": "sha256:45c50b731418801e17d7db2c29ceaaec6c74d66d53216b705ac85cb38b0631ea",
+      "vite.renderer.config.ts": "sha256:5ea85df6f0cc54f7ad3d14cb71d8967f6dc8c2ce8e99efd9441dcdb08bce2408"
+    }
+  },
+  "automated": {
+    "status": "passed",
+    "command": "pnpm exec vitest run src/renderer/services/diagnostics src/renderer/services/update/update-service.test.ts src/renderer/platform/sentry-environment.acceptance.test.ts src/renderer/platform/desktop-tauri-launcher.acceptance.test.ts src/renderer/platform/worktree-dev-launcher.acceptance.test.ts",
+    "passed": 104,
+    "failed": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "accepts machine log messages and bounded runtime and deployment attributes only",
+        "status": "passed"
+      },
+      {
+        "name": "accepts only an explicit public HTTPS DSN, without upload credentials or query data",
+        "status": "passed"
+      },
+      {
+        "name": "adds nothing when there is no crash to explain",
+        "status": "passed"
+      },
+      {
+        "name": "asks for a message and a reply-to address that can be answered",
+        "status": "passed"
+      },
+      {
+        "name": "builds a bounded payload with the author’s words and only the sanitized summary",
+        "status": "passed"
+      },
+      {
+        "name": "checks automatically at most every 3 hours",
+        "status": "passed"
+      },
+      {
+        "name": "configures hidden source maps and matching release metadata without exposing upload credentials",
+        "status": "passed"
+      },
+      {
+        "name": "crash report sanitizing groups the same failure across builds whose bundle hashes differ",
+        "status": "passed"
+      },
+      {
+        "name": "crash report sanitizing keeps only frames and drops the message line",
+        "status": "passed"
+      },
+      {
+        "name": "crash report sanitizing redacts prose, long quotes and home paths but keeps identifiers",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment checks and pins the selected development identity before starting the native toolchain",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment disables updater artifacts for local and debug bundles",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment does not require a development certificate for non-macOS, help or configured distribution builds",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment gives a new contributor actionable instructions while keeping signing failures closed",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment injects the protected updater public key only for configured release bundles",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment keeps explicit shell or CI values authoritative",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment keeps the default source launcher local-only even when a Hosted service is configured",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment keeps the development App-local folder apart from the installed App",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment lets a shell service override the file origin without changing the local library",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment rejects non-origin service configuration: file:///tmp/service",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment rejects non-origin service configuration: https://*.example.test",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment rejects non-origin service configuration: https://example.test?token=secret",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment rejects non-origin service configuration: https://example.test/#fragment",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment rejects non-origin service configuration: https://example.test/api",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment rejects non-origin service configuration: https://user:secret@example.test",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment runs the development App under its own identifier beside an installed release",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment still verifies local and debug bundles and honors an explicitly selected identity",
+        "status": "passed"
+      },
+      {
+        "name": "desktop Tauri environment uses one configured origin for renderer authentication, native sync and CSP while preserving HMR",
+        "status": "passed"
+      },
+      {
+        "name": "does not check automatically while an update is downloading or downloaded",
+        "status": "passed"
+      },
+      {
+        "name": "does not look up an update found in this launch again before the interval",
+        "status": "passed"
+      },
+      {
+        "name": "drops ambient scope, request, prose, credentials and untrusted stack locations",
+        "status": "passed"
+      },
+      {
+        "name": "fails configured production builds without source map upload credentials",
+        "status": "passed"
+      },
+      {
+        "name": "hands feedback to the mail client without a Hosted service or a network",
+        "status": "passed"
+      },
+      {
+        "name": "honors opt-out both before initialization and after the SDK is initialized",
+        "status": "passed"
+      },
+      {
+        "name": "installs a found update in one click: download, verify, save every local write, install",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development binds frontend URL, port, CSP and a separate WebView store to the same profile",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development builds a distinct signed macOS package with embedded assets and a persistent private WebView",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development delivers isolated config and environment to Tauri and generates a loadable Vite config",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development does not let shell or dotenv settings escape isolation or expose secrets in its manifest",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development enables performance collection only for an explicitly selected development instance",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development fails on an occupied port instead of attaching to another frontend",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development hands the Agent keys only to pnpm dev, never to a build",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development hands the renderer the loopback Agent debug broker only on explicit opt-in",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development hands the renderer the running desktop Frontend Debug bridge only on explicit opt-in",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development isolates pnpm dev in a linked Git worktree and keeps the main checkout on the shared profile",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development keeps JSON inspection read-only and does not launch or check signing",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development keeps stable profiles per canonical checkout and separates checkouts and instances",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development measures the same instance as a release binary with a production renderer, embedding no keys",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development opts into Hosted with service-scoped isolation and matching renderer, native and CSP configuration",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development persists different synthetic SQLite contents without cross-checkout or peer writes",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development preserves HTML drag ownership in the darwin window override",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development preserves HTML drag ownership in the linux window override",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development preserves HTML drag ownership in the win32 window override",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development propagates a failed Tauri launch and removes signal handlers",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development reads the main checkout's .env from a linked worktree that has none of its own",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development refuses shared state aliases instead of following symlinked data directories",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development rejects invalid or isolation-breaking arguments \"--config\"",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development rejects invalid or isolation-breaking arguments \"--instance\"",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development rejects invalid or isolation-breaking arguments \"--instance\"",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development rejects invalid or isolation-breaking arguments \"--port\"",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development rejects invalid or isolation-breaking arguments \"--port\"",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development rejects invalid or isolation-breaking arguments \"--port\"",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development resolves native asset roots per platform and keeps instances separate",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development seeds the seed instance once its port is free, then launches that same profile",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development starts a development profile connected with the Agent keys from .env, never a packaged app",
+        "status": "passed"
+      },
+      {
+        "name": "isolated worktree development stops its owned process group when automation sends SIGTERM",
+        "status": "passed"
+      },
+      {
+        "name": "keeps different minified JS columns distinct in Sentry mode while suppressing an exact repeat",
+        "status": "passed"
+      },
+      {
+        "name": "keeps offering a found update while an automatic check refreshes it",
+        "status": "passed"
+      },
+      {
+        "name": "keeps retries identifiable and distinguishes accepted, rejected and failed delivery",
+        "status": "passed"
+      },
+      {
+        "name": "keeps sending live after an empty flush and never loses a report added during a send",
+        "status": "passed"
+      },
+      {
+        "name": "keeps the local-only network boundary even when a DSN was inherited",
+        "status": "passed"
+      },
+      {
+        "name": "keeps the verified download and installs nothing when saving fails; a retry does not download again",
+        "status": "passed"
+      },
+      {
+        "name": "keeps unsent reports for the next launch and drops rejected ones",
+        "status": "passed"
+      },
+      {
+        "name": "leaves the running version alone when the download fails, and downloads again on retry",
+        "status": "passed"
+      },
+      {
+        "name": "looks up an update found before a relaunch at once, and stops once it is installed",
+        "status": "passed"
+      },
+      {
+        "name": "names the crash a follow-up explains",
+        "status": "passed"
+      },
+      {
+        "name": "names what an aggregated or wrapped failure was made of",
+        "status": "passed"
+      },
+      {
+        "name": "never offers a crash Drifting did not send, nor other kinds of report",
+        "status": "passed"
+      },
+      {
+        "name": "offers a delivered render failure once, on a later launch, with the service id",
+        "status": "passed"
+      },
+      {
+        "name": "offers a native panic on the launch that sends it, only the newest of several",
+        "status": "passed"
+      },
+      {
+        "name": "offers a Sentry-delivered crash without a service id",
+        "status": "passed"
+      },
+      {
+        "name": "parses a WebKit-style packaged Tauri stack without losing its source location",
+        "status": "passed"
+      },
+      {
+        "name": "passes only explicitly configured diagnostic values into isolated Hosted development",
+        "status": "passed"
+      },
+      {
+        "name": "persists an error first observed offline and sends it after reconnection",
+        "status": "passed"
+      },
+      {
+        "name": "posts to the Hosted service with the session, even with automatic fault reports off",
+        "status": "passed"
+      },
+      {
+        "name": "preserves injected Debug IDs through privacy filtering for exact source-map lookup",
+        "status": "passed"
+      },
+      {
+        "name": "puts the crash in the notification center once per launch",
+        "status": "passed"
+      },
+      {
+        "name": "reads nothing from the manuscript, the database or credentials",
+        "status": "passed"
+      },
+      {
+        "name": "reports a native install failure after a successful save; a retry installs the kept bytes",
+        "status": "passed"
+      },
+      {
+        "name": "reports failure so the dialog can fall back to mail",
+        "status": "passed"
+      },
+      {
+        "name": "requires a separate acceptance build for the packaged controls and leaves normal entries untouched",
+        "status": "passed"
+      },
+      {
+        "name": "retains native panic identity and bounded backtrace without claiming native crash symbolication",
+        "status": "passed"
+      },
+      {
+        "name": "routes configured reports to Sentry once, retains failed delivery, and bounds operational logs",
+        "status": "passed"
+      },
+      {
+        "name": "sanitized diagnostic summary exports counts and safe codes without identifiers, content, paths, or raw errors",
+        "status": "passed"
+      },
+      {
+        "name": "says a failed check plainly instead of passing on the updater's words",
+        "status": "passed"
+      },
+      {
+        "name": "sends a real SDK envelope with code frames, release and an anonymous installation, without app credentials",
+        "status": "passed"
+      },
+      {
+        "name": "sends bounded structured logs through the real SDK and rechecks consent before a buffered log leaves",
+        "status": "passed"
+      },
+      {
+        "name": "sends native panics from the previous launch as fatal reports, and clears them when off",
+        "status": "passed"
+      },
+      {
+        "name": "sends no summary when the author detaches it, and no address when left empty",
+        "status": "passed"
+      },
+      {
+        "name": "sends nothing when the author turned reports off or there is no Hosted service",
+        "status": "passed"
+      },
+      {
+        "name": "sends one content-free report per problem to the Hosted service",
+        "status": "passed"
+      },
+      {
+        "name": "stops an already draining queue from starting another upload after opt-out",
+        "status": "passed"
+      },
+      {
+        "name": "Tauri CLI invocation runs the CLI entry script with Node on Windows and pnpm exec elsewhere",
+        "status": "passed"
+      },
+      {
+        "name": "validates the same DSN in the renderer and build, and scopes CSP to its exact host",
+        "status": "passed"
+      }
+    ],
+    "browser": {
+      "status": "passed",
+      "report": "docs/acceptance/sentry-browser.json",
+      "checks": 9
+    }
+  },
+  "openGates": [
+    "repeat live cloud acceptance for changed diagnostic sources",
+    "repeat isolated packaged Mac acceptance",
+    "notarized production distribution and final release variant acceptance",
+    "production CI upload credentials and controlled distribution",
+    "separate private-service instrumentation and external availability monitoring"
+  ]
+}

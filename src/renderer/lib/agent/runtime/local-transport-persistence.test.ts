@@ -1,0 +1,495 @@
+import { describe, expect, it } from 'vitest';
+import type { AgentStartRoute } from '../protocol';
+import { LocalGeneralAgentTransport } from './local-transport';
+import { ScriptedFakeDriver } from './testing';
+import type {
+  AgentTransportCommitTurnInput,
+  AgentTransportPersistence,
+  AgentTransportPrepareTurnInput,
+  AgentTransportPreparedTurn,
+} from './transport-persistence';
+import type {
+  AgentModelMessage,
+  AgentRuntimeJournalEntry,
+  AgentToolDefinition,
+  AgentToolRuntime,
+} from './types';
+
+const USAGE = {
+  inputTokens: 3,
+  outputTokens: 2,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  costUsd: 0,
+};
+
+function finalSteps(text: string) {
+  return [
+    { op: 'emit' as const, event: { type: 'text_delta' as const, text } },
+    { op: 'emit' as const, event: { type: 'usage' as const, usage: USAGE } },
+    {
+      op: 'emit' as const,
+      event: { type: 'finish' as const, reason: 'end_turn' as const },
+    },
+  ];
+}
+
+function budgetSteps() {
+  return [
+    {
+      op: 'emit' as const,
+      event: {
+        type: 'tool_call_start' as const,
+        callId: 'budget-read',
+        name: 'read_node',
+      },
+    },
+    {
+      op: 'emit' as const,
+      event: {
+        type: 'tool_args_delta' as const,
+        callId: 'budget-read',
+        delta: '{}',
+      },
+    },
+    {
+      op: 'emit' as const,
+      event: {
+        type: 'tool_call_end' as const,
+        callId: 'budget-read',
+      },
+    },
+    {
+      op: 'emit' as const,
+      event: { type: 'usage' as const, usage: USAGE },
+    },
+    {
+      op: 'emit' as const,
+      event: {
+        type: 'finish' as const,
+        reason: 'tool_use' as const,
+      },
+    },
+  ];
+}
+
+async function waitForDone(events: AgentRuntimeJournalEntry[], count: number): Promise<void> {
+  for (let index = 0; index < 100; index += 1) {
+    if (events.filter((event) => event.event.type === 'turn_finished').length >= count) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error(`Expected ${count} finished turn(s)`);
+}
+
+async function waitUntil(predicate: () => boolean, label: string): Promise<void> {
+  for (let index = 0; index < 200; index += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
+function routeKey(route: AgentStartRoute): string {
+  return `chat:${route.projectId}:${route.conversationId ?? ''}`;
+}
+
+class PersistenceError extends Error {
+  readonly publicMessage: string;
+
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.publicMessage = message;
+  }
+}
+
+interface FakeSession {
+  id: string;
+  routeKey: string;
+  history: AgentModelMessage[];
+  activeTurnId: string | null;
+  interruptedTurns: string[];
+}
+
+class FakeTransportPersistence implements AgentTransportPersistence {
+  readonly sessions = new Map<string, FakeSession>();
+  readonly routeSessions = new Map<string, string>();
+  readonly journal: AgentRuntimeJournalEntry[] = [];
+  readonly order: string[] = [];
+  readonly commits: AgentTransportCommitTurnInput[] = [];
+  prepareCalls = 0;
+  commitCalls = 0;
+  commitGate: Promise<void> | null = null;
+
+  async prepareTurn(input: AgentTransportPrepareTurnInput): Promise<AgentTransportPreparedTurn> {
+    this.prepareCalls += 1;
+    this.order.push(`prepare:${input.turnId}`);
+    const key = routeKey(input.route);
+    let session: FakeSession | undefined;
+    if (!input.newConversation && input.resumeSessionId) {
+      session = this.sessions.get(input.resumeSessionId);
+      if (session && session.routeKey !== key) {
+        throw new PersistenceError(
+          'AGENT_SESSION_ROUTE_MISMATCH',
+          'The Agent session belongs to a different project or conversation.',
+        );
+      }
+    } else if (!input.newConversation) {
+      const id = this.routeSessions.get(key);
+      if (id) session = this.sessions.get(id);
+    }
+    if (!session) {
+      session = {
+        id: input.candidateSessionId,
+        routeKey: key,
+        history: [],
+        activeTurnId: null,
+        interruptedTurns: [],
+      };
+      this.sessions.set(session.id, session);
+    }
+    let recovered = false;
+    if (session.activeTurnId) {
+      session.interruptedTurns.push(session.activeTurnId);
+      session.activeTurnId = null;
+      recovered = true;
+    }
+    session.activeTurnId = input.turnId;
+    this.routeSessions.set(key, session.id);
+    return {
+      sessionId: session.id,
+      history: structuredClone(session.history),
+      recovered,
+    };
+  }
+
+  appendJournal(entry: AgentRuntimeJournalEntry): void {
+    this.order.push(`journal:${entry.turnId}:${entry.event.type}`);
+    this.journal.push(structuredClone(entry));
+  }
+
+  async commitTurn(input: AgentTransportCommitTurnInput): Promise<void> {
+    this.order.push(`commit-start:${input.turnId}`);
+    if (this.commitGate) await this.commitGate;
+    const session = this.sessions.get(input.sessionId);
+    if (!session) throw new Error('missing session');
+    if (session.activeTurnId !== input.turnId) {
+      throw new Error('turn is not active');
+    }
+    const first = input.turnMessages[0];
+    if (first?.role !== 'user') throw new Error('accepted prompt is missing');
+    session.history.push(...structuredClone(input.turnMessages));
+    session.activeTurnId = null;
+    this.commits.push(structuredClone(input));
+    this.commitCalls += 1;
+    this.order.push(`commit-done:${input.turnId}`);
+  }
+
+  seedInterrupted(
+    id: string,
+    route: AgentStartRoute,
+    completeHistory: AgentModelMessage[],
+    turnId: string,
+  ): void {
+    const key = routeKey(route);
+    this.sessions.set(id, {
+      id,
+      routeKey: key,
+      history: structuredClone(completeHistory),
+      activeTurnId: turnId,
+      interruptedTurns: [],
+    });
+    this.routeSessions.set(key, id);
+  }
+}
+
+describe('LocalGeneralAgentTransport persistence boundary', () => {
+  it('durably accepts the prompt before provider startup and resumes canonical history after restart', async () => {
+    const persistence = new FakeTransportPersistence();
+    const firstDriver = new ScriptedFakeDriver({
+      rounds: [
+        {
+          expectRequest: (request) => {
+            expect(persistence.order[0]).toBe('prepare:turn-1');
+            expect(request.messages).toEqual([{ role: 'user', content: 'first' }]);
+          },
+          steps: finalSteps('answer-one'),
+        },
+      ],
+    });
+    const first = new LocalGeneralAgentTransport({
+      driver: firstDriver,
+      persistence,
+      createId: (kind) => `${kind}-durable`,
+    });
+    const firstEvents: AgentRuntimeJournalEntry[] = [];
+    first.subscribeJournal((entry) => firstEvents.push(entry));
+
+    await expect(
+      first.start({
+        prompt: 'first',
+        turnId: 'turn-1',
+        route: {
+          kind: 'chat',
+          projectId: 'project-1',
+          conversationId: 'conversation-1',
+        },
+      }),
+    ).resolves.toEqual({ ok: true, value: undefined });
+    await waitForDone(firstEvents, 1);
+
+    const secondDriver = new ScriptedFakeDriver({
+      rounds: [
+        {
+          expectRequest: {
+            messages: [
+              { role: 'user', content: 'first' },
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'answer-one' }],
+              },
+              { role: 'user', content: 'second' },
+            ],
+          },
+          steps: finalSteps('answer-two'),
+        },
+      ],
+    });
+    const restarted = new LocalGeneralAgentTransport({
+      driver: secondDriver,
+      persistence,
+      createId: (kind) => `${kind}-after-restart`,
+    });
+    const restartedEvents: AgentRuntimeJournalEntry[] = [];
+    restarted.subscribeJournal((entry) => restartedEvents.push(entry));
+
+    await expect(
+      restarted.start({
+        prompt: 'second',
+        turnId: 'turn-2',
+        resume: 'session-durable',
+        route: {
+          kind: 'chat',
+          projectId: 'project-1',
+          conversationId: 'conversation-1',
+        },
+      }),
+    ).resolves.toEqual({ ok: true, value: undefined });
+    await waitForDone(restartedEvents, 1);
+
+    expect(persistence.prepareCalls).toBe(2);
+    expect(persistence.commitCalls).toBe(2);
+    expect(persistence.commits).toHaveLength(2);
+    expect(
+      persistence.commits.map((commit) =>
+        commit.contextCheckpointV2?.canonicalSourceRows.some(
+          (row) =>
+            row.kind === 'assistant_narrative' &&
+            row.content === (commit.turnId === 'turn-1' ? 'answer-one' : 'answer-two'),
+        ),
+      ),
+    ).toEqual([true, true]);
+    expect(
+      persistence.commits.every(
+        (commit) => commit.contextCheckpointV2?.providerEnvelope.schemaVersion === 2,
+      ),
+    ).toBe(true);
+    expect(persistence.order.indexOf('prepare:turn-1')).toBeLessThan(
+      persistence.order.indexOf('journal:turn-1:turn_started'),
+    );
+    firstDriver.assertExhausted();
+    secondDriver.assertExhausted();
+  });
+
+  it('does not publish done until canonical turn messages are committed', async () => {
+    const persistence = new FakeTransportPersistence();
+    let releaseCommit = (): void => undefined;
+    persistence.commitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    const driver = new ScriptedFakeDriver({
+      rounds: [{ steps: finalSteps('durable answer') }],
+    });
+    const transport = new LocalGeneralAgentTransport({
+      driver,
+      persistence,
+      createId: (kind) => `${kind}-commit-gate`,
+    });
+    const events: AgentRuntimeJournalEntry[] = [];
+    transport.subscribeJournal((entry) => events.push(entry));
+
+    await expect(
+      transport.start({
+        prompt: 'persist me',
+        turnId: 'turn-gated',
+        route: { kind: 'chat', projectId: 'project-1' },
+      }),
+    ).resolves.toEqual({ ok: true, value: undefined });
+    await waitUntil(
+      () => persistence.order.includes('commit-start:turn-gated'),
+      'canonical commit to start',
+    );
+
+    expect(persistence.order).toContain('commit-start:turn-gated');
+    expect(events.some((event) => event.event.type === 'turn_finished')).toBe(false);
+    releaseCommit();
+    await waitForDone(events, 1);
+    expect(persistence.order).toContain('commit-done:turn-gated');
+  });
+
+  it('persists a verified V2 checkpoint for a resumable budget slice', async () => {
+    const persistence = new FakeTransportPersistence();
+    const driver = new ScriptedFakeDriver({
+      rounds: [
+        {
+          steps: budgetSteps(),
+        },
+      ],
+    });
+    const readDefinition: AgentToolDefinition = {
+      name: 'read_node',
+      description: 'read one node',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+      access: 'read',
+      validateInput: (value) => ({ ok: true, value }),
+    };
+    const tools: AgentToolRuntime = {
+      listDefinitions: () => [readDefinition],
+      execute: async () => ({
+        ok: true,
+        data: { node: 'Chapter One' },
+      }),
+    };
+    const transport = new LocalGeneralAgentTransport({
+      driver,
+      tools,
+      limits: { maxModelIterations: 1 },
+      persistence,
+      createId: (kind) => `${kind}-budget-v2`,
+    });
+    const events: AgentRuntimeJournalEntry[] = [];
+    transport.subscribeJournal((entry) => events.push(entry));
+
+    await expect(
+      transport.start({
+        prompt: 'start a long task',
+        turnId: 'turn-budget-v2',
+        route: { kind: 'chat', projectId: 'project-1' },
+      }),
+    ).resolves.toEqual({ ok: true, value: undefined });
+    await waitForDone(events, 1);
+
+    expect(persistence.commits).toHaveLength(1);
+    expect(persistence.commits[0]).toMatchObject({
+      outcome: 'budget_exceeded',
+      contextCheckpointV2: {
+        providerEnvelope: { schemaVersion: 2 },
+      },
+    });
+    expect(persistence.commits[0]?.contextCheckpointV2?.canonicalSourceRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'tool_result',
+          callId: 'budget-read',
+        }),
+      ]),
+    );
+    driver.assertExhausted();
+  });
+
+  it('marks a stale active turn interrupted and excludes its incomplete prompt/assistant pair from resumed history', async () => {
+    const persistence = new FakeTransportPersistence();
+    const route: AgentStartRoute = {
+      kind: 'chat',
+      projectId: 'project-1',
+      conversationId: 'conversation-1',
+    };
+    persistence.seedInterrupted('session-crashed', route, [], 'turn-crashed');
+    // A text delta may exist in the immutable journal, but it was never
+    // committed as a complete AgentModelMessage.
+    persistence.journal.push({
+      schemaVersion: 1,
+      sessionId: 'session-crashed',
+      turnId: 'turn-crashed',
+      route,
+      seq: 1,
+      eventId: 'turn-crashed:1',
+      wallTimeMs: 1,
+      event: { type: 'text_delta', iteration: 1, text: 'half an answer' },
+    });
+
+    const driver = new ScriptedFakeDriver({
+      rounds: [
+        {
+          expectRequest: {
+            messages: [{ role: 'user', content: 'retry safely' }],
+          },
+          steps: finalSteps('complete answer'),
+        },
+      ],
+    });
+    const transport = new LocalGeneralAgentTransport({
+      driver,
+      persistence,
+      createId: (kind) => `${kind}-unused`,
+    });
+    const events: AgentRuntimeJournalEntry[] = [];
+    transport.subscribeJournal((entry) => events.push(entry));
+
+    await transport.start({
+      prompt: 'retry safely',
+      turnId: 'turn-recovered',
+      resume: 'session-crashed',
+      route,
+    });
+    await waitForDone(events, 1);
+
+    expect(persistence.sessions.get('session-crashed')?.interruptedTurns).toEqual(['turn-crashed']);
+    driver.assertExhausted();
+  });
+
+  it('rejects a cross-route resume before calling the provider', async () => {
+    const persistence = new FakeTransportPersistence();
+    persistence.seedInterrupted(
+      'session-owned',
+      {
+        kind: 'chat',
+        projectId: 'project-a',
+        conversationId: 'conversation-a',
+      },
+      [],
+      'turn-old',
+    );
+    const driver = new ScriptedFakeDriver({ rounds: [] });
+    const transport = new LocalGeneralAgentTransport({
+      driver,
+      persistence,
+      createId: (kind) => `${kind}-foreign`,
+    });
+
+    await expect(
+      transport.start({
+        prompt: 'foreign',
+        turnId: 'turn-foreign',
+        resume: 'session-owned',
+        route: {
+          kind: 'chat',
+          projectId: 'project-b',
+          conversationId: 'conversation-b',
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'AGENT_SESSION_ROUTE_MISMATCH',
+    });
+    expect(driver.calls).toHaveLength(0);
+  });
+});

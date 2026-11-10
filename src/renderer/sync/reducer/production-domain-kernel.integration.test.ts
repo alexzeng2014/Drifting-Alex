@@ -1,0 +1,2145 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { eq } from 'drizzle-orm';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as Y from 'yjs';
+
+import { ProductFileBackedSqliteGateway } from '../../lib/agent/runtime/acceptance/p3-file-backed-sqlite';
+import { createYjsProseSeedState } from '../../lib/agent/runtime/yjs-prose-command';
+import { legacyUrlNoteBodyJson, type LibraryItem } from '../../domain/library-item';
+import { cellKey, diffPlotGrid, type PlotGrid } from '../../domain/plot-grid';
+import type { ProjectAsset } from '../../domain/project-asset';
+import { createLibraryItemSqliteRepository } from '../../sqlite-repo/library-item-repo';
+import { createPlotGridRepository } from '../../sqlite-repo/plot-grid-repo';
+import { createProjectAssetSqliteRepository } from '../../sqlite-repo/project-asset-repo';
+import { deleteLibraryItemInTransaction } from '../../usecase/library-item-deletion';
+import { applyPlotGridMutationsInTransaction } from '../../usecase/plot-grid-write';
+import type { AtomicSyncWriter } from '../../usecase/sync-helpers';
+import { libraryMutationPayload } from '../../usecase/library-item-payload';
+import type { DbClient, DbTransaction } from '../../lib/db';
+import {
+  BookElementTable,
+  BookNodeTable,
+  CommentActionTable,
+  CommentTable,
+  EntityRelationTable,
+  EntityRelationTypeEndpointKindTable,
+  LibraryItemTable,
+  NodeContentTable,
+  NodeStorylineLinkTable,
+  ProjectAssetTable,
+  ProjectTable,
+  StorylineTable,
+  SyncApplyReceiptTable,
+  SyncBlobStateTable,
+  SyncChangeSetTable,
+  SyncConflictTable,
+  SyncEntityLifecycleTable,
+  SyncGenerationPurgeTable,
+  SyncGenerationTable,
+  SyncMutationTable,
+  WritingDayTable,
+  YjsDocumentRevisionProvenanceTable,
+  YjsDocumentRevisionTable,
+  yjsUpdates,
+} from '../../schema/drizzle';
+import {
+  appendAuthoredDomainMutation,
+  appendProjectAssetBindMutation,
+  appendProjectAssetUnbindMutation,
+  recordAuthoredChangeSetInTransaction,
+  SyncChangeBuilder,
+  type SyncWriterIdentitySource,
+} from '../journal';
+import {
+  captureReducerStateV1,
+  materializeReducerStateV1,
+} from '../checkpoint/reducer-state';
+import {
+  createSyncMutationV1,
+  decodeSyncChangeSetV1,
+  encodeCanonicalCbor,
+  type CanonicalCborValue,
+  type SyncChangeSetV1,
+  type SyncMutationAction,
+  type SyncMutationTargetFamily,
+} from '../protocol';
+import {
+  applyVerifiedRemoteChangeSetInTransaction,
+  invalidateSqliteReducerStateCache,
+  observeLocalAuthoredReducerInTransaction,
+  SQLITE_REDUCER_V1_TARGET_KINDS,
+} from './sqlite-materializer';
+import type { ReducerEffect } from './types';
+import { canonicalReducerSnapshot, compactReducerReceipts } from './reducer';
+import {
+  PRODUCTION_DOMAIN_KERNEL_COVERAGE,
+  productionSyncDomainMaterializationKernel,
+} from './production-domain-kernel';
+
+const PROJECT_ID = 'project-production-kernel';
+const SYNC_GENERATION_ID = 'sync-generation-production-kernel';
+const PROJECT_SYNC_ID = 'projectSync-production-kernel';
+const NODE_ID = 'node-production-kernel';
+const NOW = '2026-08-15T00:00:00.000Z';
+const temporaryDirectories: string[] = [];
+const gateways: ProductFileBackedSqliteGateway[] = [];
+
+const FAMILY: Readonly<Record<SyncMutationAction, SyncMutationTargetFamily>> = {
+  'entity.create': 'entity',
+  'field.set': 'entity',
+  'tuple.set': 'entity',
+  'set.add': 'set',
+  'set.remove': 'set',
+  'order.move': 'order',
+  'order.rebalance': 'order',
+  'entity.trash': 'entity',
+  'entity.restore': 'entity',
+  'entity.purge': 'entity',
+  'sync-generation.purge': 'sync-generation',
+  'yjs.update': 'yjs',
+  'asset.bind': 'asset',
+  'asset.unbind': 'asset',
+};
+
+async function createDatabase(): Promise<DbClient> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'drifting-production-domain-kernel-'));
+  temporaryDirectories.push(directory);
+  const gateway = new ProductFileBackedSqliteGateway(path.join(directory, 'drifting.db'));
+  gateways.push(gateway);
+  const db = gateway.client();
+  await db.insert(ProjectTable).values({
+    id: PROJECT_ID,
+    userId: 'local-user',
+    name: 'Production kernel',
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  await db.insert(BookNodeTable).values({
+    id: NODE_ID,
+    title: 'Before',
+    summary: '',
+    projectId: PROJECT_ID,
+    kind: 'chapter',
+    writingStatus: 'draft',
+    positionX: 0,
+    positionY: 0,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  await db.insert(SyncGenerationTable).values({
+    syncGenerationId: SYNC_GENERATION_ID,
+    projectId: PROJECT_ID,
+    projectSyncId: PROJECT_SYNC_ID,
+    generationNumber: 1,
+    protocolVersion: 1,
+    domainSchemaVersion: 1,
+    status: 'active',
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  return db;
+}
+
+function identity(): SyncWriterIdentitySource {
+  return {
+    installationId: 'production-kernel-installation',
+    createWriterIdentity: () => ({ writerId: 'production-kernel-local', writerEpoch: 'epoch-local' }),
+  };
+}
+
+async function changeSet(
+  sequence: number,
+  mutations: readonly {
+    action: SyncMutationAction;
+    kind: string;
+    id: string;
+    payload: CanonicalCborValue;
+    family?: SyncMutationTargetFamily;
+    incarnation?: number;
+  }[],
+  writer: { writerId: string; writerEpoch?: string; wallMs?: number } = {
+    writerId: 'production-kernel-remote',
+  },
+): Promise<SyncChangeSetV1> {
+  const writerId = writer.writerId;
+  const writerEpoch = writer.writerEpoch ?? 'epoch-remote';
+  return {
+    protocol: 'drifting.sync.changeset',
+    protocolVersion: 1,
+    payloadVersion: 1,
+    projectId: PROJECT_ID,
+    projectSyncId: PROJECT_SYNC_ID,
+    syncGenerationId: SYNC_GENERATION_ID,
+    changeSetId: `${writerId}:${writerEpoch}:${sequence}`,
+    writerId,
+    writerEpoch,
+    deviceSeq: sequence,
+    hlc: { wallMs: writer.wallMs ?? 1_700_000_000_000 + sequence, counter: 0 },
+    mutations: await Promise.all(mutations.map((mutation, index) => createSyncMutationV1({
+      index,
+      target: {
+        family: mutation.family ?? FAMILY[mutation.action],
+        kind: mutation.kind,
+        id: mutation.id,
+        incarnation: mutation.incarnation ?? 0,
+      },
+      action: mutation.action,
+      payloadVersion: 1,
+      payload: mutation.payload,
+    }))),
+  };
+}
+
+async function apply(db: DbClient, value: SyncChangeSetV1, device: SyncWriterIdentitySource = identity()) {
+  return db.transaction((tx) => applyVerifiedRemoteChangeSetInTransaction(tx, {
+    changeSet: value,
+    identity: device,
+    clock: { nowMs: 1_700_000_000_100, nowIso: NOW },
+    kernel: productionSyncDomainMaterializationKernel,
+  }));
+}
+
+/** Commit domain rows plus their change-set through the local post-write validation. */
+async function author(
+  db: DbClient,
+  nowMs: number,
+  work: (tx: DbTransaction, changes: SyncChangeBuilder) => Promise<void>,
+  device: SyncWriterIdentitySource = identity(),
+): Promise<SyncChangeSetV1> {
+  return db.transaction(async (tx) => {
+    const changes = new SyncChangeBuilder();
+    await work(tx, changes);
+    const recorded = await recordAuthoredChangeSetInTransaction(tx, {
+      projectId: PROJECT_ID,
+      projectSyncId: PROJECT_SYNC_ID,
+      syncGenerationId: SYNC_GENERATION_ID,
+      identity: device,
+      clock: { nowMs, nowIso: NOW },
+    }, changes);
+    await observeLocalAuthoredReducerInTransaction(tx, {
+      changeSet: recorded.changeSet,
+      clock: { nowMs, nowIso: NOW },
+      validator: productionSyncDomainMaterializationKernel,
+    });
+    return recorded.changeSet;
+  });
+}
+
+async function insertVerifiedBlob(db: DbClient, digest: string): Promise<void> {
+  await db.insert(SyncBlobStateTable).values({
+    syncGenerationId: SYNC_GENERATION_ID,
+    blobId: `sha256:${digest}`,
+    logicalKeyId: `blob-${digest.slice(0, 8)}`,
+    contentSha256: digest,
+    sizeBytes: 4,
+    mime: 'image/png',
+    localState: 'verified',
+    remoteState: 'available',
+    verifiedAt: NOW,
+    updatedAt: NOW,
+  });
+}
+
+function imageAssetPayload(digest: string, owner: { kind: 'library-item' | 'element-portrait'; id: string }) {
+  return {
+    blobId: `sha256:${digest}`,
+    sourceSha256: `sha256:${digest}`,
+    sourceMime: 'image/png',
+    sourceSizeBytes: 4,
+    kind: 'image',
+    width: 1,
+    height: 1,
+    createdAt: NOW,
+    owner,
+  } as const;
+}
+
+/** An element whose portrait is bound, both applied from a remote writer. */
+async function remotePortraitOwner(db: DbClient, elementId: string, assetId: string, digest: string) {
+  await insertVerifiedBlob(db, digest);
+  const document = new Y.Doc();
+  document.getText('content').insert(0, 'portrait owner');
+  await apply(db, await changeSet(1, [
+    {
+      action: 'entity.create', kind: 'element', id: elementId,
+      payload: { seed: { name: 'Portrait owner', summary: '', categoryId: null, groupName: null } },
+    },
+    {
+      action: 'yjs.update', kind: 'prose-document', id: `element:${elementId}`,
+      payload: { update: Y.encodeStateAsUpdate(document) },
+    },
+  ]));
+  await apply(db, await changeSet(2, [{
+    action: 'asset.bind', kind: 'project-asset', id: assetId,
+    payload: imageAssetPayload(digest, { kind: 'element-portrait', id: elementId }),
+  }]));
+}
+
+afterEach(async () => {
+  invalidateSqliteReducerStateCache();
+  for (const gateway of gateways.splice(0)) await gateway.close();
+  for (const directory of temporaryDirectories.splice(0)) {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+describe('production SyncDomainMaterializationKernel on file-backed SQLite', () => {
+  it('classifies every frozen reducer target as implemented or explicitly fail-closed', () => {
+    const classified = new Set([
+      ...PRODUCTION_DOMAIN_KERNEL_COVERAGE.entityKinds,
+      ...PRODUCTION_DOMAIN_KERNEL_COVERAGE.setKinds,
+      ...PRODUCTION_DOMAIN_KERNEL_COVERAGE.orderKinds,
+      ...PRODUCTION_DOMAIN_KERNEL_COVERAGE.failClosedKinds,
+      'prose-document',
+      'project-asset',
+      'sync-generation',
+    ]);
+    expect([...SQLITE_REDUCER_V1_TARGET_KINDS].filter((kind) => !classified.has(kind))).toEqual([]);
+    expect(PRODUCTION_DOMAIN_KERNEL_COVERAGE.externalActions).toEqual([
+      'yjs.update', 'asset.bind', 'asset.unbind', 'sync-generation.purge',
+    ]);
+  });
+
+  it('lets a narrative drop update an older chapter lifecycle without revalidating untouched book order', async () => {
+    const db = await createDatabase();
+    await db
+      .update(BookNodeTable)
+      .set({ bookOrder: 4.25, narrativeOrder: null })
+      .where(eq(BookNodeTable.id, NODE_ID));
+
+    const legacyChapter = await changeSet(1, [
+      {
+        action: 'entity.create',
+        kind: 'node',
+        id: NODE_ID,
+        payload: {
+          seed: {
+            title: 'Before',
+            summary: '',
+            kind: 'chapter',
+            narrativeOrder: null,
+            writingStatus: 'draft',
+            driftGroupId: null,
+          },
+        },
+      },
+      {
+        action: 'order.move',
+        kind: 'chapter',
+        id: NODE_ID,
+        payload: { positionKey: 'm0' },
+      },
+    ]);
+    await db.transaction((tx) => applyVerifiedRemoteChangeSetInTransaction(tx, {
+      changeSet: legacyChapter,
+      identity: identity(),
+      clock: { nowMs: 1_700_000_000_100, nowIso: NOW },
+      kernel: {
+        async validate() { return []; },
+        async materialize() {},
+      },
+    }));
+
+    const changes = new SyncChangeBuilder();
+    changes.add({
+      action: 'field.set',
+      target: { family: 'entity', kind: 'node', id: NODE_ID, incarnation: 0 },
+      payload: { field: 'narrativeOrder', value: 8.375 },
+    });
+    await db.transaction(async (tx) => {
+      await tx
+        .update(BookNodeTable)
+        .set({ narrativeOrder: 8.375 })
+        .where(eq(BookNodeTable.id, NODE_ID));
+      const recorded = await recordAuthoredChangeSetInTransaction(tx, {
+        projectId: PROJECT_ID,
+        projectSyncId: PROJECT_SYNC_ID,
+        syncGenerationId: SYNC_GENERATION_ID,
+        identity: identity(),
+        clock: { nowMs: 1_700_000_000_200, nowIso: NOW },
+      }, changes);
+      await observeLocalAuthoredReducerInTransaction(tx, {
+        changeSet: recorded.changeSet,
+        clock: { nowMs: 1_700_000_000_200, nowIso: NOW },
+        validator: productionSyncDomainMaterializationKernel,
+      });
+    });
+
+    expect(
+      await db
+        .select({ bookOrder: BookNodeTable.bookOrder, narrativeOrder: BookNodeTable.narrativeOrder })
+        .from(BookNodeTable)
+        .where(eq(BookNodeTable.id, NODE_ID)),
+    ).toEqual([{ bookOrder: 4.25, narrativeOrder: 8.375 }]);
+  });
+
+  it('rejects a newly authored chapter fractional-order register', async () => {
+    const db = await createDatabase();
+    const result = await apply(db, await changeSet(1, [{
+      action: 'order.move',
+      kind: 'chapter',
+      id: NODE_ID,
+      payload: { positionKey: 'm0' },
+    }]));
+
+    expect(result.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'domain.unsupported-order' }),
+    ]));
+  });
+
+  it('replays a locked built-in relation type before applying the next chapter creation bundle', async () => {
+    const db = await createDatabase();
+    const builtInRelationTypeId = `system:generic-association:${PROJECT_ID}`;
+    await apply(db, await changeSet(1, [{
+      action: 'entity.create',
+      kind: 'entity-relation-type',
+      id: builtInRelationTypeId,
+      payload: {
+        seed: {
+          name: 'Generic association',
+          normalizedName: 'generic association',
+          description: 'Built-in association for TODO and library item links.',
+          orientation: 'directed',
+          systemKey: 'generic-association',
+          locked: true,
+          sourceRole: 'Source',
+          targetRole: 'Target',
+          sourceKinds: ['comment', 'library_item'],
+          targetKinds: ['node', 'element', 'patch', 'category', 'storyline'],
+        },
+      },
+    }]));
+
+    const chapterId = 'chapter-created-on-desktop';
+    const remote = await changeSet(2, [
+      {
+        action: 'entity.create',
+        kind: 'node',
+        id: chapterId,
+        payload: {
+          seed: {
+            kind: 'chapter',
+            title: 'New Chapter',
+            summary: '',
+            bookOrder: 4.25,
+            driftGroupId: null,
+            writingStatus: 'draft',
+            narrativeOrder: null,
+          },
+        },
+      },
+      {
+        action: 'yjs.update',
+        kind: 'prose-document',
+        id: `node-content:${chapterId}`,
+        payload: { update: new Uint8Array([0, 0]) },
+      },
+      {
+        action: 'field.set',
+        kind: 'node-storyline-primary',
+        id: chapterId,
+        payload: { field: 'storylineId', value: null },
+      },
+    ]);
+
+    await apply(db, remote);
+
+    expect(await db.select({ id: BookNodeTable.id, title: BookNodeTable.title })
+      .from(BookNodeTable)
+      .where(eq(BookNodeTable.id, chapterId))).toEqual([
+      { id: chapterId, title: 'New Chapter' },
+    ]);
+    expect(await db.select({ nodeId: NodeContentTable.nodeId })
+      .from(NodeContentTable)
+      .where(eq(NodeContentTable.nodeId, chapterId))).toEqual([
+      { nodeId: chapterId },
+    ]);
+    expect(await db.select().from(SyncApplyReceiptTable)).toHaveLength(2);
+    expect(await db.select({
+      side: EntityRelationTypeEndpointKindTable.side,
+      entityKind: EntityRelationTypeEndpointKindTable.entityKind,
+    }).from(EntityRelationTypeEndpointKindTable)
+      .where(eq(EntityRelationTypeEndpointKindTable.relationTypeId, builtInRelationTypeId)))
+      .toHaveLength(7);
+  });
+
+  it('materializes a classified field and records no authored echo', async () => {
+    const db = await createDatabase();
+    const remote = await changeSet(1, [
+      {
+        action: 'field.set',
+        kind: 'node',
+        id: NODE_ID,
+        payload: { field: 'title', value: 'Remote title' },
+      },
+      {
+        action: 'field.set',
+        kind: 'node',
+        id: NODE_ID,
+        payload: { field: 'bookOrder', value: 7.375 },
+      },
+    ]);
+    await apply(db, remote);
+    expect(await db.select({ title: BookNodeTable.title }).from(BookNodeTable)).toEqual([
+      { title: 'Remote title' },
+    ]);
+    expect(await db.select({ bookOrder: BookNodeTable.bookOrder }).from(BookNodeTable)).toEqual([
+      { bookOrder: 7.375 },
+    ]);
+    expect(await db.select().from(SyncApplyReceiptTable)).toHaveLength(1);
+    expect((await db.select().from(SyncChangeSetTable)).filter(({ origin }) => origin === 'local')).toEqual([]);
+  });
+
+  it('lands another device’s writing day and lets only its words change afterwards', async () => {
+    const db = await createDatabase();
+    const id = 'writing-day-remote';
+    await apply(db, await changeSet(1, [{
+      action: 'entity.create', kind: 'writing-day', id,
+      payload: { seed: { day: '2026-11-03', deviceKey: 'device-remote', words: 420 } },
+    }]));
+    const words = async () => (await db.select({ day: WritingDayTable.day, deviceKey: WritingDayTable.deviceKey, words: WritingDayTable.words })
+      .from(WritingDayTable));
+    expect(await words()).toEqual([{ day: '2026-11-03', deviceKey: 'device-remote', words: 420 }]);
+
+    await apply(db, await changeSet(2, [{
+      action: 'field.set', kind: 'writing-day', id, payload: { field: 'words', value: 655 },
+    }]));
+    expect((await words())[0]?.words).toBe(655);
+
+    // The day and the device are the row's identity; words are whole and never negative.
+    for (const [index, payload] of [
+      { field: 'day', value: '2026-11-04' },
+      { field: 'words', value: -3 },
+      { field: 'words', value: 12.5 },
+    ].entries()) {
+      await apply(db, await changeSet(3 + index, [{ action: 'field.set', kind: 'writing-day', id, payload }]));
+      expect(await words()).toEqual([{ day: '2026-11-03', deviceKey: 'device-remote', words: 655 }]);
+    }
+    const conflicts = await db.select().from(SyncConflictTable);
+    expect(conflicts.length).toBeGreaterThan(0);
+    expect(conflicts.every((entry) => entry.targetKind === 'writing-day')).toBe(true);
+
+    const badSeed = await apply(db, await changeSet(6, [{
+      action: 'entity.create', kind: 'writing-day', id: 'writing-day-bad',
+      payload: { seed: { day: '3 Nov', deviceKey: 'device-remote', words: 10 } },
+    }]));
+    expect(badSeed.effects.filter((effect) => effect.type === 'entity.lifecycle' && effect.target.id === 'writing-day-bad'))
+      .toMatchObject([{ materialize: false }]);
+    expect(await words()).toHaveLength(1);
+  });
+
+  it('moves a project to and from the trash by last-writer-wins, whatever the arrival order', async () => {
+    const db = await createDatabase();
+    const trashedAt = '2026-10-27T00:00:00.000Z';
+    const projectDeletedAt = async () =>
+      (await db.select({ deletedAt: ProjectTable.deletedAt }).from(ProjectTable))[0]?.deletedAt;
+    const trash = await changeSet(1, [
+      { action: 'field.set', kind: 'project', id: PROJECT_ID, payload: { field: 'deletedAt', value: trashedAt } },
+    ], { writerId: 'trashing-device', wallMs: 1_700_000_000_010 });
+    const restore = await changeSet(1, [
+      { action: 'field.set', kind: 'project', id: PROJECT_ID, payload: { field: 'deletedAt', value: null } },
+    ], { writerId: 'restoring-device', wallMs: 1_700_000_000_020 });
+
+    await apply(db, trash);
+    expect(await projectDeletedAt()).toBe(trashedAt);
+    await apply(db, restore);
+    expect(await projectDeletedAt()).toBeNull();
+
+    const reordered = await createDatabase();
+    await apply(reordered, restore);
+    await apply(reordered, trash);
+    expect(
+      (await reordered.select({ deletedAt: ProjectTable.deletedAt }).from(ProjectTable))[0]?.deletedAt,
+    ).toBeNull();
+  });
+
+  it('accepts the domain writing statuses and rejects retired ones', async () => {
+    const db = await createDatabase();
+    await apply(db, await changeSet(1, [{
+      action: 'field.set',
+      kind: 'node',
+      id: NODE_ID,
+      payload: { field: 'writingStatus', value: 'finished' },
+    }]));
+    expect(await db.select({ writingStatus: BookNodeTable.writingStatus }).from(BookNodeTable)).toEqual([
+      { writingStatus: 'finished' },
+    ]);
+    const retired = await apply(db, await changeSet(2, [{
+      action: 'field.set',
+      kind: 'node',
+      id: NODE_ID,
+      payload: { field: 'writingStatus', value: 'revising' },
+    }]));
+    expect(retired.effects).toMatchObject([{ type: 'field.set', materialize: false }]);
+    expect(await db.select({ writingStatus: BookNodeTable.writingStatus }).from(BookNodeTable)).toEqual([
+      { writingStatus: 'finished' },
+    ]);
+  });
+
+  it('keeps invalid effects as deterministic conflicts without touching domain rows', async () => {
+    const db = await createDatabase();
+    const remote = await changeSet(1, [{
+      action: 'field.set',
+      kind: 'node',
+      id: NODE_ID,
+      payload: { field: 'futureField', value: 'must not leak' },
+    }]);
+    const result = await apply(db, remote);
+    expect(result.effects).toMatchObject([{ type: 'field.set', materialize: false }]);
+    expect(await db.select({ title: BookNodeTable.title }).from(BookNodeTable)).toEqual([
+      { title: 'Before' },
+    ]);
+    expect(await db.select().from(SyncConflictTable)).toMatchObject([
+      { kind: 'semantic', targetKind: 'node', targetId: NODE_ID, state: 'open' },
+    ]);
+  });
+
+  it('reports an invalid effect on every validation that still carries it', async () => {
+    const db = await createDatabase();
+    const remote = await changeSet(1, [{
+      action: 'field.set',
+      kind: 'node',
+      id: NODE_ID,
+      payload: { field: 'futureField', value: 'must not leak' },
+    }]);
+    const effect: ReducerEffect = {
+      effectId: 'synthetic-unclassified-field',
+      type: 'field.set',
+      materialize: true,
+      target: remote.mutations[0]!.target,
+      field: 'futureField',
+      value: 'must not leak',
+      order: { hlc: remote.hlc, writerId: remote.writerId, writerEpoch: remote.writerEpoch,
+        deviceSeq: remote.deviceSeq, mutationIndex: 0 },
+      source: { changeSetId: remote.changeSetId, mutationIndex: 0 },
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const issues = await db.transaction((tx) => productionSyncDomainMaterializationKernel.validate({
+        tx, origin: 'remote', changeSet: remote, effects: [effect],
+      }));
+      expect(issues).toEqual([expect.objectContaining({ blockedEffectIds: [effect.effectId] })]);
+    }
+  });
+
+  it('validates relation invariants before a lifecycle seed reaches SQLite', async () => {
+    const db = await createDatabase();
+    const remote = await changeSet(1, [{
+      action: 'entity.create',
+      kind: 'entity-relation',
+      id: 'self-relation',
+      payload: {
+        seed: {
+          fromKind: 'node',
+          fromId: NODE_ID,
+          toKind: 'node',
+          toId: NODE_ID,
+          relationTypeId: 'missing-type',
+        },
+      },
+    }]);
+    const result = await apply(db, remote);
+    expect(result.effects.find((effect) => effect.type === 'entity.lifecycle')).toMatchObject({
+      materialize: false,
+    });
+    expect(await db.select().from(EntityRelationTable)).toEqual([]);
+    expect(await db.select().from(SyncConflictTable)).toHaveLength(1);
+  });
+
+  it('materializes membership OR-set state before the independent primary LWW register', async () => {
+    const db = await createDatabase();
+    const storylineState = await createYjsProseSeedState('{"type":"doc","content":[]}');
+    const remote = await changeSet(1, [
+      {
+        action: 'entity.create',
+        kind: 'storyline',
+        id: 'storyline-remote',
+        payload: { seed: { name: 'Remote storyline', color: '#123456' } },
+      },
+      {
+        action: 'yjs.update',
+        kind: 'prose-document',
+        id: 'storyline:storyline-remote',
+        payload: { update: storylineState },
+      },
+      {
+        action: 'set.add',
+        kind: 'membership',
+        id: 'storyline-remote',
+        payload: { memberId: NODE_ID, value: null },
+      },
+      {
+        action: 'field.set',
+        kind: 'node-storyline-primary',
+        id: NODE_ID,
+        payload: { field: 'storylineId', value: 'storyline-remote' },
+      },
+    ]);
+    await apply(db, remote);
+    expect(await db.select().from(NodeStorylineLinkTable)).toMatchObject([{
+      nodeId: NODE_ID,
+      storylineId: 'storyline-remote',
+      isPrimary: true,
+    }]);
+
+    const removed = await changeSet(2, [
+      {
+        action: 'set.remove',
+        kind: 'membership',
+        id: 'storyline-remote',
+        payload: { memberId: NODE_ID, observedAddTags: [`${remote.changeSetId}#2`] },
+      },
+      {
+        action: 'field.set',
+        kind: 'node-storyline-primary',
+        id: NODE_ID,
+        payload: { field: 'storylineId', value: null },
+      },
+    ]);
+    await apply(db, removed);
+    expect(await db.select().from(NodeStorylineLinkTable)).toEqual([]);
+  });
+
+  it('removes storyline memberships before materializing storyline trash', async () => {
+    const db = await createDatabase();
+    const storylineState = await createYjsProseSeedState('{"type":"doc","content":[]}');
+    const created = await changeSet(1, [
+      {
+        action: 'entity.create',
+        kind: 'storyline',
+        id: 'storyline-trashed-with-members',
+        payload: { seed: { name: 'Disposable storyline', color: '#123456' } },
+      },
+      {
+        action: 'yjs.update',
+        kind: 'prose-document',
+        id: 'storyline:storyline-trashed-with-members',
+        payload: { update: storylineState },
+      },
+      {
+        action: 'set.add',
+        kind: 'membership',
+        id: 'storyline-trashed-with-members',
+        payload: { memberId: NODE_ID, value: null },
+      },
+      {
+        action: 'field.set',
+        kind: 'node-storyline-primary',
+        id: NODE_ID,
+        payload: { field: 'storylineId', value: 'storyline-trashed-with-members' },
+      },
+    ]);
+    await apply(db, created);
+
+    const trashed = await changeSet(2, [
+      {
+        action: 'set.remove',
+        kind: 'membership',
+        id: 'storyline-trashed-with-members',
+        payload: { memberId: NODE_ID, observedAddTags: [`${created.changeSetId}#2`] },
+      },
+      {
+        action: 'field.set',
+        kind: 'node-storyline-primary',
+        id: NODE_ID,
+        payload: { field: 'storylineId', value: null },
+      },
+      {
+        action: 'entity.trash',
+        kind: 'storyline',
+        id: 'storyline-trashed-with-members',
+        payload: {},
+      },
+    ]);
+    const result = await apply(db, trashed);
+
+    expect(result.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'set.member',
+        memberId: NODE_ID,
+        present: false,
+        materialize: true,
+      }),
+      expect.objectContaining({
+        type: 'entity.lifecycle',
+        target: expect.objectContaining({ id: 'storyline-trashed-with-members' }),
+        status: 'trashed',
+        materialize: true,
+      }),
+    ]));
+    expect(await db.select().from(NodeStorylineLinkTable)).toEqual([]);
+    expect(await db
+      .select({ deletedAt: StorylineTable.deletedAt })
+      .from(StorylineTable)
+      .where(eq(StorylineTable.id, 'storyline-trashed-with-members')))
+      .toMatchObject([{ deletedAt: expect.any(String) }]);
+  });
+
+  it('accepts a local authored membership removal bundled with storyline trash', async () => {
+    const db = await createDatabase();
+    const storylineId = 'local-storyline-trashed-with-members';
+    const storylineState = await createYjsProseSeedState('{"type":"doc","content":[]}');
+    const created = await changeSet(1, [
+      {
+        action: 'entity.create',
+        kind: 'storyline',
+        id: storylineId,
+        payload: { seed: { name: 'Local disposable storyline', color: '#654321' } },
+      },
+      {
+        action: 'yjs.update',
+        kind: 'prose-document',
+        id: `storyline:${storylineId}`,
+        payload: { update: storylineState },
+      },
+      {
+        action: 'set.add',
+        kind: 'membership',
+        id: storylineId,
+        payload: { memberId: NODE_ID, value: null },
+      },
+      {
+        action: 'field.set',
+        kind: 'node-storyline-primary',
+        id: NODE_ID,
+        payload: { field: 'storylineId', value: storylineId },
+      },
+    ]);
+    await apply(db, created);
+
+    const changes = new SyncChangeBuilder();
+    changes.add({
+      action: 'set.remove',
+      target: { family: 'set', kind: 'membership', id: storylineId, incarnation: 0 },
+      payload: { memberId: NODE_ID, observedAddTags: [`${created.changeSetId}#2`] },
+    });
+    changes.add({
+      action: 'field.set',
+      target: { family: 'entity', kind: 'node-storyline-primary', id: NODE_ID, incarnation: 0 },
+      payload: { field: 'storylineId', value: null },
+    });
+    changes.add({
+      action: 'entity.trash',
+      target: { family: 'entity', kind: 'storyline', id: storylineId, incarnation: 0 },
+      payload: {},
+    });
+
+    await db.transaction(async (tx) => {
+      await tx.delete(NodeStorylineLinkTable).where(eq(NodeStorylineLinkTable.storylineId, storylineId));
+      await tx.update(StorylineTable).set({ deletedAt: NOW }).where(eq(StorylineTable.id, storylineId));
+      const recorded = await recordAuthoredChangeSetInTransaction(tx, {
+        projectId: PROJECT_ID,
+        projectSyncId: PROJECT_SYNC_ID,
+        syncGenerationId: SYNC_GENERATION_ID,
+        identity: identity(),
+        clock: { nowMs: 1_700_000_000_200, nowIso: NOW },
+      }, changes);
+      await observeLocalAuthoredReducerInTransaction(tx, {
+        changeSet: recorded.changeSet,
+        clock: { nowMs: 1_700_000_000_200, nowIso: NOW },
+        validator: productionSyncDomainMaterializationKernel,
+      });
+    });
+
+    expect(await db.select().from(NodeStorylineLinkTable)).toEqual([]);
+    expect(await db
+      .select({ deletedAt: StorylineTable.deletedAt })
+      .from(StorylineTable)
+      .where(eq(StorylineTable.id, storylineId)))
+      .toEqual([{ deletedAt: NOW }]);
+    expect((await db.select().from(SyncChangeSetTable).where(
+      eq(SyncChangeSetTable.origin, 'local'),
+    ))).toHaveLength(1);
+  });
+
+  it('blocks a primary register that does not reference a present membership', async () => {
+    const db = await createDatabase();
+    await db.insert(StorylineTable).values({
+      id: 'unlinked-storyline',
+      projectId: PROJECT_ID,
+      name: 'Unlinked',
+      color: '#654321',
+      orderKey: 0,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const remote = await changeSet(1, [{
+      action: 'field.set',
+      kind: 'node-storyline-primary',
+      id: NODE_ID,
+      payload: { field: 'storylineId', value: 'unlinked-storyline' },
+    }]);
+    const result = await apply(db, remote);
+    expect(result.effects).toMatchObject([{ type: 'field.set', materialize: false }]);
+    expect(await db.select().from(NodeStorylineLinkTable)).toEqual([]);
+    expect(await db.select().from(SyncConflictTable)).toMatchObject([{
+      targetKind: 'node-storyline-primary',
+      targetId: NODE_ID,
+      state: 'open',
+    }]);
+  });
+
+  it('materializes trash and full-seed restore as a new incarnation', async () => {
+    const db = await createDatabase();
+    const elementId = 'restorable-element';
+    const createdState = await createYjsProseSeedState('{"type":"doc","content":[]}');
+    const restoredState = await createYjsProseSeedState('{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"restored"}]}]}');
+    const created = await changeSet(1, [
+      {
+        action: 'entity.create', kind: 'element', id: elementId,
+        payload: { seed: { name: 'Before restore', summary: '', categoryId: null, groupName: null } },
+      },
+      {
+        action: 'yjs.update', kind: 'prose-document', id: `element:${elementId}`,
+        payload: { update: createdState },
+      },
+    ]);
+    const trashed = await changeSet(2, [{
+      action: 'entity.trash', kind: 'element', id: elementId, payload: {},
+    }]);
+    const restored = await changeSet(3, [
+      {
+        action: 'entity.restore', kind: 'element', id: elementId, incarnation: 1,
+        payload: { seed: { name: 'Restored seed', summary: 'new incarnation', categoryId: null, groupName: null } },
+      },
+      {
+        action: 'yjs.update', kind: 'prose-document', id: `element:${elementId}`, incarnation: 1,
+        payload: { update: restoredState },
+      },
+    ]);
+    await apply(db, created);
+    await apply(db, trashed);
+    expect(await db.select({ deletedAt: BookElementTable.deletedAt }).from(BookElementTable).where(eq(BookElementTable.id, elementId))).toMatchObject([{ deletedAt: expect.any(String) }]);
+    await apply(db, restored);
+    expect(await db.select({ name: BookElementTable.name, summary: BookElementTable.summary, deletedAt: BookElementTable.deletedAt }).from(BookElementTable).where(eq(BookElementTable.id, elementId))).toEqual([{ name: 'Restored seed', summary: 'new incarnation', deletedAt: null }]);
+  });
+
+  it('fails closed on scalar prose and prose lifecycles without one full Yjs state', async () => {
+    const db = await createDatabase();
+    const scalar = await apply(db, await changeSet(1, [{
+      action: 'field.set',
+      kind: 'node-content',
+      id: NODE_ID,
+      payload: { field: 'contentJson', value: '{"type":"doc","content":[]}' },
+    }]));
+    expect(scalar.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'field.set', materialize: false }),
+    ]));
+    expect(scalar.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'domain.unsupported-field' }),
+    ]));
+
+    const missingState = await apply(db, await changeSet(2, [
+      {
+        action: 'entity.create',
+        kind: 'storyline',
+        id: 'storyline-without-yjs',
+        payload: { seed: { name: 'Missing body', color: '#123456', summary: '' } },
+      },
+      {
+        action: 'field.set',
+        kind: 'storyline',
+        id: 'storyline-without-yjs',
+        payload: { field: 'summary', value: 'must not partially materialize' },
+      },
+    ]));
+    expect(missingState.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'entity.lifecycle', materialize: false }),
+      expect.objectContaining({ type: 'field.set', materialize: false }),
+    ]));
+    expect(missingState.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'yjs.lifecycle-state-count' }),
+    ]));
+    expect(await db.select().from(StorylineTable).where(
+      eq(StorylineTable.id, 'storyline-without-yjs'),
+    )).toEqual([]);
+  });
+
+  it('lands a retired url seed as a note and keeps older builds from restoring the link', async () => {
+    const db = await createDatabase();
+    const url = 'https://example.com/lighthouse';
+    const created = await apply(db, await changeSet(1, [{
+      action: 'entity.create',
+      kind: 'library-item',
+      id: 'legacy-link',
+      payload: { seed: { title: 'Legacy link', kind: 'url', assetId: null, externalUrl: url, bodyJson: null, notesJson: null } },
+    }]));
+    expect(created.conflicts).toEqual([]);
+    const row = async () => (await db.select().from(LibraryItemTable).where(eq(LibraryItemTable.id, 'legacy-link')))[0];
+    expect(await row()).toMatchObject({ kind: 'text', externalUrl: null, previewImageUrl: null, bodyJson: legacyUrlNoteBodyJson(url) });
+
+    const relinked = await apply(db, await changeSet(2, [
+      { action: 'field.set', kind: 'library-item', id: 'legacy-link', payload: { field: 'externalUrl', value: 'https://example.com/other' } },
+      { action: 'field.set', kind: 'library-item', id: 'legacy-link', payload: { field: 'kind', value: 'url' } },
+    ]));
+    expect(relinked.conflicts).toEqual([]);
+    expect(await row()).toMatchObject({ kind: 'text', externalUrl: null, bodyJson: legacyUrlNoteBodyJson(url) });
+  });
+
+  it('accepts note documents for notes only and projects them into body_json', async () => {
+    const db = await createDatabase();
+    await apply(db, await changeSet(1, [{
+      action: 'entity.create',
+      kind: 'library-item',
+      id: 'note-1',
+      payload: { seed: { title: 'Note', kind: 'text', assetId: null, externalUrl: null, bodyJson: null, notesJson: null } },
+    }]));
+    const document = new Y.Doc();
+    const paragraph = new Y.XmlElement('paragraph');
+    paragraph.insert(0, [new Y.XmlText('remote note body')]);
+    document.getXmlFragment('default').insert(0, [paragraph]);
+    const update = Y.encodeStateAsUpdate(document);
+
+    const accepted = await apply(db, await changeSet(2, [{
+      action: 'yjs.update', kind: 'prose-document', id: 'library-item:note-1', payload: { update },
+    }]));
+    expect(accepted.conflicts).toEqual([]);
+    const [note] = await db.select().from(LibraryItemTable).where(eq(LibraryItemTable.id, 'note-1'));
+    expect(note?.bodyJson).toContain('remote note body');
+
+    const orphan = await apply(db, await changeSet(3, [{
+      action: 'yjs.update', kind: 'prose-document', id: 'library-item:missing-note', payload: { update },
+    }]));
+    expect(orphan.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'yjs.missing-owner' }),
+    ]));
+  });
+
+  it('accepts comments that target a material with a region anchor', async () => {
+    const db = await createDatabase();
+    const result = await apply(db, await changeSet(1, [{
+      action: 'entity.create',
+      kind: 'comment',
+      id: 'region-comment',
+      payload: {
+        seed: {
+          kind: 'todo',
+          targetKind: 'library_item',
+          targetId: 'image-1',
+          targetBlockId: null,
+          anchorJson: JSON.stringify({ region: { v: 1, page: 2, x: 0.1, y: 0.1, w: 0.2, h: 0.2 } }),
+          authorKind: 'user',
+          authorId: null,
+          authorName: null,
+          bodyJson: '{"type":"doc","content":[]}',
+          status: 'open',
+          priority: null,
+          source: 'manual',
+          metadataJson: null,
+          targetBlockIdsJson: '[]',
+          resolvedAt: null,
+        },
+      },
+    }]));
+    expect(result.conflicts).toEqual([]);
+    expect(await db.select({ targetKind: CommentTable.targetKind, targetId: CommentTable.targetId }).from(CommentTable))
+      .toEqual([{ targetKind: 'library_item', targetId: 'image-1' }]);
+  });
+
+  it('restores rows without deletedAt from physical trash projections at incarnation one', async () => {
+    const db = await createDatabase();
+    const commentId = 'restorable-comment';
+    const actionId = 'restorable-comment-action';
+    const commentSeed = {
+      kind: 'todo',
+      targetKind: 'node',
+      targetId: NODE_ID,
+      targetBlockId: null,
+      anchorJson: '{}',
+      authorKind: 'user',
+      authorId: null,
+      authorName: null,
+      bodyJson: '{"type":"doc","content":[]}',
+      status: 'open',
+      priority: null,
+      source: 'manual',
+      metadataJson: null,
+      targetBlockIdsJson: '[]',
+      resolvedAt: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    } as const;
+    const actionSeed = {
+      commentId,
+      kind: 'accept_suggestion',
+      label: 'kept with restore',
+      payloadJson: '{}',
+      status: 'applied',
+      resultJson: '{"ok":true}',
+      createdByKind: 'user',
+      createdById: null,
+      appliedAt: NOW,
+      createdAt: NOW,
+      updatedAt: NOW,
+    } as const;
+
+    await apply(db, await changeSet(1, [
+      {
+        action: 'entity.create',
+        kind: 'comment',
+        id: commentId,
+        payload: { seed: commentSeed },
+      },
+      {
+        action: 'entity.create',
+        kind: 'comment-action',
+        id: actionId,
+        payload: { seed: actionSeed },
+      },
+    ]));
+    await apply(db, await changeSet(2, [
+      { action: 'entity.trash', kind: 'comment-action', id: actionId, payload: {} },
+      { action: 'entity.trash', kind: 'comment', id: commentId, payload: {} },
+    ]));
+    expect(await db.select().from(CommentTable).where(eq(CommentTable.id, commentId))).toEqual([]);
+    expect(await db.select().from(CommentActionTable).where(eq(CommentActionTable.id, actionId)))
+      .toEqual([]);
+    expect(await db.select({
+      kind: SyncEntityLifecycleTable.entityKind,
+      incarnation: SyncEntityLifecycleTable.incarnation,
+      state: SyncEntityLifecycleTable.state,
+    }).from(SyncEntityLifecycleTable)).toEqual(expect.arrayContaining([
+      { kind: 'comment', incarnation: 0, state: 'trashed' },
+      { kind: 'comment-action', incarnation: 0, state: 'trashed' },
+    ]));
+
+    const restoredBody = '{"type":"doc","content":[{"type":"paragraph"}]}';
+    await apply(db, await changeSet(3, [
+      {
+        action: 'entity.restore',
+        kind: 'comment',
+        id: commentId,
+        incarnation: 1,
+        payload: { seed: { ...commentSeed, bodyJson: restoredBody } },
+      },
+      {
+        action: 'entity.restore',
+        kind: 'comment-action',
+        id: actionId,
+        incarnation: 1,
+        payload: { seed: actionSeed },
+      },
+    ]));
+    expect(await db.select({ bodyJson: CommentTable.bodyJson }).from(CommentTable).where(eq(CommentTable.id, commentId))).toEqual([
+      { bodyJson: restoredBody },
+    ]);
+    expect(await db.select({ label: CommentActionTable.label }).from(CommentActionTable).where(eq(CommentActionTable.id, actionId))).toEqual([
+      { label: 'kept with restore' },
+    ]);
+    expect(await db.select({
+      kind: SyncEntityLifecycleTable.entityKind,
+      incarnation: SyncEntityLifecycleTable.incarnation,
+      state: SyncEntityLifecycleTable.state,
+    }).from(SyncEntityLifecycleTable)).toEqual(expect.arrayContaining([
+      { kind: 'comment', incarnation: 1, state: 'live' },
+      { kind: 'comment-action', incarnation: 1, state: 'live' },
+    ]));
+  });
+
+  it('keeps restored Yjs and asset ownership when late incarnation-zero operations arrive', async () => {
+    const db = await createDatabase();
+    const elementId = 'restored-external-owner';
+    const assetId = 'restored-external-asset';
+    const digest = 'c'.repeat(64);
+    await db.insert(BookElementTable).values({
+      id: elementId,
+      projectId: PROJECT_ID,
+      name: 'External owner',
+      contentJson: '{}',
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    await db.insert(SyncBlobStateTable).values({
+      syncGenerationId: SYNC_GENERATION_ID,
+      blobId: `sha256:${digest}`,
+      logicalKeyId: 'restored-external-blob',
+      contentSha256: digest,
+      sizeBytes: 4,
+      mime: 'image/png',
+      localState: 'verified',
+      remoteState: 'available',
+      verifiedAt: NOW,
+      updatedAt: NOW,
+    });
+    const assetPayload = {
+      blobId: `sha256:${digest}`,
+      sourceSha256: `sha256:${digest}`,
+      sourceMime: 'image/png',
+      sourceSizeBytes: 4,
+      kind: 'image',
+      width: 1,
+      height: 1,
+      createdAt: NOW,
+      owner: { kind: 'element-portrait', id: elementId },
+    } as const;
+    const initialDocument = new Y.Doc();
+    initialDocument.getText('content').insert(0, 'incarnation zero');
+    const restoredDocument = new Y.Doc();
+    restoredDocument.getText('content').insert(0, 'incarnation one');
+    const lateDocument = new Y.Doc();
+    lateDocument.getText('content').insert(0, 'late stale prose');
+
+    await apply(db, await changeSet(1, [
+      {
+        action: 'entity.create', kind: 'element', id: elementId,
+        payload: {
+          seed: {
+            name: 'External owner',
+            summary: '',
+            categoryId: null,
+            groupName: null,
+          },
+        },
+      },
+      {
+        action: 'yjs.update', kind: 'prose-document', id: `element:${elementId}`,
+        payload: { update: Y.encodeStateAsUpdate(initialDocument) },
+      },
+    ]));
+    await apply(db, await changeSet(2, [
+      {
+        action: 'asset.bind', kind: 'project-asset', id: assetId,
+        payload: assetPayload,
+      },
+    ]));
+    await apply(db, await changeSet(3, [{
+      action: 'entity.trash', kind: 'element', id: elementId, payload: {},
+    }]));
+    await apply(db, await changeSet(4, [
+      {
+        action: 'entity.restore', kind: 'element', id: elementId, incarnation: 1,
+        payload: {
+          seed: {
+            name: 'Restored external owner',
+            summary: 'new generation',
+            categoryId: null,
+            groupName: null,
+          },
+        },
+      },
+      {
+        action: 'yjs.update', kind: 'prose-document', id: `element:${elementId}`,
+        incarnation: 1,
+        payload: { update: Y.encodeStateAsUpdate(restoredDocument) },
+      },
+      {
+        action: 'asset.bind', kind: 'project-asset', id: assetId,
+        incarnation: 1,
+        payload: assetPayload,
+      },
+    ]));
+    const late = await apply(db, await changeSet(5, [
+      {
+        action: 'yjs.update', kind: 'prose-document', id: `element:${elementId}`,
+        incarnation: 0,
+        payload: { update: Y.encodeStateAsUpdate(lateDocument) },
+      },
+      {
+        action: 'asset.unbind', kind: 'project-asset', id: assetId,
+        incarnation: 0,
+        payload: { owner: { kind: 'element-portrait', id: elementId } },
+      },
+    ]));
+
+    expect(late.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'yjs.update', materialize: false }),
+      expect.objectContaining({ type: 'asset.unbind', materialize: false }),
+      expect.objectContaining({ type: 'asset.bind', materialize: true }),
+    ]));
+    expect(await db.select().from(yjsUpdates)).toHaveLength(2);
+    expect(await db.select({
+      name: BookElementTable.name,
+      portraitAssetId: BookElementTable.portraitAssetId,
+      deletedAt: BookElementTable.deletedAt,
+    }).from(BookElementTable).where(eq(BookElementTable.id, elementId))).toEqual([{
+      name: 'Restored external owner',
+      portraitAssetId: assetId,
+      deletedAt: null,
+    }]);
+    expect(await db.select().from(ProjectAssetTable).where(eq(ProjectAssetTable.id, assetId)))
+      .toHaveLength(1);
+  });
+
+  it('applies a valid Yjs update with remote provenance inside the receipt transaction', async () => {
+    const db = await createDatabase();
+    const update = await createYjsProseSeedState(JSON.stringify({
+      type: 'doc',
+      content: [{
+        type: 'paragraph',
+        content: [{ type: 'text', text: 'remote prose' }],
+      }],
+    }));
+    const remote = await changeSet(1, [{
+      action: 'yjs.update',
+      kind: 'prose-document',
+      id: `node-content:${NODE_ID}`,
+      payload: { update },
+    }]);
+    await apply(db, remote);
+    expect(await db.select().from(yjsUpdates)).toMatchObject([
+      { docId: `node-content:${NODE_ID}` },
+    ]);
+    expect(await db.select().from(YjsDocumentRevisionProvenanceTable)).toMatchObject([
+      { docId: `node-content:${NODE_ID}`, sourceKind: 'remote', revision: 1 },
+    ]);
+    expect(await db.select({ contentJson: NodeContentTable.contentJson })
+      .from(NodeContentTable)
+      .where(eq(NodeContentTable.nodeId, NODE_ID))).toMatchObject([
+      { contentJson: expect.stringContaining('remote prose') },
+    ]);
+  });
+
+  it.each(['transaction-event', 'state-transfer'] as const)(
+    'preserves %s evidence in the remote envelope while materializing ordinary prose', async kind => {
+      const db = await createDatabase();
+      const update = await createYjsProseSeedState(JSON.stringify({ type: 'doc', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'evidence remote prose' }] },
+      ] }));
+      const sourceRetentionProvenance = kind === 'state-transfer'
+        ? { version: 1, kind }
+        : { version: 1, kind, beforeSnapshot: Y.encodeSnapshot(Y.emptySnapshot), transactionDeletes: [] };
+      const futurePayloadField = { synthetic: true, retainedBytes: Uint8Array.of(0, 127, 255) };
+      const payload = { update, sourceRetentionProvenance, futurePayloadField } as CanonicalCborValue;
+      const expectedPayloadBytes = encodeCanonicalCbor(payload);
+      const remote = await changeSet(1, [{ action: 'yjs.update', kind: 'prose-document',
+        id: `node-content:${NODE_ID}`, payload }]);
+      await apply(db, remote);
+      const [row] = await db.select().from(SyncChangeSetTable);
+      const decoded = await decodeSyncChangeSetV1(row!.encodedBytes as Uint8Array);
+      if (!decoded.ok) throw new Error(decoded.message);
+      expect(encodeCanonicalCbor(decoded.value.mutations[0]!.payload)).toEqual(expectedPayloadBytes);
+      expect(decoded.value.mutations[0]!.payload).toMatchObject({ futurePayloadField });
+      const [mutation] = await db.select().from(SyncMutationTable);
+      expect(new Uint8Array(mutation!.payloadCbor as Uint8Array)).toEqual(expectedPayloadBytes);
+      expect(await db.select().from(NodeContentTable)).toMatchObject([
+        { nodeId: NODE_ID, contentJson: expect.stringContaining('evidence remote prose') },
+      ]);
+      expect(await db.select().from(SyncApplyReceiptTable)).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ['present null', null],
+    ['unsupported evidence version', { version: 2, kind: 'state-transfer' }],
+    ['snapshot with trailing bytes', {
+      version: 1, kind: 'transaction-event', beforeSnapshot: Uint8Array.of(0, 0, 0), transactionDeletes: [],
+    }],
+    ['overlapping delete ranges', {
+      version: 1, kind: 'transaction-event', beforeSnapshot: Uint8Array.of(0, 0),
+      transactionDeletes: [{ client: 71, clock: 0, length: 2 }, { client: 71, clock: 1, length: 1 }],
+    }],
+  ] as const)(
+    'rejects %s at the direct kernel validation seam without domain or Yjs writes',
+    async (_name, sourceRetentionProvenance) => {
+      const db = await createDatabase();
+      const update = await createYjsProseSeedState(JSON.stringify({ type: 'doc', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'must remain unapplied' }] },
+      ] }));
+      const payload = { update, sourceRetentionProvenance } as CanonicalCborValue;
+      // Construct a correctly hashed in-memory envelope and invoke the kernel
+      // directly. No change-set/segment encoder or decoder can reject it first.
+      const remote = await changeSet(1, [{ action: 'yjs.update', kind: 'prose-document',
+        id: `node-content:${NODE_ID}`, payload }]);
+      const effect: Extract<ReducerEffect, { type: 'yjs.update' }> = {
+        effectId: 'synthetic-direct-yjs-evidence',
+        type: 'yjs.update',
+        materialize: true,
+        target: remote.mutations[0]!.target,
+        payload,
+        source: { changeSetId: remote.changeSetId, mutationIndex: 0 },
+        order: { hlc: remote.hlc, writerId: remote.writerId, writerEpoch: remote.writerEpoch,
+          deviceSeq: remote.deviceSeq, mutationIndex: 0 },
+      };
+      const originalNodes = await db.select().from(BookNodeTable);
+      const issues = await db.transaction(tx => productionSyncDomainMaterializationKernel.validate({
+        tx, origin: 'remote', changeSet: remote, effects: [effect],
+      }));
+      expect(issues).toEqual([expect.objectContaining({
+        code: 'yjs.invalid-update',
+        target: { kind: 'prose-document', id: `node-content:${NODE_ID}`, incarnation: 0 },
+        blockedEffectIds: [effect.effectId],
+      })]);
+      expect(await db.select().from(BookNodeTable)).toEqual(originalNodes);
+      expect(await db.select().from(NodeContentTable)).toEqual([]);
+      expect(await db.select().from(yjsUpdates)).toEqual([]);
+      expect(await db.select().from(YjsDocumentRevisionTable)).toEqual([]);
+      expect(await db.select().from(YjsDocumentRevisionProvenanceTable)).toEqual([]);
+      expect(await db.select().from(SyncChangeSetTable)).toEqual([]);
+      expect(await db.select().from(SyncMutationTable)).toEqual([]);
+      expect(await db.select().from(SyncApplyReceiptTable)).toEqual([]);
+    },
+  );
+
+  it('binds an asset only after verified blob staging and enforces one typed owner', async () => {
+    const db = await createDatabase();
+    const elementId = 'element-owner';
+    await db.insert(BookElementTable).values({
+      id: elementId,
+      projectId: PROJECT_ID,
+      name: 'Portrait owner',
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const digest = 'a'.repeat(64);
+    await db.insert(SyncBlobStateTable).values({
+      syncGenerationId: SYNC_GENERATION_ID,
+      blobId: `sha256:${digest}`,
+      logicalKeyId: 'blob-logical-key',
+      contentSha256: digest,
+      sizeBytes: 4,
+      mime: 'image/png',
+      localState: 'verified',
+      remoteState: 'available',
+      verifiedAt: NOW,
+      updatedAt: NOW,
+    });
+    const remote = await changeSet(1, [{
+      action: 'asset.bind',
+      kind: 'project-asset',
+      id: 'asset-1',
+      payload: {
+        blobId: `sha256:${digest}`,
+        sourceSha256: `sha256:${digest}`,
+        sourceMime: 'image/png',
+        sourceSizeBytes: 4,
+        kind: 'image',
+        width: 1,
+        height: 1,
+        createdAt: NOW,
+        owner: { kind: 'element-portrait', id: elementId },
+      },
+    }]);
+    await apply(db, remote);
+    expect(await db.select().from(ProjectAssetTable)).toMatchObject([
+      { id: 'asset-1', sourceSha256: digest, projectId: PROJECT_ID },
+    ]);
+    expect(await db.select({ portraitAssetId: BookElementTable.portraitAssetId }).from(BookElementTable).where(eq(BookElementTable.id, elementId))).toEqual([
+      { portraitAssetId: 'asset-1' },
+    ]);
+  });
+
+  it('blocks a bind whose asset or owner is already taken, or whose metadata changed', async () => {
+    const db = await createDatabase();
+    const digest = 'f'.repeat(64);
+    await remotePortraitOwner(db, 'owner-a', 'shared-asset', digest);
+    const document = new Y.Doc();
+    document.getText('content').insert(0, 'second owner');
+    await apply(db, await changeSet(3, [
+      {
+        action: 'entity.create', kind: 'element', id: 'owner-b',
+        payload: { seed: { name: 'Second owner', summary: '', categoryId: null, groupName: null } },
+      },
+      {
+        action: 'yjs.update', kind: 'prose-document', id: 'element:owner-b',
+        payload: { update: Y.encodeStateAsUpdate(document) },
+      },
+    ]));
+    const codes = async (sequence: number, assetId: string, payload: CanonicalCborValue) =>
+      (await apply(db, await changeSet(sequence, [{ action: 'asset.bind', kind: 'project-asset', id: assetId, payload }])))
+        .conflicts.map(({ code }) => code);
+
+    const otherDigest = '9'.repeat(64);
+    await insertVerifiedBlob(db, otherDigest);
+    expect(await codes(4, 'other-asset', imageAssetPayload(otherDigest, { kind: 'element-portrait', id: 'owner-a' })))
+      .toContain('asset.invalid-owner');
+    expect(await codes(5, 'shared-asset', imageAssetPayload(digest, { kind: 'element-portrait', id: 'owner-b' })))
+      .toContain('asset.multiple-owners');
+    expect(await codes(6, 'shared-asset', { ...imageAssetPayload(digest, { kind: 'element-portrait', id: 'owner-a' }), width: 2 }))
+      .toContain('asset.immutable-metadata-mismatch');
+  });
+
+  it('reads the stored rows for every bound asset in a fixed number of queries', async () => {
+    const reads: { blobStates: number; total: number }[] = [];
+    for (const assetCount of [2, 8]) {
+      const db = await createDatabase();
+      const gateway = gateways[gateways.length - 1]!;
+      let sequence = 0;
+      for (let index = 0; index < assetCount; index += 1) {
+        const elementId = `portrait-owner-${index}`;
+        const digest = index.toString(16).padEnd(64, 'e');
+        await insertVerifiedBlob(db, digest);
+        const document = new Y.Doc();
+        document.getText('content').insert(0, 'portrait owner');
+        await apply(db, await changeSet(++sequence, [
+          {
+            action: 'entity.create', kind: 'element', id: elementId,
+            payload: { seed: { name: `Owner ${index}`, summary: '', categoryId: null, groupName: null } },
+          },
+          {
+            action: 'yjs.update', kind: 'prose-document', id: `element:${elementId}`,
+            payload: { update: Y.encodeStateAsUpdate(document) },
+          },
+        ]));
+        await apply(db, await changeSet(++sequence, [{
+          action: 'asset.bind', kind: 'project-asset', id: `portrait-asset-${index}`,
+          payload: imageAssetPayload(digest, { kind: 'element-portrait', id: elementId }),
+        }]));
+      }
+      expect(await db.select({ id: ProjectAssetTable.id }).from(ProjectAssetTable)).toHaveLength(assetCount);
+
+      // Every write revalidates the whole projection, the binds included.
+      const query = vi.spyOn(gateway, 'query');
+      const typed = await apply(db, await changeSet(++sequence, [
+        { action: 'field.set', kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'Typed' } },
+      ]));
+      expect(typed.conflicts).toEqual([]);
+      reads.push({
+        blobStates: query.mock.calls.filter(([sql]: [string, ...unknown[]]) => sql.includes('"sync_blob_state"')).length,
+        total: query.mock.calls.length,
+      });
+      query.mockRestore();
+    }
+    expect(reads[0]!.blobStates).toBe(1);
+    expect(reads[1]).toEqual(reads[0]);
+  });
+
+  it('converges asset bind/unbind when the older bind arrives after the winner', async () => {
+    const forward = await createDatabase();
+    const reverse = await createDatabase();
+    const digest = 'b'.repeat(64);
+    for (const db of [forward, reverse]) {
+      await db.insert(BookElementTable).values({
+        id: 'asset-owner',
+        projectId: PROJECT_ID,
+        name: 'Asset owner',
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      await db.insert(SyncBlobStateTable).values({
+        syncGenerationId: SYNC_GENERATION_ID,
+        blobId: `sha256:${digest}`,
+        logicalKeyId: 'asset-convergence-key',
+        contentSha256: digest,
+        sizeBytes: 4,
+        mime: 'image/png',
+        localState: 'verified',
+        remoteState: 'available',
+        verifiedAt: NOW,
+        updatedAt: NOW,
+      });
+    }
+    const bind = await changeSet(1, [{
+      action: 'asset.bind', kind: 'project-asset', id: 'asset-convergent',
+      payload: {
+        blobId: `sha256:${digest}`,
+        sourceSha256: `sha256:${digest}`,
+        sourceMime: 'image/png',
+        sourceSizeBytes: 4,
+        kind: 'image',
+        width: 1,
+        height: 1,
+        createdAt: NOW,
+        owner: { kind: 'element-portrait', id: 'asset-owner' },
+      },
+    }]);
+    const unbind = await changeSet(2, [{
+      action: 'asset.unbind', kind: 'project-asset', id: 'asset-convergent',
+      payload: { owner: { kind: 'element-portrait', id: 'asset-owner' } },
+    }]);
+    await apply(forward, bind);
+    await apply(forward, unbind);
+    await apply(reverse, unbind);
+    await apply(reverse, bind);
+    expect(await forward.select().from(ProjectAssetTable)).toEqual([]);
+    expect(await reverse.select().from(ProjectAssetTable)).toEqual([]);
+    expect(await forward.select({ portraitAssetId: BookElementTable.portraitAssetId }).from(BookElementTable).where(eq(BookElementTable.id, 'asset-owner'))).toEqual([{ portraitAssetId: null }]);
+    expect(await reverse.select({ portraitAssetId: BookElementTable.portraitAssetId }).from(BookElementTable).where(eq(BookElementTable.id, 'asset-owner'))).toEqual([{ portraitAssetId: null }]);
+  });
+
+  it('removes a binary material and its asset on a replica that receives the deletion', async () => {
+    const db = await createDatabase();
+    const itemId = 'replica-image-material';
+    const assetId = 'replica-image-asset';
+    const digest = 'e'.repeat(64);
+    await insertVerifiedBlob(db, digest);
+    // The replica holds the material as a local write or checkpoint would.
+    await author(db, 1_700_000_000_050, async (tx, changes) => {
+      await tx.insert(ProjectAssetTable).values({
+        id: assetId, projectId: PROJECT_ID, kind: 'image', sourceMime: 'image/png',
+        sourceSizeBytes: 4, sourceSha256: digest, width: 1, height: 1, createdAt: NOW,
+      });
+      await tx.insert(LibraryItemTable).values({
+        id: itemId, projectId: PROJECT_ID, title: 'Replica image', kind: 'image',
+        assetId, createdAt: NOW, updatedAt: NOW,
+      });
+      appendProjectAssetBindMutation(changes, PROJECT_ID, {
+        id: assetId, projectId: PROJECT_ID, kind: 'image', sourceMime: 'image/png',
+        sourceSizeBytes: 4, sourceSha256: digest, width: 1, height: 1, createdAt: NOW,
+      }, { kind: 'library-item', id: itemId });
+      appendAuthoredDomainMutation(changes, {
+        entityType: 'libraryItem', mutationType: 'create', entityId: itemId, projectId: PROJECT_ID,
+        payload: { title: 'Replica image', kind: 'image', externalUrl: null, bodyJson: null, notesJson: null },
+      });
+    });
+
+    const deleted = await apply(db, await changeSet(1, [
+      {
+        action: 'asset.unbind', kind: 'project-asset', id: assetId,
+        payload: { owner: { kind: 'library-item', id: itemId } },
+      },
+      { action: 'entity.purge', kind: 'library-item', id: itemId, payload: {} },
+    ], { writerId: 'production-kernel-remote', wallMs: 1_700_000_000_100 }));
+
+    expect(deleted.effects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'asset.unbind', materialize: true }),
+      expect.objectContaining({ type: 'entity.lifecycle', status: 'purged', materialize: true }),
+    ]));
+    expect(deleted.conflicts).toEqual([]);
+    expect(await db.select().from(LibraryItemTable)).toEqual([]);
+    expect(await db.select().from(ProjectAssetTable)).toEqual([]);
+  });
+
+  it('accepts a local authored portrait unbind bundled with its element purge', async () => {
+    const db = await createDatabase();
+    const elementId = 'purged-portrait-owner';
+    const assetId = 'purged-portrait-asset';
+    await remotePortraitOwner(db, elementId, assetId, 'f'.repeat(64));
+    await apply(db, await changeSet(3, [{
+      action: 'entity.trash', kind: 'element', id: elementId, payload: {},
+    }]));
+
+    // The permanent-delete transaction of useBookElement.hardDeleteElement.
+    await author(db, 1_700_000_000_200, async (tx, changes) => {
+      await tx.delete(BookElementTable).where(eq(BookElementTable.id, elementId));
+      appendProjectAssetUnbindMutation(changes, assetId, { kind: 'element-portrait', id: elementId });
+      await tx.delete(ProjectAssetTable).where(eq(ProjectAssetTable.id, assetId));
+      appendAuthoredDomainMutation(changes, {
+        entityType: 'element', mutationType: 'delete', entityId: elementId, projectId: PROJECT_ID,
+      });
+    });
+
+    expect(await db.select().from(BookElementTable).where(eq(BookElementTable.id, elementId))).toEqual([]);
+    expect(await db.select().from(ProjectAssetTable)).toEqual([]);
+    expect(await db.select({ state: SyncEntityLifecycleTable.state })
+      .from(SyncEntityLifecycleTable)
+      .where(eq(SyncEntityLifecycleTable.entityId, elementId))).toEqual([{ state: 'purged' }]);
+  });
+
+  it('converges a portrait removal concurrent with its owner trash in either order', async () => {
+    const forward = await createDatabase();
+    const reverse = await createDatabase();
+    const elementId = 'concurrently-trashed-owner';
+    const assetId = 'concurrently-removed-portrait';
+    for (const db of [forward, reverse]) {
+      await remotePortraitOwner(db, elementId, assetId, '9'.repeat(64));
+    }
+    const removed = await changeSet(1, [{
+      action: 'asset.unbind', kind: 'project-asset', id: assetId,
+      payload: { owner: { kind: 'element-portrait', id: elementId } },
+    }], { writerId: 'portrait-remover', wallMs: 1_700_000_000_010 });
+    const trashed = await changeSet(1, [{
+      action: 'entity.trash', kind: 'element', id: elementId, payload: {},
+    }], { writerId: 'element-trasher', wallMs: 1_700_000_000_010 });
+    await apply(forward, removed);
+    await apply(forward, trashed);
+    await apply(reverse, trashed);
+    await apply(reverse, removed);
+
+    for (const db of [forward, reverse]) {
+      expect(await db.select({
+        portraitAssetId: BookElementTable.portraitAssetId,
+        deletedAt: BookElementTable.deletedAt,
+      }).from(BookElementTable).where(eq(BookElementTable.id, elementId))).toEqual([{
+        portraitAssetId: null,
+        deletedAt: expect.any(String),
+      }]);
+      expect(await db.select().from(ProjectAssetTable)).toEqual([]);
+    }
+  });
+
+  it('materializes sync-generation.purge without deleting the immutable sync receipt', async () => {
+    const db = await createDatabase();
+    const remote = await changeSet(1, [{
+      action: 'sync-generation.purge',
+      kind: 'sync-generation',
+      id: SYNC_GENERATION_ID,
+      family: 'sync-generation',
+      incarnation: 1,
+      payload: {},
+    }]);
+    await apply(db, remote);
+    expect(await db.select().from(ProjectTable)).toEqual([]);
+    expect(await db.select().from(SyncGenerationTable)).toMatchObject([
+      { syncGenerationId: SYNC_GENERATION_ID, projectId: null, status: 'purged' },
+    ]);
+    expect(await db.select().from(SyncGenerationPurgeTable)).toMatchObject([
+      { syncGenerationId: SYNC_GENERATION_ID, changeSetId: remote.changeSetId, mutationIndex: 0 },
+    ]);
+    expect(await db.select().from(SyncApplyReceiptTable)).toHaveLength(1);
+  });
+
+  it('keeps sync-generation.purge absorbing across two-writer reorder, duplicate, and restart replay', async () => {
+    const forward = await createDatabase();
+    const reverse = await createDatabase();
+    const seed = await changeSet(1, [{
+      action: 'entity.create',
+      kind: 'project',
+      id: PROJECT_ID,
+      payload: { seed: { name: 'Canonical project', summary: '' } },
+    }], { writerId: 'writer-seed', wallMs: 1_700_000_000_001 });
+    const purge = await changeSet(1, [{
+      action: 'sync-generation.purge',
+      kind: 'sync-generation',
+      id: SYNC_GENERATION_ID,
+      family: 'sync-generation',
+      incarnation: 1,
+      payload: {},
+    }], { writerId: 'writer-purge', wallMs: 1_700_000_000_002 });
+    const concurrent = await changeSet(1, [{
+      action: 'field.set',
+      kind: 'project',
+      id: PROJECT_ID,
+      payload: { field: 'name', value: 'Must never resurrect' },
+    }], { writerId: 'writer-update', wallMs: 1_700_000_000_003 });
+
+    await apply(forward, seed);
+    await apply(reverse, seed);
+    const forwardPurge = await apply(forward, purge);
+    const forwardFinal = await apply(forward, concurrent);
+    await apply(reverse, concurrent);
+    const reverseFinal = await apply(reverse, purge);
+
+    expect(await forward.select().from(ProjectTable)).toEqual([]);
+    expect(await reverse.select().from(ProjectTable)).toEqual([]);
+    expect(forwardFinal.effects.every((effect) => !effect.materialize)).toBe(true);
+    // A rebuilt state is compacted; compare the canonical compacted form.
+    expect(canonicalReducerSnapshot(compactReducerReceipts(forwardFinal.state!))).toEqual(
+      canonicalReducerSnapshot(compactReducerReceipts(reverseFinal.state!)),
+    );
+    expect(await forward.select().from(SyncApplyReceiptTable)).toHaveLength(3);
+    expect(await reverse.select().from(SyncApplyReceiptTable)).toHaveLength(3);
+    expect(forwardPurge.effects.filter((effect) => effect.materialize)).toMatchObject([
+      { type: 'sync-generation.purge' },
+    ]);
+
+    invalidateSqliteReducerStateCache(SYNC_GENERATION_ID);
+    const duplicate = await apply(forward, concurrent);
+    expect(duplicate.status).toBe('duplicate');
+    expect(await forward.select().from(ProjectTable)).toEqual([]);
+    expect(await forward.select().from(SyncGenerationPurgeTable)).toHaveLength(1);
+  });
+
+  it('preserves the terminal purge register through checkpoint reducer-state restore', async () => {
+    const source = await createDatabase();
+    const seed = await changeSet(1, [{
+      action: 'entity.create',
+      kind: 'project',
+      id: PROJECT_ID,
+      payload: { seed: { name: 'Checkpoint seed' } },
+    }], { writerId: 'writer-checkpoint-seed' });
+    const purge = await changeSet(1, [{
+      action: 'sync-generation.purge',
+      kind: 'sync-generation',
+      id: SYNC_GENERATION_ID,
+      family: 'sync-generation',
+      incarnation: 1,
+      payload: {},
+    }], { writerId: 'writer-checkpoint-purge' });
+    await apply(source, seed);
+    await apply(source, purge);
+    const reducerState = await captureReducerStateV1(source, SYNC_GENERATION_ID);
+    expect(reducerState.generationPurges).toHaveLength(1);
+
+    const restored = await createDatabase();
+    await restored.delete(ProjectTable).where(eq(ProjectTable.id, PROJECT_ID));
+    await restored.transaction((tx) => materializeReducerStateV1(tx, reducerState));
+    expect(await restored.select().from(SyncGenerationPurgeTable)).toHaveLength(1);
+
+    invalidateSqliteReducerStateCache(SYNC_GENERATION_ID);
+    const late = await changeSet(1, [{
+      action: 'field.set',
+      kind: 'project',
+      id: PROJECT_ID,
+      payload: { field: 'name', value: 'Cannot restore purged project' },
+    }], { writerId: 'writer-checkpoint-late' });
+    const result = await apply(restored, late);
+    expect(result.effects.every((effect) => !effect.materialize)).toBe(true);
+    expect(await restored.select().from(ProjectTable)).toEqual([]);
+    expect(await restored.select().from(SyncApplyReceiptTable)).toHaveLength(3);
+  });
+});
+
+describe('incremental remote materialization', () => {
+  const DOMAIN_TABLES = [
+    'project', 'book_node', 'node_content', 'storylines', 'node_storyline_link', 'element',
+    'element_category', 'entity_kv_entry', 'yjs_snapshots', 'yjs_updates', 'yjs_document_revision',
+  ];
+
+  async function scenario(): Promise<SyncChangeSetV1[]> {
+    const empty = '{"type":"doc","content":[]}';
+    const prose = async (kind: string, id: string, incarnation = 0) => ({
+      action: 'yjs.update' as const, kind: 'prose-document', id: `${kind}:${id}`, incarnation,
+      payload: { update: await createYjsProseSeedState(empty) },
+    });
+    const kv = (id: string, key: string, value: string) => ({
+      action: 'entity.create' as const, kind: 'kv-entry', id,
+      payload: { seed: { ownerKind: 'element', ownerId: 'element-1', namespace: 'facts', key, value } },
+    });
+    const kvOrder = (id: string, positionKey: string) => ({
+      action: 'order.move' as const, kind: 'kv-entry', id, payload: { positionKey, scope: 'element:element-1:facts' },
+    });
+    const steps: Parameters<typeof changeSet>[1][] = [
+      [
+        { action: 'entity.create' as const, kind: 'storyline', id: 'storyline-1', payload: { seed: { name: 'One', color: '#111111' } } },
+        await prose('storyline', 'storyline-1'),
+        { action: 'entity.create' as const, kind: 'storyline', id: 'storyline-2', payload: { seed: { name: 'Two', color: '#222222' } } },
+        await prose('storyline', 'storyline-2'),
+        { action: 'order.move' as const, kind: 'storyline', id: 'storyline-1', payload: { positionKey: 'a0' } },
+        { action: 'order.move' as const, kind: 'storyline', id: 'storyline-2', payload: { positionKey: 'a1' } },
+      ],
+      [
+        { action: 'entity.create' as const, kind: 'element', id: 'element-1', payload: { seed: { name: 'Element', summary: '', categoryId: null, groupName: null } } },
+        await prose('element', 'element-1'),
+        kv('kv-1', 'age', '30'),
+        kv('kv-2', 'home', 'harbor'),
+        kvOrder('kv-1', 'a0'),
+        kvOrder('kv-2', 'a1'),
+        { action: 'set.add' as const, kind: 'alias', id: 'element-1', payload: { memberId: 'alias-1', value: 'Alias One' } },
+      ],
+      [
+        { action: 'set.add' as const, kind: 'membership', id: 'storyline-1', payload: { memberId: NODE_ID, value: null } },
+        { action: 'field.set' as const, kind: 'node-storyline-primary', id: NODE_ID, payload: { field: 'storylineId', value: 'storyline-1' } },
+      ],
+      [{ action: 'field.set' as const, kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'Renamed' } }],
+      // Moving one storyline shifts its sibling's numeric rank.
+      [{ action: 'order.move' as const, kind: 'storyline', id: 'storyline-1', payload: { positionKey: 'a2' } }],
+      [{ action: 'tuple.set' as const, kind: 'node', id: NODE_ID, payload: { tuple: 'graph.position', value: { x: 4, y: 8 } } }],
+      [kvOrder('kv-1', 'a3'), { action: 'field.set' as const, kind: 'kv-entry', id: 'kv-2', payload: { field: 'value', value: 'lighthouse' } }],
+      [{ action: 'field.set' as const, kind: 'element', id: 'element-1', payload: { field: 'name', value: 'Renamed element' } }],
+      [{ action: 'entity.trash' as const, kind: 'element', id: 'element-1', payload: {} }],
+      // Restore recreates the row from its seed; aliases and KV must follow.
+      [
+        { action: 'entity.restore' as const, kind: 'element', id: 'element-1', incarnation: 1, payload: { seed: { name: 'Restored', summary: 'again', categoryId: null, groupName: null } } },
+        await prose('element', 'element-1', 1),
+      ],
+      [{ action: 'set.add' as const, kind: 'membership', id: 'storyline-2', payload: { memberId: NODE_ID, value: null } }],
+      [{ action: 'field.set' as const, kind: 'node-storyline-primary', id: NODE_ID, payload: { field: 'storylineId', value: 'storyline-2' } }],
+      [{ action: 'field.set' as const, kind: 'storyline', id: 'storyline-2', payload: { field: 'name', value: 'Two renamed' } }],
+    ];
+    const changes: SyncChangeSetV1[] = [];
+    for (const [index, mutations] of steps.entries()) changes.push(await changeSet(index + 1, mutations));
+    // An older concurrent rename loses LWW and must not touch the row.
+    changes.push(await changeSet(1, [
+      { action: 'field.set', kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'Stale' } },
+    ], { writerId: 'production-kernel-late', wallMs: 1_600_000_000_000 }));
+    return changes;
+  }
+
+  async function run(full: boolean) {
+    const directory = await mkdtemp(path.join(tmpdir(), 'drifting-incremental-materialization-'));
+    temporaryDirectories.push(directory);
+    const gateway = new ProductFileBackedSqliteGateway(path.join(directory, 'drifting.db'));
+    gateways.push(gateway);
+    const db = gateway.client();
+    await db.insert(ProjectTable).values({ id: PROJECT_ID, userId: 'local-user', name: 'Production kernel', createdAt: NOW, updatedAt: NOW });
+    await db.insert(BookNodeTable).values({ id: NODE_ID, title: 'Before', summary: '', projectId: PROJECT_ID, kind: 'chapter', writingStatus: 'draft', positionX: 0, positionY: 0, createdAt: NOW, updatedAt: NOW });
+    await db.insert(SyncGenerationTable).values({ syncGenerationId: SYNC_GENERATION_ID, projectId: PROJECT_ID, projectSyncId: PROJECT_SYNC_ID, generationNumber: 1, protocolVersion: 1, domainSchemaVersion: 1, status: 'active', createdAt: NOW, updatedAt: NOW });
+    const changed: (number | null)[] = [];
+    const kernel = {
+      ...productionSyncDomainMaterializationKernel,
+      materialize: (context: Parameters<typeof productionSyncDomainMaterializationKernel.materialize>[0]) => {
+        changed.push(context.changedEffectIds ? context.changedEffectIds.size : null);
+        return productionSyncDomainMaterializationKernel.materialize(context);
+      },
+    };
+    const dumps: Record<string, string[]>[] = [];
+    invalidateSqliteReducerStateCache();
+    for (const value of await scenario()) {
+      if (full) invalidateSqliteReducerStateCache();
+      const result = await db.transaction((tx) => applyVerifiedRemoteChangeSetInTransaction(tx, {
+        changeSet: value,
+        identity: identity(),
+        clock: { nowMs: 1_700_000_000_100, nowIso: NOW },
+        kernel,
+      }));
+      expect(result.conflicts).toEqual([]);
+      dumps.push(Object.fromEntries(DOMAIN_TABLES.map((table) => [
+        table,
+        gateway.database.prepare(`SELECT * FROM "${table}"`).all()
+          .map((row) => JSON.stringify(row, (key, item: unknown) =>
+            // `updated_at` is a derived, unsynchronized column. Full
+            // re-materialization rewrites it from the seed and advances it
+            // for an order move only in the move's own change-set, so its
+            // value there depends on which change-set is current. Yjs rows
+            // also stamp local wall-clock time.
+            key === 'updated_at' || (table.startsWith('yjs_') && key === 'created_at')
+              ? undefined
+              : item instanceof Uint8Array ? [...item] : item))
+          .sort(),
+      ])));
+    }
+    invalidateSqliteReducerStateCache();
+    return { dumps, changed };
+  }
+
+  it('converges domain rows exactly like full re-materialization after every change-set', async () => {
+    const full = await run(true);
+    const incremental = await run(false);
+    expect(full.changed.every((size) => size === null)).toBe(true);
+    expect(incremental.changed[0]).toBeNull();
+    expect(incremental.changed.slice(1).every((size) => size !== null)).toBe(true);
+    for (const [step, dump] of incremental.dumps.entries()) {
+      expect({ step, dump }).toEqual({ step, dump: full.dumps[step] });
+    }
+    const final = incremental.dumps[incremental.dumps.length - 1];
+    expect(final.element.join()).toContain('Alias One');
+    expect(final.element.join()).toContain('lighthouse');
+    expect(final.node_storyline_link.map((row) => JSON.parse(row) as Record<string, unknown>)).toEqual([
+      { node_id: NODE_ID, storyline_id: 'storyline-1', is_primary: 0 },
+      { node_id: NODE_ID, storyline_id: 'storyline-2', is_primary: 1 },
+    ]);
+  });
+});
+
+describe('binary materials across devices', () => {
+  const deviceA: SyncWriterIdentitySource = {
+    installationId: 'device-a-installation',
+    createWriterIdentity: () => ({ writerId: 'device-a', writerEpoch: 'epoch-a' }),
+  };
+  const deviceB: SyncWriterIdentitySource = {
+    installationId: 'device-b-installation',
+    createWriterIdentity: () => ({ writerId: 'device-b', writerEpoch: 'epoch-b' }),
+  };
+
+  /** The authored writer the material use cases journal through. */
+  function journal(changes: SyncChangeBuilder): AtomicSyncWriter {
+    return async (entityType, mutationType, entityId, projectId, payload, parentId) => {
+      appendAuthoredDomainMutation(changes, { entityType, mutationType, entityId, projectId, payload, parentId });
+    };
+  }
+
+  function binaryMaterial(kind: 'image' | 'pdf', digest: string): { asset: ProjectAsset; item: LibraryItem } {
+    const asset: ProjectAsset = {
+      id: `${kind}-asset`,
+      projectId: PROJECT_ID,
+      kind,
+      sourceMime: kind === 'image' ? 'image/png' : 'application/pdf',
+      sourceSizeBytes: 4,
+      sourceSha256: digest,
+      width: kind === 'image' ? 1 : null,
+      height: kind === 'image' ? 1 : null,
+      createdAt: NOW,
+    };
+    const item: LibraryItem = {
+      id: `${kind}-material`,
+      projectId: PROJECT_ID,
+      title: 'Imported',
+      kind,
+      assetId: asset.id,
+      externalUrl: null,
+      previewImageUrl: null,
+      bodyJson: null,
+      notesJson: null,
+      provenanceJson: null,
+      orderKey: 0,
+      folderId: null,
+      taskTodos: true,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    return { asset, item };
+  }
+
+  /** Device A imports the file the way useLibraryItem does: bind and create in one change set. */
+  function importOn(db: DbClient, { asset, item }: ReturnType<typeof binaryMaterial>) {
+    return author(db, 1_700_000_000_010, async (tx, changes) => {
+      await createProjectAssetSqliteRepository(PROJECT_ID, tx).create(asset);
+      appendProjectAssetBindMutation(changes, PROJECT_ID, asset, { kind: 'library-item', id: item.id });
+      await createLibraryItemSqliteRepository(PROJECT_ID, tx).create(item);
+      await journal(changes)('libraryItem', 'create', item.id, PROJECT_ID, libraryMutationPayload(item));
+    }, deviceA);
+  }
+
+  const materialRows = (db: DbClient) =>
+    db.select({ id: LibraryItemTable.id, kind: LibraryItemTable.kind, title: LibraryItemTable.title, assetId: LibraryItemTable.assetId })
+      .from(LibraryItemTable);
+  const assetRows = (db: DbClient) =>
+    db.select({ id: ProjectAssetTable.id, kind: ProjectAssetTable.kind }).from(ProjectAssetTable);
+  const nodeTitle = async (db: DbClient) =>
+    (await db.select({ title: BookNodeTable.title }).from(BookNodeTable).where(eq(BookNodeTable.id, NODE_ID)))[0]?.title;
+
+  it.each(['image', 'pdf'] as const)(
+    'applies a %s imported on another device, its rename and its deletion, and keeps applying after a restart',
+    async (kind) => {
+      const digest = (kind === 'image' ? 'b' : 'c').repeat(64);
+      const a = await createDatabase();
+      const b = await createDatabase();
+      // A segment applies only once its blobs are downloaded and verified.
+      for (const db of [a, b]) await insertVerifiedBlob(db, digest);
+      const material = binaryMaterial(kind, digest);
+
+      const imported = await importOn(a, material);
+      expect((await apply(b, imported, deviceB)).conflicts).toEqual([]);
+      expect(await materialRows(b)).toEqual([{ id: material.item.id, kind, title: 'Imported', assetId: material.asset.id }]);
+      expect(await assetRows(b)).toEqual([{ id: material.asset.id, kind }]);
+
+      const renamed = await author(a, 1_700_000_000_020, async (tx, changes) => {
+        await createLibraryItemSqliteRepository(PROJECT_ID, tx).update(material.item.id, { title: 'Renamed', updatedAt: NOW });
+        await journal(changes)('libraryItem', 'update', material.item.id, PROJECT_ID, { title: 'Renamed' });
+      }, deviceA);
+      expect((await apply(b, renamed, deviceB)).conflicts).toEqual([]);
+      expect((await materialRows(b))[0]?.title).toBe('Renamed');
+
+      // A restart empties the reducer cache, so the next apply re-materializes
+      // every live entity, the material included, on both devices.
+      invalidateSqliteReducerStateCache();
+      const unrelated = await changeSet(1, [
+        { action: 'field.set', kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'After restart' } },
+      ], { writerId: 'device-c', writerEpoch: 'epoch-c', wallMs: 1_700_000_000_030 });
+      expect((await apply(a, unrelated, deviceA)).conflicts).toEqual([]);
+      expect((await apply(b, unrelated, deviceB)).conflicts).toEqual([]);
+      expect([await nodeTitle(a), await nodeTitle(b)]).toEqual(['After restart', 'After restart']);
+      expect(await materialRows(b)).toEqual([{ id: material.item.id, kind, title: 'Renamed', assetId: material.asset.id }]);
+
+      const deleted = await author(a, 1_700_000_000_040, async (tx, changes) => {
+        await deleteLibraryItemInTransaction(tx, journal(changes), changes, PROJECT_ID, { ...material.item, title: 'Renamed' });
+      }, deviceA);
+      expect((await apply(b, deleted, deviceB)).conflicts).toEqual([]);
+      expect(await materialRows(b)).toEqual([]);
+      expect(await assetRows(b)).toEqual([]);
+    },
+  );
+
+  it('blocks an imported image that cannot bind its asset yet, and lands it once it can', async () => {
+    const digest = 'd'.repeat(64);
+    const a = await createDatabase();
+    const b = await createDatabase();
+    await insertVerifiedBlob(a, digest);
+    const material = binaryMaterial('image', digest);
+    const imported = await importOn(a, material);
+
+    // Device B never verified the bytes: the bind is not admissible here.
+    const applied = await apply(b, imported, deviceB);
+    expect(applied.conflicts.map(({ code }) => code)).toEqual(
+      expect.arrayContaining(['asset.blob-not-verified', 'library-item.missing-asset']),
+    );
+    expect(await materialRows(b)).toEqual([]);
+
+    // The project keeps syncing.
+    const unrelated = await changeSet(1, [
+      { action: 'field.set', kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'Still syncing' } },
+    ], { writerId: 'device-c', writerEpoch: 'epoch-c', wallMs: 1_700_000_000_030 });
+    await apply(b, unrelated, deviceB);
+    expect(await nodeTitle(b)).toBe('Still syncing');
+    expect(await materialRows(b)).toEqual([]);
+
+    // The bytes arrive; the next apply admits the bind and the image lands.
+    await insertVerifiedBlob(b, digest);
+    const later = await changeSet(2, [
+      { action: 'field.set', kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'Bytes arrived' } },
+    ], { writerId: 'device-c', writerEpoch: 'epoch-c', wallMs: 1_700_000_000_040 });
+    expect((await apply(b, later, deviceB)).conflicts).toEqual([]);
+    expect(await materialRows(b)).toEqual([{ id: material.item.id, kind: 'image', title: 'Imported', assetId: material.asset.id }]);
+  });
+});
+
+describe('plot grids across devices', () => {
+  const deviceA: SyncWriterIdentitySource = {
+    installationId: 'device-a-installation',
+    createWriterIdentity: () => ({ writerId: 'device-a', writerEpoch: 'epoch-a' }),
+  };
+  const deviceB: SyncWriterIdentitySource = {
+    installationId: 'device-b-installation',
+    createWriterIdentity: () => ({ writerId: 'device-b', writerEpoch: 'epoch-b' }),
+  };
+
+  /** Writes the way the editor and the Agent do: one change set per edit. */
+  function editOn(db: DbClient, nowMs: number, previous: PlotGrid | null, next: PlotGrid, device = deviceA) {
+    return author(db, nowMs, (tx, changes) => applyPlotGridMutationsInTransaction(tx, changes, {
+      projectId: PROJECT_ID,
+      nodeId: NODE_ID,
+      mutations: diffPlotGrid(previous, next),
+    }).then(() => undefined), device);
+  }
+
+  const projection = (db: DbClient) => createPlotGridRepository(db).materializeProjection(NODE_ID);
+
+  it('lands a grid created with its cells on another device, then its new row and its removal', async () => {
+    const a = await createDatabase();
+    const b = await createDatabase();
+    // Cell ids sort before column and row ids, and the grid document arrives
+    // as a tuple: the first change set brings all of them at once.
+    const created: PlotGrid = {
+      rows: [{ id: 'r-one', label: 'Morning' }, { id: 'r-two', label: 'Night' }],
+      cols: [{ id: 'c-one', label: 'Ana' }, { id: 'c-two', label: 'Ben' }],
+      cells: { [cellKey('r-one', 'c-one')]: 'wakes', [cellKey('r-two', 'c-two')]: 'leaves' },
+      cellW: 200,
+      cellH: 120,
+    };
+    expect((await apply(b, await editOn(a, 1_700_000_000_010, null, created), deviceB)).conflicts).toEqual([]);
+    expect(await projection(b)).toBe(await projection(a));
+    expect(await projection(b)).not.toBeNull();
+
+    // An existing grid gains a row and a cell in it in one change set.
+    const grown: PlotGrid = {
+      ...created,
+      rows: [...created.rows, { id: 'r-three', label: 'Dawn' }],
+      cells: { ...created.cells, [cellKey('r-three', 'c-one')]: 'returns' },
+    };
+    expect((await apply(b, await editOn(a, 1_700_000_000_020, created, grown), deviceB)).conflicts).toEqual([]);
+    expect(await projection(b)).toBe(await projection(a));
+
+    // A restart re-materializes every live entity from the reducer state.
+    invalidateSqliteReducerStateCache();
+    const unrelated = await changeSet(1, [
+      { action: 'field.set', kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'After restart' } },
+    ], { writerId: 'device-c', writerEpoch: 'epoch-c', wallMs: 1_700_000_000_030 });
+    expect((await apply(a, unrelated, deviceA)).conflicts).toEqual([]);
+    expect((await apply(b, unrelated, deviceB)).conflicts).toEqual([]);
+    expect(await projection(b)).toBe(await projection(a));
+
+    const shrunk: PlotGrid = {
+      ...grown,
+      rows: grown.rows.filter(({ id }) => id !== 'r-one'),
+      cells: Object.fromEntries(Object.entries(grown.cells).filter(([key]) => !key.startsWith('r-one:'))),
+    };
+    expect((await apply(b, await editOn(a, 1_700_000_000_040, grown, shrunk), deviceB)).conflicts).toEqual([]);
+    expect(await projection(b)).toBe(await projection(a));
+    expect(await projection(b)).not.toContain('wakes');
+  });
+
+  it('lets a row removal win over a concurrent new cell in that row, on both devices', async () => {
+    const a = await createDatabase();
+    const b = await createDatabase();
+    const created: PlotGrid = {
+      rows: [{ id: 'r-one', label: '' }, { id: 'r-two', label: '' }],
+      cols: [{ id: 'c-one', label: '' }, { id: 'c-two', label: '' }],
+      cells: { [cellKey('r-two', 'c-two')]: 'leaves' },
+      cellW: 200,
+      cellH: 120,
+    };
+    expect((await apply(b, await editOn(a, 1_700_000_000_010, null, created), deviceB)).conflicts).toEqual([]);
+
+    // Each device keeps its own reducer state; these two databases share one
+    // cache key, so every switch between them starts from SQLite.
+    invalidateSqliteReducerStateCache();
+    const removed = await editOn(b, 1_700_000_000_020, created, {
+      ...created,
+      rows: [{ id: 'r-one', label: '' }],
+      cells: {},
+    }, deviceB);
+    invalidateSqliteReducerStateCache();
+    const filled = await editOn(a, 1_700_000_000_021, created, {
+      ...created,
+      cells: { ...created.cells, [cellKey('r-two', 'c-one')]: 'late' },
+    });
+    invalidateSqliteReducerStateCache();
+    expect((await apply(b, filled, deviceB)).conflicts).toEqual([]);
+    invalidateSqliteReducerStateCache();
+    expect((await apply(a, removed, deviceA)).conflicts).toEqual([]);
+    expect(await projection(a)).toBe(await projection(b));
+    expect(await projection(a)).not.toContain('late');
+
+    // A restart replays the cell as live; it still stays out.
+    invalidateSqliteReducerStateCache();
+    const unrelated = await changeSet(1, [
+      { action: 'field.set', kind: 'node', id: NODE_ID, payload: { field: 'title', value: 'After restart' } },
+    ], { writerId: 'device-c', writerEpoch: 'epoch-c', wallMs: 1_700_000_000_030 });
+    expect((await apply(a, unrelated, deviceA)).conflicts).toEqual([]);
+    invalidateSqliteReducerStateCache();
+    expect((await apply(b, unrelated, deviceB)).conflicts).toEqual([]);
+    expect(await projection(a)).toBe(await projection(b));
+  });
+});

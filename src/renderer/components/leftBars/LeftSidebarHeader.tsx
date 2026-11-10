@@ -1,0 +1,182 @@
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useUiStore } from '../../store/ui-store';
+import type { LeftSidebarTab, SidebarPaneId } from '../../lib/sidebar-tabs';
+import { SidebarSplitButton } from '../SidebarSplitButton';
+import { useDataStore } from '../../store/data-store';
+import { useAgentActivityStore } from '../../store/agent-activity-store';
+import type { ActivityMark } from '../../store/agent-activity-store';
+import { type GroupActivity } from './agentActivityBubble';
+import { PanelTab as SharedPanelTab, PanelTabLabel, PanelTabRowEdges, PanelTabTray } from '../ui/PanelTabs';
+import { useSidebarTabMinimumWidth } from '../../hooks/useSidebarTabMinimumWidth';
+import { useAgentUnreadMarks } from '../../hooks/useAgentUnreadMarks';
+import { AgentChangeIndicator } from './AgentChangeIndicator';
+import { SidebarHeaderChrome, SidebarToggleSlot } from '../workspaceChrome/WindowControlButtons';
+import { getPlatformRuntime } from '../../platform/runtime';
+
+type TabPanel = 'nodes' | 'elements' | 'drift';
+
+/** Which left panel an agent-touched entity surfaces in. Storyline/category
+ * group headers live in the same panel as their chapter/element children. */
+function panelForMark(m: ActivityMark, nodeKind: Map<string, string>): TabPanel | null {
+  switch (m.entityType) {
+    case 'element':
+    case 'category':
+      return 'elements';
+    case 'storyline':
+      return 'nodes';
+    case 'node':
+      return nodeKind.get(m.id) === 'drift' ? 'drift' : 'nodes';
+    default:
+      return null;
+  }
+}
+
+export function LeftSidebarHeader({ paneId, activeTab, windowChrome = false }: {
+  paneId: SidebarPaneId;
+  activeTab: LeftSidebarTab;
+  /** The first pane also carries the sidebar toggle beside the traffic lights. */
+  windowChrome?: boolean;
+}) {
+  const { t } = useTranslation();
+  const runtime = getPlatformRuntime();
+  const toggleTab = useUiStore((s) => s.toggleLeftSidebarTab);
+  const tabTrayRef = useSidebarTabMinimumWidth('left');
+
+  // Aggregate unviewed activity into the persistent text labels. Busy labels
+  // pulse; completed changes leave a sand dot on the label until reviewed.
+  const agentActive = useAgentActivityStore((s) => s.active);
+  const agentTouched = useAgentUnreadMarks();
+  const bookNodes = useDataStore((s) => s.bookNodes);
+  const tabActivity = useMemo(() => {
+    const nodeKind = new Map(bookNodes.map((n) => [n.id, n.kind]));
+    const res: Record<TabPanel, GroupActivity> = {
+      nodes: { busy: false, doneCount: 0 },
+      elements: { busy: false, doneCount: 0 },
+      drift: { busy: false, doneCount: 0 },
+    };
+    for (const m of Object.values(agentActive)) {
+      const p = panelForMark(m, nodeKind);
+      if (p) res[p].busy = true;
+    }
+    for (const m of Object.values(agentTouched)) {
+      const p = panelForMark(m, nodeKind);
+      if (p) res[p].doneCount += 1;
+    }
+    return res;
+  }, [agentActive, agentTouched, bookNodes]);
+  const markPanelSeen = (panel: TabPanel) => {
+    const nodeKind = new Map(bookNodes.map((node) => [node.id, node.kind]));
+    useAgentActivityStore.getState().markSeen(
+      Object.entries(agentTouched)
+        .filter(([, mark]) => panelForMark(mark, nodeKind) === panel)
+        .map(([key]) => key),
+    );
+  };
+
+  return (
+    <div
+      className="workspace-local-divider workspace-panel-tab-row workspace-panel-tab-row--window"
+      data-tauri-drag-region={runtime.desktopWindowControls ? 'deep' : undefined}
+      data-leading-inset={windowChrome && runtime.leadingWindowControls ? 'true' : undefined}
+      style={{
+        display: 'flex',
+        width: '100%',
+        flexShrink: 0,
+        alignItems: 'center',
+        background: 'var(--workspace-ui-bg)',
+        // Keep the header strip above the panel content rendered below it.
+        position: 'relative',
+        zIndex: 20,
+      }}
+    >
+      {windowChrome && <SidebarHeaderChrome side="left"><SidebarToggleSlot /></SidebarHeaderChrome>}
+      <SidebarSplitButton side="left" edge="start" />
+      <PanelTabTray ref={tabTrayRef} className="leftbar-tab-tray">
+        <PanelTab
+          label={t('leftSidebar.tabs.chapters')}
+          isActive={activeTab === 'nodes'}
+          activity={tabActivity.nodes}
+          onAgentSeen={() => markPanelSeen('nodes')}
+          onClick={() => toggleTab(paneId, 'nodes')}
+        />
+        <PanelTab
+          label={t('leftSidebar.tabs.elements')}
+          isActive={activeTab === 'elements'}
+          activity={tabActivity.elements}
+          onAgentSeen={() => markPanelSeen('elements')}
+          onClick={() => toggleTab(paneId, 'elements')}
+        />
+        <PanelTab
+          label={t('leftSidebar.tabs.drifts')}
+          isActive={activeTab === 'drift'}
+          activity={tabActivity.drift}
+          onAgentSeen={() => markPanelSeen('drift')}
+          onClick={() => toggleTab(paneId, 'drift')}
+        />
+      </PanelTabTray>
+      <SidebarSplitButton side="left" edge="end" />
+      <span className="flow-line flow-line--h workspace-panel-tab-row__flow" aria-hidden="true" />
+      <PanelTabRowEdges />
+    </div>
+  );
+}
+
+function PanelTab({
+  label,
+  isActive,
+  activity,
+  onClick,
+  onAgentSeen,
+}: {
+  label: string;
+  isActive: boolean;
+  activity?: GroupActivity;
+  onClick: () => void;
+  onAgentSeen: () => void;
+}) {
+  const { t } = useTranslation();
+  const busy = activity?.busy ?? false;
+  const doneCount = activity?.doneCount ?? 0;
+  const unread = !busy && doneCount > 0;
+  const statusTitle = busy
+    ? t('agentActivity.working')
+    : unread
+      ? t('agentActivity.unviewedChangeCount', { count: doneCount })
+      : undefined;
+  return (
+    <div
+      className={`app-panel-tab agent-panel-tab${isActive ? ' is-active' : ''}`}
+      style={{ padding: 0 }}
+    >
+      <SharedPanelTab
+        onClick={onClick}
+        title={statusTitle ?? label}
+        aria-label={statusTitle ? `${label}: ${statusTitle}` : label}
+        active={isActive}
+        typography="label"
+        style={{ color: 'inherit' }}
+      >
+        <span
+          className={busy ? 'agent-glyph-busy' : undefined}
+          style={{ color: busy ? 'hsl(var(--accent))' : undefined }}
+        >
+          <PanelTabLabel>{label}</PanelTabLabel>
+        </span>
+      </SharedPanelTab>
+      {/* A zero-width slot right after the words: the dot hangs off the
+          label's upper corner and never asks the row for room. */}
+      {unread && (
+        <span className="agent-panel-tab__mark">
+          <AgentChangeIndicator
+            className="agent-tab-dot"
+            title={`${label}: ${statusTitle}`}
+            onClick={onAgentSeen}
+          >
+            <i className="sand sand--blob-2" />
+          </AgentChangeIndicator>
+        </span>
+      )}
+    </div>
+  );
+}

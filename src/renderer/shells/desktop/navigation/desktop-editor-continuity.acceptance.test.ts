@@ -1,0 +1,143 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+function source(path: string): string {
+  return readFileSync(resolve(process.cwd(), path), 'utf8');
+}
+
+describe('desktop editor continuity acceptance', () => {
+  it('makes open tabs own persistent surfaces and commits only ready targets', () => {
+    const main = source('src/renderer/components/editor/EditorMainArea.tsx');
+    const lifecycle = source(
+      'src/renderer/components/editor/editor-surface-lifecycle-context.ts',
+    );
+    const activeEditor = source('src/renderer/hooks/useRegisterActiveEditor.ts');
+    const nodeEditor = source('src/renderer/views/NodeEditorView.tsx');
+
+    expect(main).not.toContain("from 'react-router-dom'");
+    expect(main).not.toContain('<Outlet />');
+    expect(main).toContain('...openTabs.map((tab) => ({ revisionKey: surfaceRevisionKey(tab), tab }))');
+    expect(main).toContain('if (!ready || !isDesired) return;');
+    expect(main).toContain('setStage((current) => commitSurface(current, descriptor, turn));');
+    expect(main).toContain('visibility: isShown ? \'visible\' : \'hidden\'');
+    expect(main).toContain('inert={!isInteractive}');
+    expect(main).toContain('surface.revisionKey === desiredRevisionKey');
+    expect(main).toContain('isPreparing={isDesired}');
+    expect(main).toContain('isPreparing={isSurfacePreparing}');
+    expect(lifecycle).toContain('isPreparing: boolean;');
+    expect(main).toContain(
+      '!next.some((surface) => surface.revisionKey === committedSurface.revisionKey)',
+    );
+    expect(lifecycle).toContain('useLayoutEffect(() => {');
+    expect(lifecycle).toContain('reportReady(ready);');
+    expect(activeEditor).toContain('if (!isSurfaceActive)');
+    expect(activeEditor).toContain('if (surfaceActiveRef.current) setActiveEditor(editor);');
+    expect(nodeEditor).toContain('if (isCommandActive && canPromoteOnEdit())');
+  });
+
+  it('opens a book loading only the page in front, its background work after it', () => {
+    const main = source('src/renderer/components/editor/EditorMainArea.tsx');
+    // A tab mounts when it is first wanted and stays mounted after that.
+    expect(main).toContain('if (!visitedKeys.has(desiredRevisionKey)) setVisitedKeys(new Set(visitedKeys).add(desiredRevisionKey));');
+    expect(main).toContain('visitedKeys.has(surface.revisionKey) || surface.revisionKey === committedSurface?.revisionKey');
+    expect(main).toContain('announceEditorStageReady();');
+    const runtime = source('src/renderer/app/providers/ProjectRuntimeProvider.tsx');
+    expect(runtime).toContain('resetEditorStageReady();');
+    expect(runtime).toContain('const STAGE_WAIT_LIMIT_MS = 3000;');
+    // Prose metrics, the reference index, the Markdown folder and the reducer prewarm.
+    expect(runtime.match(/afterEditorStageReady\(/g)?.length).toBe(4);
+    expect(runtime).toContain('release = retainProjectReferenceIndex(projectId);');
+  });
+
+  it('never reveals an empty JSON editor or a pre-collaboration Yjs editor', () => {
+    const entityEditor = source('src/renderer/hooks/useEntityEditor.ts');
+    const template = source('src/renderer/components/editor/ElementTemplateEditor.tsx');
+    const patch = source('src/renderer/components/editor/PatchEditorCard.tsx');
+    const chapter = source('src/renderer/components/editor/ChapterEditor.tsx');
+    const allChaptersRow = source('src/renderer/components/editor/VirtualChapterRow.tsx');
+    const allChapters = source('src/renderer/views/AllChaptersEditorView.tsx');
+    const materialTab = source('src/renderer/views/MaterialEditorView.tsx');
+    const loadError = source(
+      'src/renderer/components/editor/EditorDocumentLoadError.tsx',
+    );
+
+    expect(entityEditor).toContain("documentMode?: 'json' | 'yjs'");
+    expect(entityEditor).toContain("documentMode === 'json' ? parseContentJson(content) : null");
+    expect(entityEditor).toContain('content: initialContent');
+    expect(entityEditor).not.toContain('loadDocWithoutHistory');
+    expect(entityEditor).toContain('collaboration?.options.document === ydoc');
+    expect(entityEditor).toContain('const ready = canonicalReady && sessionReady && decorationsReady && linksReady;');
+    expect(entityEditor).toContain('const linksReady = useEntityLinkConfiguration(editor,');
+    expect(entityEditor).toContain('canonicalReady, presentationNeeded: isVisible || isPreparing,');
+    expect(source('src/renderer/hooks/useEntityYjsDoc.ts')).toContain(
+      'const enabled = Boolean(userId && projectId && entityId)',
+    );
+    expect(template).toContain('content: initialContent');
+    expect(template).not.toContain('content: null');
+    expect(patch).toContain('const [titleSnapshot, setTitleSnapshot]');
+    expect(chapter).toContain("documentMode: 'yjs'");
+    expect(chapter).toContain('onReadyChange?.(ready || Boolean(ydocError))');
+    expect(chapter).toContain('<EditorDocumentLoadError />');
+    expect(allChaptersRow).toContain('visibility: liveReady ? \'visible\' : \'hidden\'');
+    expect(allChaptersRow).toContain('onReadyChange={setLiveReady}');
+    expect(allChaptersRow).toContain('onContentReady?.(node.id)');
+    expect(allChapters).toContain('useReportEditorSurfaceReady(hasCanonicalProseForCurrentBook)');
+    expect(loadError).toContain('data-editor-document-load-error');
+    // A material tab renders the stored text until the author starts editing.
+    expect(materialTab).toContain('const value = draft ?? stored;');
+  });
+
+  it('keeps node editor chrome mounted while only the keyed prose body waits', () => {
+    const nodeEditor = source('src/renderer/views/NodeEditorView.tsx');
+    const architecture = source('docs/renderer-ui-architecture.md');
+    const visibleNode = nodeEditor.slice(
+      nodeEditor.indexOf('{nodeId && curNode && ('),
+      nodeEditor.indexOf('{conversionTarget && curNode && ('),
+    );
+    const beforeTopBar = visibleNode.slice(0, visibleNode.indexOf('<EditorTopBar'));
+    const proseBody = visibleNode.slice(visibleNode.indexOf('<div className="editor-body"'));
+
+    expect(beforeTopBar).not.toContain('isActiveNodeReady');
+    expect(nodeEditor).toContain('loadedNodeContent?.nodeId === nodeId');
+    expect(nodeEditor).toContain(
+      'setLoadedNodeContent({ nodeId: targetNodeId, content: null, loadError: true });',
+    );
+    expect(proseBody).toContain('<div className="editor-body" key={nodeId}>');
+    // The plot planner dock is the prose body's sibling. If it shared the
+    // body's `nodeId` key, React would orphan the dock's DOM on close instead
+    // of unmounting it, and every reopen would stack another dock.
+    const plannerDock = visibleNode.slice(
+      visibleNode.indexOf('<PlotPlannerDock'),
+      visibleNode.indexOf('<div className="editor-body"'),
+    );
+    // The revision remounts the planner on a grid written from outside it.
+    expect(plannerDock).toContain('key={`plot-planner:${nodeId}:${plotGridRevision}`}');
+    expect(plannerDock).not.toContain('key={nodeId}');
+    expect(proseBody.indexOf('isActiveNodeReady && !isActiveNodeLoadError ? (')).toBeLessThan(
+      proseBody.indexOf('<ChapterEditor'),
+    );
+    expect(proseBody).toContain('<EditorDocumentLoadError />');
+    expect(architecture).toContain('keeps editor chrome continuous across node-to-node switches');
+    expect(nodeEditor).toContain('onReadyChange={reportReady}');
+  });
+
+  it('activates tabs through the shell navigator now that creating lives on Project Home', () => {
+    const navigator = source(
+      'src/renderer/shells/desktop/navigation/useDesktopWorkspaceNavigator.ts',
+    );
+    const timeline = source('src/renderer/components/topBars/TopTimeline/TopTimeline.tsx');
+    const shortcuts = source('src/renderer/shells/desktop/useDesktopGlobalShortcuts.ts');
+    const routeSync = source('src/renderer/components/editor/useSyncSplitFocusedUrl.ts');
+
+    expect(navigator).not.toContain('pendingCreateTransitionRef');
+    expect(navigator).toContain("state.markProjectHomeEntry(options?.intent ?? 'home');");
+    expect(timeline).toContain('if (target) activateLeafTab(target);');
+    expect(timeline).toContain('activateLeafTab(leaf);');
+    expect(timeline).toContain("navigateToHome({ intent: 'new' })");
+    expect(shortcuts).toContain('if (target) navigator.activate(target);');
+    expect(shortcuts).toContain("navigator.showProjectHome({ intent: 'new' });");
+    expect(routeSync).toContain('navigator.open(target);');
+    expect(routeSync).not.toContain('/new');
+  });
+});

@@ -1,0 +1,76 @@
+import { loadPdfRuntime } from './pdf-runtime-loader';
+
+export interface PdfThumbnail {
+  bytes: ArrayBuffer;
+  dataUrl: string;
+  mime: 'image/jpeg';
+  sizeBytes: number;
+  width: number;
+  height: number;
+}
+
+function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('The WebView could not encode the PDF thumbnail.'));
+      },
+      'image/jpeg',
+      quality,
+    );
+  });
+}
+
+/** Render the first PDF page in the WebView so the implementation is identical on every target. */
+export async function renderPdfThumbnail(
+  source: ArrayBuffer,
+  maxLongEdge: number,
+  quality: number,
+): Promise<PdfThumbnail> {
+  const pdfjsLib = await loadPdfRuntime();
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(source.slice(0)) });
+  let canvas: HTMLCanvasElement | null = null;
+  try {
+    const document = await loadingTask.promise;
+    const page = await document.getPage(1);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const boundedEdge = Math.max(1, Math.min(2048, Math.round(maxLongEdge)));
+    const scale = boundedEdge / Math.max(baseViewport.width, baseViewport.height);
+    const viewport = page.getViewport({ scale });
+    canvas = window.document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(viewport.width));
+    canvas.height = Math.max(1, Math.round(viewport.height));
+
+    await page.render({ canvas, viewport }).promise;
+    const normalizedQuality = Math.max(0.01, Math.min(1, quality > 1 ? quality / 100 : quality));
+    const [blob, dataUrl] = await Promise.all([
+      canvasBlob(canvas, normalizedQuality),
+      Promise.resolve(canvas.toDataURL('image/jpeg', normalizedQuality)),
+    ]);
+    const bytes = await blob.arrayBuffer();
+    return {
+      bytes,
+      dataUrl,
+      mime: 'image/jpeg',
+      sizeBytes: bytes.byteLength,
+      width: Math.max(1, Math.round(viewport.width)),
+      height: Math.max(1, Math.round(viewport.height)),
+    };
+  } finally {
+    if (canvas) { canvas.width = 1; canvas.height = 1; }
+    await loadingTask.destroy();
+  }
+}
+
+export function hasPdfSignature(bytes: ArrayBuffer): boolean {
+  const signature = new Uint8Array(bytes, 0, Math.min(5, bytes.byteLength));
+  return (
+    signature.length === 5 &&
+    signature[0] === 0x25 &&
+    signature[1] === 0x50 &&
+    signature[2] === 0x44 &&
+    signature[3] === 0x46 &&
+    signature[4] === 0x2d
+  );
+}

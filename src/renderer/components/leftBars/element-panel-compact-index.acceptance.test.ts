@@ -1,0 +1,332 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { GroupHeaderCell, type GroupHeaderCellProps } from './GroupHeaderCell';
+import { designSystemDocs } from '../design-system-docs.test-support';
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+
+function source(path: string): string {
+  return readFileSync(resolve(process.cwd(), path), 'utf8');
+}
+
+function block(text: string, start: string, end: string): string {
+  const from = text.indexOf(start);
+  const to = text.indexOf(end, from + start.length);
+  if (from < 0 || to < 0) throw new Error(`Missing block: ${start} -> ${end}`);
+  return text.slice(from, to);
+}
+
+describe('ElementPanel compact text index', () => {
+  it('persists compact/list and toggles it from the header summary instead of the sort menu', () => {
+    const store = source('src/renderer/store/ui-store.ts');
+    const subheader = source('src/renderer/components/leftBars/LeftSidebarSubHeader.tsx');
+    const en = JSON.parse(source('src/renderer/locales/en.json'));
+    const zh = JSON.parse(source('src/renderer/locales/zh-CN.json'));
+
+    expect(store).toContain("export type ElementPanelViewMode = 'compact' | 'list'");
+    expect(store).toContain("elementPanelViewMode: 'compact'");
+    expect(store).toContain('elementPanelViewMode: state.elementPanelViewMode');
+    expect(store).toContain("(merged.elementPanelViewMode as string) === 'visual'");
+    expect(subheader).toContain('onClick={handleToggleElementViewMode}');
+    expect(subheader).toContain(
+      "setElementPanelViewMode(elementPanelViewMode === 'compact' ? 'list' : 'compact')",
+    );
+    expect(subheader).toContain("t('leftSidebar.viewMode.elementCompactTitle')");
+    expect(subheader).toContain("t('leftSidebar.viewMode.elementListTitle')");
+    expect(subheader).not.toContain('elementViewOptions');
+    expect(subheader).not.toContain("t('leftSidebar.sort.elementDisplayGroup')");
+    expect(en.leftSidebar.viewMode.elementCompactTitle).toBe(
+      'Compact index · switch to name list',
+    );
+    expect(zh.leftSidebar.viewMode.elementCompactTitle).toBe(
+      '紧凑索引 · 点此切换到名称列表',
+    );
+    expect(en.leftSidebar.sort.elementDisplayGroup).toBeUndefined();
+    expect(zh.leftSidebar.sort.elementDisplayGroup).toBeUndefined();
+  });
+
+  it('shows the expand/collapse-all toggle as a folding fan, since it does both', () => {
+    const subheader = source('src/renderer/components/leftBars/LeftSidebarSubHeader.tsx');
+    const panel = source('src/renderer/components/leftBars/ElementPanel.tsx');
+    const en = JSON.parse(source('src/renderer/locales/en.json'));
+    const zh = JSON.parse(source('src/renderer/locales/zh-CN.json'));
+    const toggle = block(subheader, "<SubIconBtn title={t('leftSidebar.actions.collapseAll')}", '</SubIconBtn>');
+
+    // One press opens every type, the next folds them all: a fan, not a minus,
+    // drawn as the press will leave it (shut while every type is open).
+    expect(panel).toContain('if (prev.size === 0) return new Set(bookElementCategories.map((c) => c.id));');
+    expect(toggle).toContain("<BrushIcon name={collapsedGroups.size === 0 ? 'folding-fan-closed' : 'folding-fan'} size={11} />");
+    expect(subheader).toContain("useSidebarPanelState<Set<string>>('collapsed', () => new Set())");
+    expect(toggle).not.toContain('name="minus"');
+    expect(en.leftSidebar.actions.collapseAll).toBe('Expand or collapse all');
+    expect(zh.leftSidebar.actions.collapseAll).toBe('展开／折叠全部');
+    expect(designSystemDocs()).toContain('展开／折叠全部＝开扇');
+  });
+
+  it('renders complete names in a content-shaped wrapping flex flow with no portrait path', () => {
+    const panel = source('src/renderer/components/leftBars/ElementPanel.tsx');
+    const tile = source('src/renderer/components/ui/ElementIdentityTile.tsx');
+    const css = source('src/styles/ui-controls.css');
+    const flow = block(css, '.element-identity-flow {', '.element-identity-flow--grouped {');
+    const labelTypography = block(css, '.element-panel-item-label {', '.element-identity-tile {');
+    const tileRule = block(css, '.element-identity-tile {', '.element-identity-tile:hover,');
+    const compactLabel = block(
+      css,
+      '.element-identity-tile__label {',
+      '.element-identity-tile__agent {',
+    );
+
+    expect(panel).toContain("const compactIndex = viewMode === 'compact'");
+    expect(panel).toContain('<ElementIdentityTile');
+    expect(panel).toContain('element-identity-flow');
+    expect(panel).not.toContain('projectAssets');
+    expect(panel).not.toContain('portraitAssetId');
+    expect(tile).toContain("const label = element.name.trim() || '?';");
+    expect(tile).toContain('className="element-identity-tile"');
+    expect(tile).toContain('<KindMark kind="element" color={color} busy={agentState === \'busy\'} />');
+    expect(tile).toContain(
+      '<span className="element-panel-item-label element-identity-tile__label">{label}</span>',
+    );
+    expect(panel).toContain(
+      "className={`element-panel-item-label${selected ? ' is-selected' : ''}`}",
+    );
+    expect(tile).toContain('Math.min(172, Math.max(80, 44 + units * 12.5))');
+    expect(tile).not.toContain('<img');
+    expect(tile).not.toContain('IntersectionObserver');
+    expect(flow).toContain('display: flex;');
+    expect(flow).toContain('flex-wrap: wrap;');
+    expect(tileRule).toContain('flex: 1 1 var(--element-identity-basis);');
+    expect(tileRule).toContain('min-height: 28px;');
+    expect(tileRule).not.toContain('44px');
+    expect(labelTypography).toContain('font-family: var(--font-sans);');
+    expect(labelTypography).toContain('font-size: var(--ui-font-body, 12.5px);');
+    expect(labelTypography).toContain('font-weight: 400;');
+    expect(labelTypography).toContain('line-height: 1.35;');
+    expect(labelTypography).toContain('letter-spacing: -0.005em;');
+    // Selection is the sand frame, not a heavier label.
+    expect(labelTypography).not.toContain('font-weight: 500;');
+    expect(compactLabel).not.toContain('font-size:');
+    expect(compactLabel).not.toContain('font-weight:');
+    expect(compactLabel).not.toContain('line-height:');
+  });
+
+  it('boxes each category in a sand frame whose heading sits in its top edge', () => {
+    const panel = source('src/renderer/components/leftBars/ElementPanel.tsx');
+    const header = source('src/renderer/components/leftBars/GroupHeaderCell.tsx');
+    const css = source('src/styles/ui-controls.css');
+    const categoryBody = block(
+      css,
+      '.element-category-section--compact {',
+      '.left-sb-group-header__chevron {',
+    );
+    const frameDisclosure = block(
+      header,
+      "{collapseChrome === 'frame' && (\n            <button",
+      '</button>',
+    );
+    const frameLabel = block(
+      header,
+      'className="left-sb-group-header__frame-label"',
+      '</button>',
+    );
+
+    expect(categoryBody).toContain('background: transparent;');
+    expect(categoryBody).toContain('.element-category-section--compact::before {');
+    expect(categoryBody).toContain(
+      "-webkit-mask-box-image: url('../assets/design/sand/frame-box.png') 24 / 12px round;",
+    );
+    expect(categoryBody).toContain('mix-blend-mode: var(--pigment-blend);');
+    expect(categoryBody).not.toContain('border: 1px solid var(--element-category-color);');
+    expect(categoryBody).toContain('.left-sb-group-header--frame .left-sb-group-header__legend {');
+    // the desk, kept opaque while the char sea ebbs under a just-opened workspace
+    expect(categoryBody).toContain('background: var(--workspace-plate-bg, var(--workspace-ui-bg));');
+    expect(categoryBody).toContain('.element-category-section--compact.is-collapsed {');
+    expect(categoryBody).toContain('.element-category-section--compact.is-collapsed::before {');
+    expect(categoryBody).toContain('opacity: 0;');
+    expect(panel).toContain("collapseChrome={compactIndex ? 'frame' : 'chevron'}");
+    expect(panel).toContain("'--element-category-color': categoryColor");
+    expect(panel).toContain('<KindMark kind="category" color={categoryColor} />');
+    expect(panel).toContain('sticky={!compactIndex}');
+    expect(panel).toContain('const categoryHasElements = categoryElements.length > 0;');
+    expect(panel).toContain('!categoryHasElements || collapsedCategoryIds.has(categoryId)');
+    expect(panel).toContain('collapseDisabled={compactIndex && !categoryHasElements}');
+    expect(panel).toContain("addButtonVisibility={compactIndex ? 'always' : 'hover'}");
+    expect(panel).not.toContain('stickyBackground=');
+    expect(header).toContain("const showRestingColorMarker = collapseChrome === 'chevron'");
+    expect(header).toContain("{collapseChrome === 'frame' && mark}");
+    expect(frameDisclosure).toContain('className="left-sb-group-header__frame-disclosure"');
+    expect(frameDisclosure).toContain('disabled={collapseDisabled}');
+    expect(frameDisclosure).toContain('aria-expanded={!collapsed}');
+    expect(frameDisclosure).toContain('onToggleCollapsed();');
+    expect(header).toContain('className="left-sb-group-header__frame-label"');
+    expect(frameLabel).toContain('aria-disabled={!onClick}');
+    expect(frameLabel).toContain('onClick?.();');
+    expect(frameLabel).not.toContain('onToggleCollapsed');
+    expect(frameLabel).not.toContain('aria-expanded');
+    expect(panel).not.toContain('isUncategorized || compactIndex');
+    expect(panel).toContain("activateTarget({ entityType: 'category', id: categoryId })");
+    expect(header).toContain('showRestingColorMarker || leadingBusy');
+    expect(panel).toContain('agentIndicatorPlacement="count"');
+  });
+
+  it('keeps compact tiles bare: the seal always, the sand frame when selected', () => {
+    const tile = source('src/renderer/components/ui/ElementIdentityTile.tsx');
+    const css = source('src/styles/ui-controls.css');
+    const tileRule = block(css, '.element-identity-tile {', '.element-identity-tile:hover,');
+    const selectedRule = block(
+      css,
+      '.element-identity-tile:hover,',
+      '.element-identity-tile .kind-mark {',
+    );
+
+    expect(tile).toContain('<SandCell');
+    expect(tile).toContain('tile');
+    expect(tile).not.toContain('workspace-list-row');
+    expect(tileRule).not.toContain('background:');
+    expect(tileRule).not.toContain('border:');
+    expect(selectedRule).not.toContain('background');
+    expect(selectedRule).toContain('color: hsl(var(--ink-1));');
+  });
+
+  it('keeps only the final-group/ungrouped gap and scopes group-add hover to its label', () => {
+    const panel = source('src/renderer/components/leftBars/ElementPanel.tsx');
+    const css = source('src/styles/ui-controls.css');
+    const groupedFlow = block(css, '.element-identity-flow--grouped {', '.element-identity-tile {');
+    const groupHeader = panel.slice(panel.indexOf('function ElementGroupHeader('));
+    const groupAddButton = block(css, '.left-sb-group-add {', '/* Element compact text index');
+
+    expect(panel).toContain('const isNamedGroup = groupName !== null;');
+    expect(panel).toContain("isNamedGroup ? ' element-identity-flow--grouped' : ''");
+    expect(groupedFlow).toContain('border: 1px solid var(--workspace-local-border);');
+    expect(groupedFlow).toContain('pointer-events: none;');
+    expect(groupedFlow).not.toContain('background:');
+    expect(groupedFlow).not.toContain('margin-bottom');
+    expect(groupedFlow).toContain(
+      '.element-category-group--last-named + .element-category-group--ungrouped {',
+    );
+    expect(groupedFlow).toContain('margin-top: 3px;');
+    expect(panel).toContain('groupIndex === lastNamedGroupIndex');
+    expect(panel).toContain("' element-category-group--ungrouped'");
+    expect(groupHeader).toContain('className="left-sb-inline-group-header"');
+    expect(groupHeader).toContain('className="left-sb-group-add left-sb-inline-add-button"');
+    expect(groupHeader).not.toContain('onMouseEnter');
+    expect(groupHeader).not.toContain('opacity: hovered');
+    expect(groupHeader).not.toContain('e.currentTarget.style.background');
+    expect(groupAddButton).toContain('.left-sb-inline-group-header:hover .left-sb-group-add,');
+    expect(groupAddButton).toContain('pointer-events: none;');
+    expect(groupAddButton).toContain('background: transparent;');
+    expect(groupAddButton).toContain('background: hsl(var(--paper-deep));');
+  });
+
+  it('places category, chapter, and drift creation actions directly after their labels', () => {
+    const panel = source('src/renderer/components/leftBars/ElementPanel.tsx');
+    const chapter = source('src/renderer/components/leftBars/ChapterPanel.tsx');
+    const drift = source('src/renderer/components/leftBars/DriftPanel.tsx');
+    const header = source('src/renderer/components/leftBars/GroupHeaderCell.tsx');
+    const css = source('src/styles/ui-controls.css');
+    const groupAddButton = block(css, '.left-sb-group-add {', '/* Element compact text index');
+
+    expect(header).toContain('<span className="left-sb-inline-actions">');
+    expect(header).toContain("justifyContent: 'flex-start'");
+    expect(header).toContain("addButtonVisibility === 'always'");
+    expect(header).toContain('left-sb-group-add--always');
+    expect(panel).toContain("addButtonVisibility={compactIndex ? 'always' : 'hover'}");
+    expect(panel).toContain("t('elementCategoryCreateMenu.openCreateMenu')");
+    expect(chapter).toContain("addButtonTitle={t('leftSidebar.groups.newChapterInStoryline')}");
+    expect(chapter).toContain("addButtonTitle={t('leftSidebar.actions.newChapter')}");
+    expect(drift).toContain("addButtonTitle={t('leftSidebar.groups.newDriftInGroup')}");
+    expect(drift).toContain('className="left-sb-inline-group-header"');
+    expect(groupAddButton).toContain('.left-sb-group-add--always,');
+    expect(groupAddButton).toContain('.left-sb-group-header:hover .left-sb-group-add,');
+  });
+
+  it('uses the category plus as one anchored element/group creation menu', () => {
+    const panel = source('src/renderer/components/leftBars/ElementPanel.tsx');
+    const header = source('src/renderer/components/leftBars/GroupHeaderCell.tsx');
+    const menu = source('src/renderer/components/leftBars/ElementCategoryCreateMenu.tsx');
+    const docs = designSystemDocs();
+    const en = JSON.parse(source('src/renderer/locales/en.json'));
+    const zh = JSON.parse(source('src/renderer/locales/zh-CN.json'));
+
+    expect(header).toContain('onAdd?: (event: MouseEvent<HTMLButtonElement>) => void;');
+    expect(header).toContain('aria-haspopup={addButtonHasPopup}');
+    expect(header).toContain('aria-expanded={addButtonHasPopup ? addButtonExpanded : undefined}');
+    expect(header).toContain("addButtonExpanded ? ' left-sb-group-add--expanded' : ''");
+    expect(header).toContain('onAdd(event);');
+    expect(panel).toContain('const categoryCreateAnchorRef = useRef<HTMLButtonElement>(null);');
+    expect(panel).toContain('categoryCreateAnchorRef.current = event.currentTarget;');
+    expect(panel).toContain("addButtonHasPopup={isUncategorized ? undefined : 'menu'}");
+    expect(panel).toContain('addButtonExpanded={categoryCreateCategoryId === categoryId}');
+    expect(panel).toContain('<ElementCategoryCreateMenu');
+    expect(panel).toContain('handleCreateElement(categoryCreateCategoryId)');
+    expect(panel).toContain('handleCreateElementInGroup(categoryCreateCategoryId, groupName)');
+    expect(menu).toContain('<AnchoredPopover');
+    expect(menu).toContain("role={mode === 'actions' ? 'menu' : 'dialog'}");
+    expect(menu).toContain("setMode('group')");
+    expect(menu).toContain('existingGroupNames.some(');
+    expect(menu).toContain('onCreateGroup(groupName);');
+    expect(menu).toContain("'elementCategoryCreateMenu.groupCreatesFirstElement'");
+    expect(source('src/styles/ui-controls.css')).toContain('.left-sb-group-add--expanded {');
+    expect(zh.elementCategoryCreateMenu.newElement).toBe('新建要素');
+    expect(zh.elementCategoryCreateMenu.newGroup).toBe('新建分组…');
+    expect(en.elementCategoryCreateMenu.newElement).toBe('New element');
+    expect(en.elementCategoryCreateMenu.newGroup).toBe('New group…');
+    expect(docs).toContain('锚定菜单');
+    expect(docs).toContain('同时创建、打开首个 element');
+  });
+
+  it('keeps the shared hover/focus preview as secondary element context', () => {
+    const model = source('src/renderer/features/entities/hover/entity-hover-card-model.ts');
+    const card = source('src/renderer/features/entities/hover/EntityHoverCard.tsx');
+    const docs = designSystemDocs();
+
+    expect(model).toContain("mark: { kind: 'element', color: category?.color },");
+    expect(card).toContain('title={content.title}');
+    expect(docs).toContain('紧凑索引 / 名称列表');
+    expect(docs).toContain('wrapping flex flow');
+    expect(docs).toContain('`.element-panel-item-label`');
+    expect(docs).toContain('固定 disclosure hit area');
+    expect(docs).toContain('文本 label 单击进入 editor');
+  });
+});
+
+
+describe('category Agent activity count slot', () => {
+  it.each(['frame', 'chevron'] as const)('replaces the element count without a leading activity marker in %s mode', (collapseChrome) => {
+    const cases: [Partial<GroupHeaderCellProps>, string][] = [
+      [{ agentSelfAdded: true, agentSelfChanged: true, agentDoneCount: 3 }, 'groupBodyAdded'],
+      [{ agentSelfChanged: true, agentDoneCount: 3 }, 'groupBodyChanged'],
+      [{ agentDoneCount: 3 }, 'childChanges'],
+      [{ agentBusy: true, agentSelfAdded: true, agentDoneCount: 3 }, 'working'],
+    ];
+    for (const [activity, title] of cases) {
+      const html = renderToStaticMarkup(createElement(GroupHeaderCell, {
+        name: 'Synthetic category', count: 14, color: '#888', collapsed: false,
+        collapseChrome, onToggleCollapsed: () => {}, agentIndicatorPlacement: 'count', ...activity,
+      }));
+      const countStart = html.indexOf('class="left-sb-group-header__count"');
+      expect(countStart).toBeGreaterThan(html.indexOf('Synthetic category'));
+      expect(html.slice(0, countStart)).not.toContain('agentActivity.');
+      expect(html.slice(countStart)).toContain(`agentActivity.${title}`);
+      expect(html).not.toContain('· 14');
+    }
+    const idle = renderToStaticMarkup(createElement(GroupHeaderCell, {
+      name: 'Synthetic category', count: 14, color: '#888', collapsed: false,
+      collapseChrome, onToggleCollapsed: () => {}, agentIndicatorPlacement: 'count',
+    }));
+    expect(idle).toContain('· 14');
+    expect(idle).not.toContain('agentActivity.');
+  });
+
+  it('keeps other group markers ahead of their name and retains their normal count', () => {
+    const html = renderToStaticMarkup(createElement(GroupHeaderCell, {
+      name: 'Synthetic storyline', count: 14, color: '#888', collapsed: false,
+      onToggleCollapsed: () => {}, agentSelfAdded: true,
+    }));
+    expect(html.indexOf('agentActivity.groupBodyAdded')).toBeLessThan(html.indexOf('Synthetic storyline'));
+    expect(html).toContain('· 14');
+  });
+});

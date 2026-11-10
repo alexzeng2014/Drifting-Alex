@@ -1,0 +1,64 @@
+# Entity snapshot history
+
+Updated: 2026-08-26
+
+Drifting's manuscript recovery surface is the entity history system, not an
+Agent conversation checkpoint. It works for author and Agent edits alike and
+remains independent of how many Agent sessions exist.
+
+## Authority and coverage
+
+- Local SQLite table `entity_snapshot_history` is the history UI authority.
+- Live Yjs is still the current prose source of truth. A history row stores a
+  complete Yjs state, a rendered `contentJson` preview and restorable metadata.
+- Covered prose entities are nodes (chapters and drifts), elements, storylines
+  and categories.
+- Restorable metadata includes the fields applicable to that entity: title or
+  name, summary, writing status, aliases, group, project KV and category
+  template KV.
+- History rows are device-local projections and are intentionally excluded from
+  the SyncEngine manifest. Recovery across devices comes from authored Yjs
+  state in checkpoints and change-set segments, not a snapshot HTTP mirror.
+
+This is separate from `yjs_snapshots`, which compact current CRDT state for
+sync/recovery, and from internal `agent_runtime_checkpoint` rows, which recover
+model context. Neither internal table is an author-visible branch mechanism.
+
+## Capture and retention
+
+Existing Yjs persistence moments feed the history service: periodic/unload
+snapshots and Agent writes to closed documents. Every forward Agent prose
+write first records the state it is about to replace (reason `agent`), so each
+Agent change has a restore point: the runtime's `YjsProsePersistenceCoordinator.commit`
+captures the prepared base state before its write transaction, outside it and
+without ever failing the write, and the older `writeProseDoc` path (open editor,
+closed document, seed-only promotion) does the same before it mutates. The
+Agent panel's first run points there (`agent-onboarding.md`). Byte-identical
+states are skipped. A future remote reducer may request the same local capture hook, but
+the history row itself is never uploaded.
+
+- Periodic capture is limited to about one changed state per entity per 15
+  minutes.
+- Close, restore and pre-Agent-write safety captures bypass the interval but
+  still deduplicate unchanged state.
+- Rows newer than 24 hours are thinned to the newest row per hour.
+- Older rows are thinned to the newest row per day.
+- Local history expires after 30 days.
+
+There is no whole-project pre-turn capture and no dependency on an Agent
+conversation id, so one session cannot seed or constrain another session.
+
+## Restore
+
+The History snapshots action is available from the entity statistics panel.
+Restoring a row:
+
+1. captures the current state as a new safety row;
+2. applies the selected prose as a forward Yjs COVER edit;
+3. writes metadata through the same renderer use cases as manual edits;
+4. persists the result through an ordinary authored transaction; and
+5. clears editor review markers that referenced the replaced content.
+
+Restore does not recreate deleted structural graph identities and is not a
+conversation rewind. Destructive entity/relationship operations remain under
+their ordinary permission and durable receipt rules.

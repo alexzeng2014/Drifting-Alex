@@ -1,0 +1,43 @@
+import type { ButtonHTMLAttributes } from 'react';
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'default' | 'primary' | 'danger' | 'ghost';
+  size?: 'sm' | 'md';
+}
+
+/** Each variant is one of the glass buttons in
+ * docs/design-system/components.md: default is the secondary button (a
+ * resting line of glass), primary the accent's selected glass, danger the
+ * secondary's resting line in the danger's colour with the danger ink, ghost
+ * a text button with no glass. */
+const GLASS: Record<NonNullable<ButtonProps['variant']>, string> = {
+  default: 'glass glass--rest glass--small',
+  primary: 'glass glass--primary glass--small',
+  danger: 'glass glass--rest glass--small',
+  ghost: '',
+};
+
+export function Button({
+  variant = 'default',
+  size = 'md',
+  className = '',
+  type = 'button',
+  ...props
+}: ButtonProps) {
+  return (
+    <button
+      type={type}
+      className={[
+        'ui-button',
+        `ui-button--${variant}`,
+        `ui-button--${size}`,
+        'ui-button--glass',
+        GLASS[variant],
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      {...props}
+    />
+  );
+}

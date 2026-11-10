@@ -1,0 +1,92 @@
+# Official hosted-service boundary
+
+This repository is the AGPL-licensed Drifting client. It does not contain the
+private official server, payment system, production credentials, deployment
+configuration, or an entitlement to use official infrastructure.
+
+The default source build is local-only. Hosted accounts and the hosted sync
+provider require a separately operated compatible service and explicit build
+configuration. The official macOS build on GitHub Releases is configured for the
+official service at `https://api.drifting.cc` with open sign-up
+([releasing](releasing.md)). Hosted AI and billing are outside the current
+implementation. The source license does not grant API capacity,
+an account, hosted support, or permission to bypass authentication, rate limits,
+abuse controls, or service terms.
+
+In that default build, desktop and mobile Settings omit the Account and its
+sync and share-link controls, and do not mount their hosted API clients. The
+retired Subscription entry is absent from every build. Privacy also
+omits the hosted telemetry controls rather than presenting disabled upload or
+official-service placeholders; a Hosted build shows only the crash-diagnostics
+switch, and each build's Privacy note names exactly when work leaves the device
+(Hosted: hosted sync, account preferences, share links, feedback and
+diagnostics; both: direct
+requests to the chosen AI or transcription provider and remote MCP extensions).
+The first-run guide describes the local data
+boundary and offers only Continue locally; it has no quick-guide
+entry. It makes no trial account or hosted storage claim. Trash and the separate
+30-day entity history are local SQLite capabilities and do not require a
+subscription. Trash items remain local until the author restores or permanently
+deletes them. The project-scoped mobile workspace owns its Trash surface; the
+standalone Settings route deliberately remains independent of a project runtime.
+One explicitly configured application supports both local writing and optional
+account sync; its first-run actions are Continue locally and Sign in / sign up
+and sync. The account action reuses the login, registration and email
+verification flow, explaining the cloud download and local upload before entry.
+The source-default flag describes whether an operator supplied a compatible
+service, not two editions the user must install or switch between.
+An explicitly configured Hosted build exposes accounts on both the standalone
+Settings route and the project settings panel. Login controls cloud access only:
+the local library, Trash and history remain available offline. Subscription
+surfaces remain retired.
+
+`LOCAL_ONLY_MODE` is a hard client boundary, not presentation-only UI. It
+overrides a stale `REQUIRE_AUTH` setting, account/native OAuth actions reject
+before dispatch, the shared hosted HTTP client rejects before its network
+adapter runs, and Better Auth's own custom fetch transport applies the same
+gate. Direct calls to `authClient` therefore cannot bypass local-only mode.
+
+Product network access is classified as one of `hosted-service`,
+`byok-provider`, or `agent-extension`.
+The local-first build allows only author-initiated non-hosted purposes while the
+device is online. Materials never fetch web metadata or remote preview images
+(url materials were retired in 2026-10). BYOK clients check
+`byok-provider` before creating or using a direct provider transport. Remote
+Agent extensions already require explicit per-server configuration and durable
+per-tool grants, so `agent-extension` records availability and purpose rather
+than adding a second permission switch. Classifying
+the network purpose by itself does not connect an account, activate a provider,
+or send project content.
+
+The official service and the public client are built and deployed separately.
+Hosted sync implements the same immutable opaque-object contract
+as every other SyncEngine provider; it does not restore the retired entity,
+Yjs, preference, or snapshot CRUD push/pull APIs. Account APIs remain separately versioned. The private service must not import or link AGPL
+client source. The only implementation shared with independent services in
+this repository is `packages/prose-metrics`, licensed separately under
+Apache-2.0.
+
+Fork operators must supply their own service policy, privacy disclosures,
+credentials, domains, signing identity, bundle identifier, and branding. A
+compatible service implementation is not currently supplied by this project.
+
+The public production CSP intentionally contains no Drifting hosted origin. It
+allows the direct BYOK provider origins and the DashScope voice-transcription
+origin; `img-src` also allows HTTPS images. Changing `VITE_API_BASE_URL` alone
+is therefore not sufficient for an operator build. The `--online` desktop
+launcher (`scripts/run-desktop-tauri.mjs`) adds the configured
+`DRIFTING_HOSTED_ORIGIN` to both CSPs and the native transport allowlist at build
+time; operators using another build path must do the same and verify the
+result without broadly relaxing the remaining policy.
+
+This document describes an engineering and licensing boundary; it is not a
+consumer Terms of Service. A build that enables account creation must configure
+a real operator-owned Terms URL and privacy policy before distribution.
+
+Share links (`docs/share-links.md`) are an account feature of the same
+service: the client publishes one entity's reader copy, which the service can
+read, and the operator serves the AGPL reader page (`src/share-web`) at `/s/`
+on the service origin. Local-only builds omit them.
+
+Current client integration, local operator commands and acceptance boundaries:
+[Hosted sync](hosted-sync/README.md).

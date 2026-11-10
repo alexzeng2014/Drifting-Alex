@@ -1,0 +1,171 @@
+/**
+ * Shared AI types — provider-agnostic shape used across every layer of the
+ * substrate. The provider adapter (e.g. `providers/openai.ts`) is the only
+ * place that knows what the underlying SDK's request/response shape looks
+ * like; everything above L1 talks in these types.
+ *
+ * Keep this file free of runtime dependencies (no Zod, no SDK imports) so
+ * cross-process consumers can import types without pulling the world in.
+ */
+
+export type AIFeatureId = string;
+export type AIReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+
+export interface AIMessage {
+  // 'tool' carries a tool-call RESULT back to the model (function-calling loop);
+  // an assistant ('model') turn that called tools carries `toolCalls`.
+  role: 'user' | 'model' | 'tool';
+  content: string;
+  /** For role 'tool': the id of the tool_call this message answers. */
+  toolCallId?: string;
+  /** For role 'model': the tool calls the assistant emitted this turn. */
+  toolCalls?: AIToolCall[];
+  /** Provider-native reasoning replay text for the same active tool loop. */
+  reasoningContent?: string;
+}
+
+/**
+ * A "virtual tool" used purely as a typed JSON-output channel. We never let
+ * the model actually execute anything in Phase 0/1 — function calling is the
+ * cleanest way to get structured output out of a model.
+ */
+export interface AITool {
+  name: string;
+  description: string;
+  /** JSON Schema describing the tool's parameters (i.e. the desired output). */
+  parametersSchema: object;
+}
+
+export interface AICompletionRequest {
+  /** Provider-native model id. */
+  model: string;
+  system?: string;
+  messages: AIMessage[];
+  tools?: AITool[];
+  maxOutputTokens?: number;
+  temperature?: number;
+  /**
+   * Request thinking/reasoning mode for this single call, overriding the
+   * provider's default. Honored by providers with a thinking toggle (DeepSeek);
+   * ignored by the rest. Used by inline-ask to force reasoning on.
+   */
+  thinking?: boolean;
+  /** Provider-normalized reasoning effort for this request. */
+  reasoningEffort?: AIReasoningEffort;
+  /**
+   * DeepSeek JSON Output mode (`response_format: { type: 'json_object' }`). The model
+   * returns a valid JSON string as message CONTENT (no tool call). Unlike forced
+   * tool_choice, this composes with thinking mode. The caller must put the schema +
+   * the word "json" in the prompt. Ignored by providers without a json mode.
+   */
+  responseFormat?: 'json_object';
+  /**
+   * Fail-closed terminal contract for metered agent requests. Providers and
+   * LLMClient must not synthesize missing finish/usage data when requested.
+   */
+  terminalRequirements?: {
+    finishReason?: boolean;
+    usage?: boolean;
+    /** A reasoning-enabled tool call is invalid unless its replay payload exists. */
+    reasoningContentForToolCalls?: boolean;
+  };
+  /**
+   * Tool-choice for a function-calling turn. Absent = the legacy "force the
+   * single tool" behavior callStructured relies on (structured-output channel).
+   * 'auto' lets the model pick; 'required' forces SOME tool; { force: name }
+   * forces a specific tool (e.g. a terminal submit-verdict tool).
+   */
+  toolChoice?: 'auto' | 'none' | 'required' | { force: string };
+  signal?: AbortSignal;
+  /**
+   * Free-form metadata threaded through interceptors. `feature` is required
+   * by the LoggingInterceptor and (later) MeteringInterceptor so they can
+   * attribute cost to the right surface.
+   */
+  metadata?: {
+    feature: AIFeatureId;
+    promptId?: string;
+    promptVersion?: number;
+    [k: string]: unknown;
+  };
+}
+
+export interface AIToolCall {
+  /** Provider-assigned id, needed to thread the tool RESULT back (FC loop). */
+  id?: string;
+  name: string;
+  arguments: unknown;
+}
+
+export interface AIUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Tokens served from the provider's prompt cache, if any. */
+  cachedTokens?: number;
+}
+
+export interface AICompletionResponse {
+  /** Free-text content, when the model didn't (or wasn't forced to) call a tool. */
+  text?: string;
+  /** Stream-safe reasoning summary/content exposed by the provider. */
+  thinking?: string;
+  /** First tool call, if any. We force ANY-mode with a single allowed tool for structured output. */
+  toolCall?: AIToolCall;
+  /** All tool calls this turn (function-calling loop). `toolCall` is `toolCalls[0]`. */
+  toolCalls?: AIToolCall[];
+  /** Provider-normalized terminal reason (for example stop/tool_calls/length). */
+  finishReason?: string;
+  usage: AIUsage;
+  /** Raw provider response — kept for debugging, never relied on by upper layers. */
+  raw?: unknown;
+}
+
+/**
+ * One incremental function-call fragment from an OpenAI-compatible stream.
+ * `index` is stable within one provider response and allows parallel calls to
+ * interleave. Every string field is an incremental delta except `id`, which is
+ * the provider-assigned stable call id.
+ */
+export interface AIToolCallDelta {
+  index: number;
+  id?: string;
+  nameDelta?: string;
+  argumentsDelta?: string;
+}
+
+/**
+ * One streamed completion chunk. `delta` is incremental visible text;
+ * `toolCallDeltas` carries incremental function-call ids/names/arguments;
+ * `finishReason` and `usage` normally arrive on the final provider chunks.
+ *
+ * Keeping one provider-neutral stream contract lets interactive text and agent
+ * tool calls share the same request instead of silently falling back to a
+ * completion and revealing the whole answer at once.
+ */
+export interface AICompletionChunk {
+  delta: string;
+  thinkingDelta?: string;
+  toolCallDeltas?: AIToolCallDelta[];
+  finishReason?: string;
+  usage?: AIUsage;
+}
+
+export type AIErrorKind =
+  | 'auth' // 401/403 — bad or missing key
+  | 'rate-limit' // 429
+  | 'invalid-input' // Zod validation on the way in
+  | 'parse' // Model output didn't fit the schema
+  | 'network' // Transport / DNS / timeout
+  | 'aborted' // AbortSignal fired
+  | 'unknown';
+
+export class AIError extends Error {
+  constructor(
+    public readonly kind: AIErrorKind,
+    message: string,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = 'AIError';
+  }
+}

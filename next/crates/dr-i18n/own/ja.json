@@ -1,0 +1,87 @@
+{
+  "import": {
+    "v1": {
+      "blocked": {
+        "title": "一部の本文で、最後の数秒の入力が抜けているかもしれません",
+        "no_handoff": "このライブラリは旧版の最終リリースでまだ開かれていません",
+        "unproven": "最新か確認できない本文が {{count}} 件あります（下に一覧）",
+        "stale": "書いた内容より古い章が {{count}} 章あります",
+        "changed_after_handoff": "引き継ぎの確認後に変わった本文が {{count}} 件あります",
+        "sync": "同期に未解決の競合があります",
+        "get_last_release": "旧版の最終リリースをダウンロードし、このライブラリを一度開いて終了してから、もう一度インポートしてください"
+      },
+      "action": {
+        "download_last_release": "旧版の最終リリースをダウンロード",
+        "import_anyway": "それでもインポート"
+      },
+      "summary": {
+        "already_imported": "このデバイスで以前インポート済みのため、スキップしました",
+        "already_in_library": "すでにライブラリにあるため、そのままにしました",
+        "from_caches": "{{count}} 件の本文をキャッシュからインポートしました。最後の数秒が抜けているかもしれません",
+        "account_libraries_left": "フォルダー内のアカウントライブラリ {{count}} 件は、アカウント機能ができるまでインポートしません",
+        "carries_on": "途中で止まりました。このライブラリをもう一度インポートすると続きから取り込みます"
+      },
+      "notice": {
+        "unfinished": "「{{name}}」のインポートが終わっていません",
+        "carry_on": "インポートを再開"
+      }
+    }
+  },
+  "settings": {
+    "editor": {
+      "justify": "両端揃え"
+    },
+    "sync": {
+      "backup": {
+        "errors": {
+          "legacy": "これは Drifting 0.1 のバックアップで、このバージョンでは直接復元できません。Drifting 0.1 で復元してから、本棚の「読み込む · Drifting 0.1」でそのライブラリを読み込んでください。"
+        }
+      }
+    },
+    "update": {
+      "restart": "再起動して更新",
+      "ready_on_quit": "Drifting {{version}}をダウンロードし、署名を確認しました。終了時にインストールします。",
+      "older_offered": "最新のバージョンです。更新サービスが提供する {{version}} はこの版より古いため、インストールしません。",
+      "refused_signature": "ダウンロードした更新は署名の確認に失敗したため破棄しました。現在の版は引き続き使えます。",
+      "refused_version": "ダウンロードした更新は表示されたバージョンと一致せず、古い版の可能性があるため拒否しました。現在の版は引き続き使えます。",
+      "refused_app": "ダウンロードした更新は Drifting ではないため破棄しました。現在の版は引き続き使えます。",
+      "interrupted": "更新のダウンロードが完了しなかったため破棄しました。次の確認で再度ダウンロードします。",
+      "server_error": "更新サービスで問題が起きています。後ほど再試行してください。現在の版は引き続き使えます。",
+      "local_error": "更新をこのコンピュータに保存できなかったため中止しました。現在の版は引き続き使えます。",
+      "install_failed": "前回の終了時に Drifting {{version}} をインストールできませんでした。現在の版は変更されていません。次の終了時に再試行します。",
+      "install_failed_admin": "前回の終了時に Drifting {{version}} をインストールできませんでした。Drifting のあるフォルダに書き込めません。現在の版は変更されていません。"
+    }
+  },
+  "findPanel": {
+    "replacePlaceholder": "置換後の文字…",
+    "replace": "置換",
+    "replaceAll": "すべて置換"
+  },
+  "positionLink": {
+    "copied": "位置リンクをコピーしました"
+  },
+  "projectPicker": {
+    "bookTransfer": {
+      "legacy": "この本は Drifting 0.1 で書き出されました。旧版で読み込んでから、そのライブラリを新しいバージョンに引き継いでください。"
+    }
+  },
+  "importDialog": {
+    "targets": {
+      "idea": {
+        "label": "アイデア",
+        "desc": "ストーリーラインから独立したアイデアカード。"
+      }
+    },
+    "warnings": {
+      "imagesDropped": "{{count}} 枚の画像はインポートされませんでした",
+      "notUtf8": "UTF-8 のテキストではないため、一部の文字を置き換えました"
+    }
+  },
+  "notifications": {
+    "markdownFolder": {
+      "issue": {
+        "owned": "このフォルダーは別の Drifting が管理しているため、読み書きしていません"
+      }
+    }
+  }
+}

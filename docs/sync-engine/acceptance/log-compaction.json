@@ -1,0 +1,199 @@
+{
+  "contract": {
+    "milestone": "sync-engine-phase7-log-compaction",
+    "retainedSnapshots": 2,
+    "hostedGraceDays": 30,
+    "capability": "removals-v1",
+    "productionPruning": "disabled-until-hosted-deploy",
+    "localTruncation": "pruned-applied-segment-objects-and-snapshot-covered-journal-rows",
+    "journalTruncationMigration": "0008_sync_journal_truncation",
+    "sourceSha256": {
+      "crates/drifting-core/src/remote_workspace.rs": "f6129362ad2d080bfca0de09c8fc04c261f5878dd7b9f554ef409e7401a3e2f1",
+      "docs/sync-engine/phase7-log-compaction.md": "b6111c13e06d762810a9b8286890eebe8a8104786455d922316e1e3d47080a91",
+      "drizzle/0008_sync_journal_truncation.sql": "ec491eb0c8358a2611087aa148f54132331f9925bc926581f8868cce4f486cdd",
+      "scripts/generate-sync-log-compaction.ts": "7bb8f694e0219727d2012b8a603f8912c470d1b0aaa6a26c42bcc200dcb90e6c",
+      "src-tauri/src/hosted_sync.rs": "7937e27c46804fe8ac50dc46fd8f91f13be4f74589b518217030281dcb25864d",
+      "src/renderer/schema/sync-journal-truncation-migration.integration.test.ts": "fb1f95b15085a68c19ccad21c5079de8c0735c8ec7a943133f8b6e8ea9a3842d",
+      "src/renderer/sync/checkpoint/provider-publisher.ts": "e8aa3adbbec376f7f7f42143dff8a683aca70f1e417ff3ce82523c63a9369711",
+      "src/renderer/sync/checkpoint/reducer-state.ts": "5a3a1c01ac13b15324462a56be15143046b612c7aff299faa9506a941aad0e50",
+      "src/renderer/sync/checkpoint/restore.ts": "46e13641e60abec998c2f20740f49815fc7bcc677a20a6c373c176173b6f16f5",
+      "src/renderer/sync/compaction/catch-up.ts": "4cd163573674ea365428d11a68bb308bc0b67d1333654b856c72aec492d78c59",
+      "src/renderer/sync/compaction/compaction.integration.test.ts": "ef56e50e481d4dbd060886e36ac88d25c961d07d83b8d2bf2a815cb8af67d5af",
+      "src/renderer/sync/compaction/frontier.test.ts": "13f442d1d6adacb4ed1e6af95c7b6e9dda33f3831e74b2b86b85d04a4d27b4a6",
+      "src/renderer/sync/compaction/frontier.ts": "bb881bf2f1fe5741d1d2d58c3313c6d2b8587beb8d7908301b802f445ba7cfa2",
+      "src/renderer/sync/compaction/journal-truncation.ts": "47c2778c052da1b56c9bdd632ed83948a3eccf4b9b1199a082d3b8b6a86d0c54",
+      "src/renderer/sync/compaction/local-truncation.ts": "d7cb99ed1ad2a20570b6177bea296791625c9c03bcf38019ea667147d1873f13",
+      "src/renderer/sync/compaction/policy.ts": "5b0774b284e170f69cbe2edd49a46b826a08f359e531927103e2153017d33649",
+      "src/renderer/sync/compaction/snapshot-catalog.ts": "ad044510f90ba7ab458b2b01622bcafe0f04acd16ce5c88ce2bc4707b8ac22c0",
+      "src/renderer/sync/engine/durable-runtime.ts": "9899cc1436daac86504379698115602b42c9befaeebdf3632a1dc193151b5b3b",
+      "src/renderer/sync/engine/sqlite-repository.ts": "f1d443d5e13444e312b8e4a96df73b96987a1e7e976c07daf5dd438c9f6d10b0",
+      "src/renderer/sync/journal/repository.ts": "9391678258c714c5d10ecc8601a74510bcf40eb0547ba30746df8f22a8076152",
+      "src/renderer/sync/production-runtime.ts": "5b16dfb7ea998bac03dc418305af30cfff96f390d51df8604a96434a49d3aa48",
+      "src/renderer/sync/protocol/provider.ts": "9d424c11e99c76cc19759d6f5a5d928795a2a7af0c27c646a2a288d2e3446863",
+      "src/renderer/sync/providers/hosted/provider.ts": "47bc31084fb90ab174fc5fd3b7b93df16d849ace0afe0d62dc6dba66e0898746",
+      "src/renderer/sync/providers/memory-provider.prune.test.ts": "1d9ee852c9ff3aaf632ca8949224cec556ba757a626f4e71a72dc39b182f6e0c",
+      "src/renderer/sync/providers/memory-provider.ts": "908c35be2a94000cf52e85e43bd5395a44581c2a58ee3cd836d23d29ad73c7b8",
+      "src/renderer/sync/reducer/production-domain-kernel.ts": "68fe3816365c4f93e715864ccb58b49a80c973029b128992bd490a1cb10d7310",
+      "src/renderer/sync/reducer/reducer.ts": "7bdadac19acb9be9215f69f75241ad6e682aecc8dbefff8d2c83cb4a3200f3c6",
+      "src/renderer/sync/reducer/sqlite-materializer.ts": "2b24373a8b6cb3a2903a5b34aeb6af138cb1bcbd5c9af71a32e873d0828e9c8d",
+      "src/renderer/sync/restore/cloud-restore.ts": "95b8b3c0e68a912c064ce3aeda7010c4218057c20a09eadb532220200aea5272"
+    }
+  },
+  "automated": {
+    "status": "passed",
+    "command": "pnpm exec vitest run src/renderer/sync/compaction src/renderer/sync/providers/memory-provider.prune.test.ts src/renderer/sync/providers/hosted/provider.test.ts src/renderer/sync/engine/durable-runtime.integration.test.ts src/renderer/sync/checkpoint src/renderer/sync/restore src/renderer/schema/sync-journal-truncation-migration.integration.test.ts",
+    "passed": 93,
+    "failed": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "0008_sync_journal_truncation migration admits journal deletes only at or below a recorded floor with a reducer base",
+        "status": "passed"
+      },
+      {
+        "name": "0008_sync_journal_truncation migration keeps an own change-set inside an open published gap even below the published frontier",
+        "status": "passed"
+      },
+      {
+        "name": "0008_sync_journal_truncation migration keeps every Yjs materialization receipt and drops only its mutation foreign key",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary bounds discovery pagination and checks ownership after each page",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary deletes without reopening and validates the exact durable remote receipt",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary posts a prune request and validates the receipt against the request",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary rejects a download returned under a different destination",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary rejects an account change while a response is in flight",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary rejects oversized pages and missing continuation cursors",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary rejects upload acknowledgements for different bytes",
+        "status": "passed"
+      },
+      {
+        "name": "Hosted provider response boundary requests removal changes and accepts the strict removal shape",
+        "status": "passed"
+      },
+      {
+        "name": "lane frontiers compares by dominance on every lane",
+        "status": "passed"
+      },
+      {
+        "name": "lane frontiers keeps only history every frontier covers",
+        "status": "passed"
+      },
+      {
+        "name": "lane frontiers orders a dominating snapshot after a later but lagging one",
+        "status": "passed"
+      },
+      {
+        "name": "lane frontiers reads snapshot entries and treats absent lanes as zero",
+        "status": "passed"
+      },
+      {
+        "name": "local journal truncation fast-forwards a truncated replica with unsent edits onto a newer snapshot",
+        "status": "passed"
+      },
+      {
+        "name": "local journal truncation keeps rows without a covering snapshot, while blocked, above the floor and until published",
+        "status": "passed"
+      },
+      {
+        "name": "local journal truncation keeps the checkpoint due position monotonic after truncation",
+        "status": "passed"
+      },
+      {
+        "name": "local journal truncation refuses a base that would not reproduce the current state and changes nothing",
+        "status": "passed"
+      },
+      {
+        "name": "local journal truncation truncates history a published checkpoint covers and stays correct across restart, apply and capture",
+        "status": "passed"
+      },
+      {
+        "name": "memory provider pruning defers young segments, removes old ones and announces each removal",
+        "status": "passed"
+      },
+      {
+        "name": "memory provider pruning enforces retained snapshots, marker pairing, blob safety and a fresh basis",
+        "status": "passed"
+      },
+      {
+        "name": "memory provider pruning is absent unless enabled",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction defers segments inside the grace window and never removes the retained snapshots",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction does not merge prose into an owner this replica purged",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction fast-forwards a replica that connects after truncation onto the newest snapshot",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction keeps an up-to-date replica converging after its applied history is pruned",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction keeps uploading local edits when a snapshot cannot be installed",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction lets restore discovery drop history pruned while it was listing",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction merges pruned prose into the lagging replica and its cached projection",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction orders snapshots by frontier and prunes only history both retained snapshots cover",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction rebases a lagging replica with unsent edits onto the snapshot without losing them",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction retries a download that 404s instead of assuming the object was pruned",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction settles a download that the provider pruned before its bytes arrived",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction still treats a lost blob as corruption on a pruning provider",
+        "status": "passed"
+      },
+      {
+        "name": "sync log compaction stops a lagging replica from publishing a checkpoint below the newest snapshot",
+        "status": "passed"
+      }
+    ]
+  },
+  "openGates": [
+    "Hosted removal feed, prune endpoint and capability gate deployed",
+    "production pruning enabled after deployment"
+  ]
+}

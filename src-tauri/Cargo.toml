@@ -1,0 +1,111 @@
+[package]
+name = "drifting"
+version = "0.1.0-alpha.10"
+description = "Drifting creative writing client"
+authors = ["chihumyum <108172547+chihumyum@users.noreply.github.com>"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/chihumyum/Drifting"
+homepage = "https://github.com/chihumyum/Drifting"
+publish = false
+edition = "2021"
+rust-version = "1.96"
+
+[lib]
+name = "drifting_lib"
+# Drifting-Alex builds the desktop app only. The upstream list also builds a
+# staticlib/cdylib for the iOS and Android shells; on the x86_64-pc-windows-gnu
+# toolchain this environment uses, a cdylib exports every symbol and exceeds
+# PE's 65535-export limit. Restore the full list when building mobile targets
+# with MSVC.
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+drifting-core = { path = "../crates/drifting-core" }
+drifting-prose = { path = "../crates/drifting-prose" }
+base64 = "0.22"
+getrandom = "0.2"
+httpdate = "1"
+http = "1"
+include_dir = "0.7.4"
+image = { version = "=0.25.4", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
+futures-util = "0.3"
+regex = "1"
+percent-encoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "json", "rustls-tls", "stream"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+sha2 = "0.10.8"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+tauri = { version = "2.11.5", features = ["protocol-asset"] }
+tauri-plugin-deep-link = "2.4.9"
+tauri-plugin-dialog = "2.7"
+tauri-plugin-fs = "2.5"
+tauri-plugin-opener = "2.5.4"
+tokio = { version = "1", features = ["fs", "io-util", "net", "sync", "time"] }
+zip = { version = "=9.4.1", default-features = false, features = ["deflate-flate2"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "windows", target_os = "linux"))'.dependencies]
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-drifting-image-codec = { path = "plugins/drifting-image-codec" }
+tauri-plugin-drifting-secure-storage = { path = "plugins/drifting-secure-storage" }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSKeyValueCoding", "NSObject", "NSString", "NSValue"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFData", "CFDictionary", "CFNumber", "CFString", "CFURL"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGImage"] }
+objc2-image-io = { version = "0.3.2", default-features = false, features = ["std", "CGImageDestination", "CGImageProperties", "CGImageSource", "objc2-core-graphics"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+toml_edit = "0.25"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSButton", "NSView", "NSWindow"] }
+objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-app-kit", "WKPreferences", "WKWebView", "WKWebViewConfiguration"] }
+security-framework = "3"
+# The user's private cache folder for a local MCP socket whose path would not fit (mcp_server.rs).
+libc = "0.2"
+
+# WebView2 settings Tauri does not expose (windows_webview.rs) and the Windows
+# Imaging Component for HEIC/AVIF (windows_image_codec.rs); the same versions
+# wry already uses.
+[target.'cfg(target_os = "windows")'.dependencies]
+# Drifting stays in the notification area when its window closes (windows_tray.rs).
+tauri = { version = "2.11.5", features = ["tray-icon"] }
+# External Agents' configuration files (mcp_server/client_config.rs), as on macOS.
+toml_edit = "0.25"
+webview2-com = "0.38"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_System_Com"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+fontdb = "0.23"
+krilla = "0.8.2"
+rustybuzz = "0.20.1"
+unicode-linebreak = "0.1.5"
+tauri-plugin-single-instance = { version = "2.4.3", features = ["deep-link"] }
+# Without the default `zip` feature: Windows updates are signed NSIS `.exe`
+# installers (createUpdaterArtifacts = true), never v1 `.nsis.zip` bundles,
+# and no Linux build ships. The feature pinned zip 4, whose extraction has
+# open advisories.
+tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["rustls-tls"] }
+
+[dev-dependencies]
+roxmltree = "0.20"
+tempfile = "3.14.0"
+
+# Build scripts and proc macros run only on the build machine. Release builds
+# strip debug info by default, and Xcode 27's toolchain leaves stripped
+# proc-macro dylibs that dyld refuses to load ("mis-aligned LINKEDIT string
+# pool"), so `cargo build --release` failed before reaching the app. Leave them
+# unstripped; the app itself is still stripped.
+[profile.release.build-override]
+strip = "none"
+
+# Backport only tauri-apps/tao#1245 to the published 0.35.3 source.
+# See vendor/tao/VENDORED.md for provenance and removal criteria.
+[patch.crates-io]
+tao = { path = "vendor/tao" }

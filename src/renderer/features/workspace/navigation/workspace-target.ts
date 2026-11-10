@@ -1,0 +1,29 @@
+export type WorkspaceEntityType =
+  | 'node'
+  | 'storyline'
+  | 'element'
+  | 'category'
+  | 'library_item'
+  | 'all-chapters';
+
+/** Shell-neutral description of content the user wants to open. */
+export interface WorkspaceTarget {
+  entityType: WorkspaceEntityType;
+  id: string;
+}
+
+/**
+ * Shared features may request navigation through this contract without
+ * knowing whether the target is rendered in a desktop tab or a mobile stack.
+ */
+export interface WorkspaceNavigator {
+  projectId: string;
+  open(target: WorkspaceTarget, options?: { preview?: boolean }): void;
+  activate(target: WorkspaceTarget): void;
+  /**
+   * `intent: 'new'` is the dock's + and ⌘N: Home opens with its create row
+   * floating at the foot of the page. Every other arrival floats the Agent.
+   */
+  showProjectHome(options?: { replace?: boolean; intent?: 'new' | 'home' }): void;
+  leaveDeletedTarget(): void;
+}

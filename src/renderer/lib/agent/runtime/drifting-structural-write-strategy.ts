@@ -1,0 +1,2367 @@
+import { and, eq, isNull, or } from 'drizzle-orm';
+
+import type {
+  AgentRuntimeEntityWriteKind,
+  AgentRuntimeEntityWriteSnapshot,
+  AgentRuntimeEntityWriteTool,
+  AgentRuntimeEntityRelationSnapshotValue,
+  PersistedAgentRuntimeEntityWriteReceipt,
+} from '../../../domain/agent-runtime-entity-write-receipt';
+import { snapshotAgentRuntimeEntity } from '../../../domain/agent-runtime-entity-write-receipt';
+import type { BookElement, BookElementCategory } from '../../../domain/book-element';
+import { allElementNames, findElementNameConflict } from '../../../domain/book-element';
+import type { BookNode } from '../../../domain/book-node';
+import {
+  createPlainCommentDoc,
+  type Comment,
+  type CommentAction,
+  type CommentKind,
+  type CommentStatus,
+  type CommentTargetKind,
+} from '../../../domain/comment';
+import {
+  isEntityKind,
+  isStructuralEntityKind,
+  type EntityKind,
+  type EntityRefSourceKind,
+  type EntityRefTargetKind,
+} from '../../../domain/entity-kinds';
+import type { PersistedAgentRuntimeWriteExpectation } from '../../../domain/agent-runtime-freshness';
+import type { PersistedAgentRuntimeWriteEffect } from '../../../domain/agent-runtime-write-effect';
+import { stringifyKv, type KvEntry } from '../../../domain/kv';
+import type { Storyline } from '../../../domain/storyline';
+import {
+  normalizeRelationTypeDefinition,
+  normalizeRelationTypeName,
+  validateRelationAgainstType,
+  type EntityRelationType,
+  type EntityRelationTypeDefinition,
+} from '../../../domain/entity-relation-type';
+import { getDb, type DbExecutor } from '../../../lib/db';
+import { deriveProseMetricFromJson } from '@drifting/prose-metrics';
+import { buildNodeCreateSyncPayload } from '../../../services/node-create-sync-contract';
+import {
+  BookElementTable,
+  BookNodeTable,
+  CommentTable,
+  ElementCategoryTable,
+  ElementPatchTable,
+  EntityRelationTable,
+  LibraryItemTable,
+  NodeStorylineLinkTable,
+  StorylineTable,
+} from '../../../schema/drizzle';
+import { createEntityRelationTypeRepository } from '../../../sqlite-repo/entity-relation-type-repo';
+import {
+  createAgentRuntimeEntityWriteReceiptRepository,
+  type AgentRuntimeEntityWriteReceiptRepository,
+} from '../../../sqlite-repo/agent-runtime-entity-write-receipt-repo';
+import type { AgentRuntimeFreshnessRepository } from '../../../sqlite-repo/agent-runtime-freshness-repo';
+import { createBookContentRepository } from '../../../sqlite-repo/content-repo';
+import { createBookElementSqliteRepository } from '../../../sqlite-repo/element-repo';
+import { createElementCategoryRepository } from '../../../sqlite-repo/element-category-repo';
+import { createBookNodeSqliteRepository } from '../../../sqlite-repo/node-repo';
+import {
+  createCommentActionRepository,
+  createCommentRepository,
+} from '../../../sqlite-repo/comment-repo';
+import { createProjectRepository } from '../../../sqlite-repo/project-repo';
+import { createStorylineRepository } from '../../../sqlite-repo/storyline-repo';
+import { useDataStore, type EntityRelationLink } from '../../../store/data-store';
+import { events } from '../../events';
+import type { EntityAtomicTransactionRunner } from '../../../usecase/synced-entity-commands';
+import {
+  cloneEntityKvEntriesInTransaction,
+  replaceElementAliasesInTransaction,
+  replaceEntityKvEntriesInTransaction,
+} from '../../../usecase/normalized-kv-alias-authority';
+import { appendAuthoredLifecycleRestoreInTransaction } from '../../../usecase/sync-lifecycle-restore';
+import { throwIfAgentAborted } from './errors';
+import { deterministicAgentEntityId, hashEntityWriteValue } from './entity-write-revision';
+import {
+  agentAuthoredJournal,
+  appendAgentDomainMutation,
+  type AgentAuthoredJournal,
+} from './agent-authored-journal';
+import type { DriftingWriteStrategy } from './drifting-write-strategies';
+import type { AgentToolExecutionRequest } from './types';
+import { createWorkspaceProseContentJson } from './workspace-prose-file';
+import { loadLocationResolver } from '../location-link-catalog';
+import { writtenProseLinkConfig } from '../chapter-prose';
+import type { ProseEntityType } from '../../yjs-doc-id';
+import { createYjsProseSeedState } from './yjs-prose-command';
+import { entityIdsByNumericPlacement } from '../../../sync/journal/order-authority';
+import { appendPlannedAuthoredOrderInTransaction } from '../../../sync/journal/order-authority-repository';
+import { appendAuthoredProseSeedInTransaction } from '../../../sync/journal/yjs-update';
+
+export const DRIFTING_STRUCTURAL_WRITE_TOOLS = [
+  'create_node',
+  'delete_node',
+  'create_element',
+  'delete_element',
+  'create_storyline',
+  'delete_storyline',
+  'create_category',
+  'update_category',
+  'delete_category',
+  'update_comment',
+  'delete_comment',
+  'set_comment_status',
+  'set_comment_kind',
+  'add_relation',
+  'assign_relation_type',
+  'remove_relation',
+  'create_relation_type',
+  'update_relation_type',
+  'delete_relation_type',
+] as const satisfies readonly AgentRuntimeEntityWriteTool[];
+
+export type DriftingStructuralWriteTool = (typeof DRIFTING_STRUCTURAL_WRITE_TOOLS)[number];
+
+type ExpectedEntityKind =
+  | 'project'
+  | 'node'
+  | 'element'
+  | 'storyline'
+  | 'category'
+  | 'comment'
+  | 'relation'
+  | 'relation_type';
+
+type StructuralEntityWriteKind = Exclude<
+  AgentRuntimeEntityWriteKind,
+  'project' | 'storyline_membership' | 'memory' | 'authoring_scope'
+>;
+
+type StructuralMutation =
+  | { kind: 'create_node'; value: BookNode; contentJson: string }
+  | { kind: 'create_element'; value: BookElement; factsProvided: boolean }
+  | { kind: 'create_storyline'; value: Storyline }
+  | { kind: 'create_category'; value: BookElementCategory }
+  | { kind: 'delete_entity' }
+  | { kind: 'update_category'; updates: Partial<BookElementCategory> }
+  | { kind: 'update_comment'; updates: Partial<Comment> }
+  | { kind: 'add_relation'; value: AgentRuntimeEntityRelationSnapshotValue }
+  | { kind: 'create_relation_type'; value: EntityRelationType }
+  | { kind: 'update_relation_type'; value: EntityRelationType }
+  | {
+      kind: 'update_relation';
+      updates: Pick<
+        AgentRuntimeEntityRelationSnapshotValue,
+        'fromKind' | 'fromId' | 'toKind' | 'toId' | 'relationTypeId'
+      >;
+    };
+
+interface StructuralWritePayload {
+  kind: 'structural_write_command';
+  commandId: string;
+  effectId: string;
+  toolName: DriftingStructuralWriteTool;
+  projectId: string;
+  entityKind: StructuralEntityWriteKind;
+  entityId: string;
+  expectedEntityKind: ExpectedEntityKind;
+  expectedEntityId: string;
+  expectedRevision: string;
+  preimage: AgentRuntimeEntityWriteSnapshot | null;
+  mutation: StructuralMutation;
+}
+
+function numericChapterOrdinal(title: string): number | null {
+  const normalized = title.normalize('NFKC').trim();
+  const match = /^(?:chapter[-_\s]*|第\s*)?(\d+)(?:\s*章)?$/iu.exec(normalized);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function suggestedChapterBookOrder(
+  title: string,
+  nodes: readonly BookNode[],
+  fallback: number,
+): number {
+  const ordinal = numericChapterOrdinal(title);
+  if (ordinal === null) return fallback;
+  const numbered = nodes
+    .filter((node): node is Extract<BookNode, { kind: 'chapter' }> => node.kind === 'chapter')
+    .flatMap((node) => {
+      const candidate = numericChapterOrdinal(node.title);
+      return candidate === null ? [] : [{ ordinal: candidate, bookOrder: node.bookOrder }];
+    });
+  const lower = numbered
+    .filter((candidate) => candidate.ordinal < ordinal)
+    .sort((left, right) => right.ordinal - left.ordinal)[0];
+  const upper = numbered
+    .filter((candidate) => candidate.ordinal > ordinal)
+    .sort((left, right) => left.ordinal - right.ordinal)[0];
+  const occupied = new Set(
+    nodes.filter((node) => node.kind === 'chapter').map((node) => node.bookOrder),
+  );
+  if (lower && upper && upper.bookOrder - lower.bookOrder > 1) {
+    const candidate = Math.floor((lower.bookOrder + upper.bookOrder) / 2);
+    if (!occupied.has(candidate)) return candidate;
+  }
+  if (!lower && upper) {
+    const candidate = upper.bookOrder - 1;
+    if (!occupied.has(candidate)) return candidate;
+  }
+  return fallback;
+}
+
+interface AtomicResult {
+  receipt: PersistedAgentRuntimeEntityWriteReceipt;
+}
+
+export interface DriftingStructuralWriteStrategyOptions {
+  freshness: AgentRuntimeFreshnessRepository;
+  db?: DbExecutor;
+  receipts?: AgentRuntimeEntityWriteReceiptRepository;
+  now?: () => string;
+  journal?: AgentAuthoredJournal;
+}
+
+export function createDriftingStructuralWriteStrategy(
+  toolName: DriftingStructuralWriteTool,
+  options: DriftingStructuralWriteStrategyOptions,
+): DriftingWriteStrategy {
+  const db = options.db ?? getDb();
+  const receipts = options.receipts ?? createAgentRuntimeEntityWriteReceiptRepository(db);
+  const now = options.now ?? (() => new Date().toISOString());
+  const journal = options.journal ?? agentAuthoredJournal;
+
+  return {
+    async prepare(request, _context, expectation) {
+      throwIfAgentAborted(request.signal);
+      const payload = await preparePayload(toolName, request, expectation, db, now);
+      return {
+        observedRevision: payload.expectedRevision,
+        preimage: payload.preimage,
+        forward: payload,
+        inverse: payload,
+        reversibility: 'exact',
+      };
+    },
+
+    async applyForward(request, _context, prepared) {
+      throwIfAgentAborted(request.signal);
+      const payload = parsePayload(prepared.forward, toolName);
+      const committed = await options.freshness.executeGuardedMutation({
+        effectId: payload.effectId,
+        projectId: payload.projectId,
+        sessionId: request.sessionId,
+        readCurrentVersion: (tx, expectation) => readCurrentVersion(tx, expectation, payload),
+        mutate: (tx) =>
+          applyForwardInTransaction(tx, payload, request.sessionId, now, journal),
+      });
+      projectSnapshot(payload, committed.receipt.postimage);
+      return handlerResult(payload, committed.receipt.postimage);
+    },
+
+    async captureEffect(_request, _context, result, prepared) {
+      const payload = parsePayload(prepared.forward, toolName);
+      assertHandlerResult(result, payload);
+      const receipt = await receipts.get(payload.commandId, 'forward');
+      assertReceipt(receipt, payload, 'forward');
+      return committedEffect(payload, receipt);
+    },
+
+    async reconcileEnteredEffect(effect, _context, signal) {
+      throwIfAgentAborted(signal);
+      const payload = parsePayload(effect.forward, toolName);
+      assertEffect(effect, payload);
+      const receipt = await receipts.get(payload.commandId, 'forward');
+      if (!receipt) return null;
+      assertReceipt(receipt, payload, 'forward');
+      projectSnapshot(payload, receipt.postimage);
+      return {
+        handlerResult: handlerResult(payload, receipt.postimage),
+        committedEffect: { ...committedEffect(payload, receipt), reconciled: true },
+      };
+    },
+
+    async applyInverse(effect, _context, signal) {
+      throwIfAgentAborted(signal);
+      const payload = parsePayload(effect.inverse, toolName);
+      assertEffect(effect, payload);
+      const forward = await receipts.get(payload.commandId, 'forward');
+      assertReceipt(forward, payload, 'forward');
+      const existing = await receipts.get(payload.commandId, 'inverse');
+      if (existing) {
+        assertReceipt(existing, payload, 'inverse');
+        projectSnapshot(payload, existing.postimage);
+        return inverseEffect(existing, true);
+      }
+      const committed = await db.transaction(
+        (tx) => applyInverseInTransaction(tx, payload, effect, forward, now, journal),
+        { behavior: 'immediate' },
+      );
+      projectSnapshot(payload, committed.receipt.postimage);
+      return inverseEffect(committed.receipt, false);
+    },
+  };
+}
+
+async function preparePayload(
+  toolName: DriftingStructuralWriteTool,
+  request: AgentToolExecutionRequest,
+  expectation: PersistedAgentRuntimeWriteExpectation | null | undefined,
+  db: DbExecutor,
+  now: () => string,
+): Promise<StructuralWritePayload> {
+  const projectId = request.context.route.projectId;
+  if (!projectId) throw new Error(`${toolName} requires a project route`);
+  const effectId = `agent-write:${request.idempotencyKey}`;
+  const base = {
+    kind: 'structural_write_command' as const,
+    commandId: `agent-entity-write:${request.idempotencyKey}`,
+    effectId,
+    toolName,
+    projectId,
+  };
+
+  if (toolName.startsWith('create_') || toolName === 'add_relation') {
+    const project = await createProjectRepository(undefined, db).findById(projectId);
+    if (!project) throw new Error(`Project "${projectId}" no longer exists`);
+    requireExpectation(expectation, request, 'project', projectId);
+    assertExpectedRevision(expectation, project.updatedAt, 'get_project_brief');
+    const common = {
+      ...base,
+      expectedEntityKind: 'project' as const,
+      expectedEntityId: projectId,
+      expectedRevision: expectation!.expectedRevision,
+      preimage: null,
+    };
+    const timestamp = now();
+    if (toolName === 'create_node') {
+      const kind = request.arguments.kind === 'chapter' ? 'chapter' : 'drift';
+      const contentJson = await createWorkspaceProseContentJson(await newProseBodyInput(projectId, 'node', {
+        content: String(request.arguments.body ?? ''),
+        idempotencyKey: request.idempotencyKey,
+      }));
+      const proseMetric = await deriveProseMetricFromJson(contentJson);
+      const nodes = await createBookNodeSqliteRepository(projectId, db).findAll();
+      const title = requiredString(request.arguments.title, 'create_node requires title');
+      if (nodes.some((node) => sameName(node.title, title))) {
+        throw new Error(`A chapter or idea named "${title}" already exists`);
+      }
+      const id = await deterministicAgentEntityId(request.idempotencyKey, 'node');
+      const maxOrder = nodes
+        .filter((node) => node.kind === kind)
+        .reduce(
+          (maximum, node) =>
+            Math.max(
+              maximum,
+              kind === 'chapter' ? (node.bookOrder ?? 0) : (node.narrativeOrder ?? 0),
+            ),
+          0,
+        );
+      const shared = {
+        id,
+        projectId,
+        title,
+        summary: String(request.arguments.summary ?? ''),
+        narrativeOrder: kind === 'drift' ? maxOrder + 1 : null,
+        driftGroupId: null,
+        position: { x: 0, y: 0 },
+        wordCount: proseMetric.wordCount,
+        wordCountBasisKind: 'seed' as const,
+        wordCountBasisHash: proseMetric.basisHash,
+        wordCountBasisRevision: null,
+        wordCountBasisServerSeq: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      const value: BookNode =
+        kind === 'chapter'
+          ? {
+              ...shared,
+              kind: 'chapter',
+              bookOrder: suggestedChapterBookOrder(title, nodes, maxOrder + 1),
+              writingStatus: 'draft',
+            }
+          : {
+              ...shared,
+              kind: 'drift',
+              bookOrder: null,
+              writingStatus: 'drifting',
+            };
+      return {
+        ...common,
+        entityKind: 'node',
+        entityId: id,
+        mutation: {
+          kind: 'create_node',
+          value,
+          contentJson,
+        },
+      };
+    }
+    if (toolName === 'create_element') {
+      const category = resolveCategory(projectId, request.arguments.category);
+      const elements = await createBookElementSqliteRepository(projectId, db).findAll();
+      const requestedName = requiredString(request.arguments.name, 'create_element requires name');
+      const aliases = stringArray(request.arguments.aliases);
+      const conflict = findElementNameConflict([requestedName, ...aliases], elements, projectId);
+      if (conflict) throw new Error(`Element name "${conflict.conflictingName}" already exists`);
+      const name = requestedName;
+      const id = await deterministicAgentEntityId(request.idempotencyKey, 'element');
+      const contentJson = await createWorkspaceProseContentJson(await newProseBodyInput(projectId, 'element', {
+        content: String(request.arguments.body ?? ''),
+        idempotencyKey: request.idempotencyKey,
+      }));
+      const value: BookElement = {
+        id,
+        projectId,
+        categoryId: category.id,
+        name,
+        summary: String(request.arguments.summary ?? ''),
+        contentJson,
+        kvJson: stringifyKv(parseFacts(request.arguments.facts)),
+        aliases,
+        groupName:
+          typeof request.arguments.groupName === 'string'
+            ? request.arguments.groupName.trim() || null
+            : null,
+        portraitAssetId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      return {
+        ...common,
+        entityKind: 'element',
+        entityId: id,
+        mutation: {
+          kind: 'create_element',
+          value,
+          factsProvided: request.arguments.facts !== undefined,
+        },
+      };
+    }
+    if (toolName === 'create_storyline') {
+      const storylines = await createStorylineRepository(projectId, db).getStorylinesByProject();
+      const name = requiredString(request.arguments.name, 'create_storyline requires name');
+      if (storylines.some((storyline) => sameName(storyline.name, name))) {
+        throw new Error(`Storyline "${name}" already exists`);
+      }
+      const id = await deterministicAgentEntityId(request.idempotencyKey, 'storyline');
+      const contentJson = await createWorkspaceProseContentJson(await newProseBodyInput(projectId, 'storyline', {
+        content: String(request.arguments.body ?? ''),
+        idempotencyKey: request.idempotencyKey,
+      }));
+      const value: Storyline = {
+        id,
+        projectId,
+        name,
+        color: '#8B7355',
+        summary: String(request.arguments.summary ?? ''),
+        orderKey: storylines.reduce((maximum, item) => Math.max(maximum, item.orderKey), 0) + 1,
+        contentJson,
+        kvJson: project.storylineTemplateKvJson || '[]',
+        nodeContentTemplateJson: '{}',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      return {
+        ...common,
+        entityKind: 'storyline',
+        entityId: id,
+        mutation: { kind: 'create_storyline', value },
+      };
+    }
+    if (toolName === 'create_category') {
+      const existing = await createElementCategoryRepository(projectId, db).findAll();
+      const name = requiredString(request.arguments.name, 'create_category requires name');
+      if (existing.some((item) => sameName(item.name, name))) {
+        throw new Error(`Category "${name}" already exists`);
+      }
+      const id = await deterministicAgentEntityId(request.idempotencyKey, 'category');
+      const contentJson = await createWorkspaceProseContentJson(await newProseBodyInput(projectId, 'category', {
+        content: String(request.arguments.body ?? ''),
+        idempotencyKey: request.idempotencyKey,
+      }));
+      const value: BookElementCategory = {
+        id,
+        projectId,
+        name,
+        contentJson,
+        elementTemplateJson: '{}',
+        elementTemplateKvJson: '[]',
+        color: '#8B7355',
+        layoutMode: 'auto',
+        gridX: null,
+        gridY: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      return {
+        ...common,
+        entityKind: 'category',
+        entityId: id,
+        mutation: { kind: 'create_category', value },
+      };
+    }
+    if (toolName === 'create_relation_type') {
+      const normalized = normalizeRelationTypeDefinition(
+        relationTypeDefinitionFromArgs(request.arguments),
+      );
+      const repo = createEntityRelationTypeRepository(projectId, db);
+      if (await repo.findByNormalizedName(normalized.normalizedName)) {
+        throw new Error(`Relation type "${normalized.name}" already exists`);
+      }
+      const id = await deterministicAgentEntityId(request.idempotencyKey, 'relation-type');
+      const value: EntityRelationType = {
+        id,
+        projectId,
+        ...normalized,
+        systemKey: null,
+        locked: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      return {
+        ...common,
+        entityKind: 'relation_type',
+        entityId: id,
+        mutation: { kind: 'create_relation_type', value },
+      };
+    }
+    const fromKind = normalizeEntityKind(
+      requiredString(request.arguments.fromKind, 'add_relation requires fromKind'),
+    );
+    const toKind = normalizeEntityKind(
+      requiredString(request.arguments.toKind, 'add_relation requires toKind'),
+    );
+    if (!isStructuralEntityKind(toKind)) {
+      throw new Error(`Relation target kind "${toKind}" is not structural`);
+    }
+    const fromId = await resolveEntityId(db, projectId, fromKind, request.arguments.from);
+    const toId = await resolveEntityId(db, projectId, toKind, request.arguments.to);
+    assertDifferentRelationEndpoints(fromKind, fromId, toKind, toId);
+    if ('kind' in request.arguments) {
+      throw new Error('add_relation.kind is retired; use relationType');
+    }
+    const relationTypeName = requiredString(
+      request.arguments.relationType,
+      'add_relation requires relationType',
+    );
+    const relationType = await createEntityRelationTypeRepository(
+      projectId,
+      db,
+    ).findByNormalizedName(normalizeRelationTypeName(relationTypeName));
+    if (!relationType) throw new Error(`Relation type "${relationTypeName}" does not exist`);
+    const checked = validateRelationAgainstType(relationType, {
+      fromKind,
+      fromId,
+      toKind,
+      toId,
+    });
+    if (!checked.ok) throw new Error(checked.message);
+    const id = await deterministicAgentEntityId(request.idempotencyKey, 'relation');
+    const value: AgentRuntimeEntityRelationSnapshotValue = {
+      id,
+      projectId,
+      ...checked.relation,
+      relationTypeId: relationType.id,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    return {
+      ...common,
+      entityKind: 'relation',
+      entityId: id,
+      mutation: { kind: 'add_relation', value },
+    };
+  }
+
+  const resolved = await resolveExistingTarget(toolName, projectId, request.arguments, db);
+  requireExpectation(expectation, request, resolved.entityKind, resolved.snapshot.value.id);
+  assertExpectedRevision(expectation, resolved.snapshot.value.updatedAt, resolved.readTool);
+  const common = {
+    ...base,
+    entityKind: resolved.snapshot.kind as StructuralEntityWriteKind,
+    entityId: resolved.snapshot.value.id,
+    expectedEntityKind: resolved.entityKind,
+    expectedEntityId: resolved.snapshot.value.id,
+    expectedRevision: expectation!.expectedRevision,
+    preimage: resolved.snapshot,
+  };
+  if (toolName.startsWith('delete_') || toolName === 'remove_relation') {
+    if (resolved.snapshot.kind === 'relation_type' && resolved.snapshot.value.locked) {
+      throw new Error(`Built-in relation type "${resolved.snapshot.value.name}" cannot be deleted`);
+    }
+    await assertStructuralDeleteAllowed(db, projectId, common.entityKind, common.entityId);
+    return { ...common, mutation: { kind: 'delete_entity' } };
+  }
+  if (toolName === 'update_relation_type') {
+    if (resolved.snapshot.kind !== 'relation_type') {
+      throw new Error('The relation type update lost its exact preimage');
+    }
+    if (resolved.snapshot.value.locked) {
+      throw new Error(`Built-in relation type "${resolved.snapshot.value.name}" cannot be updated`);
+    }
+    const normalized = normalizeRelationTypeDefinition(
+      relationTypeDefinitionFromArgs({
+        ...request.arguments,
+        name: request.arguments.name ?? resolved.snapshot.value.name,
+      }),
+    );
+    const duplicate = await createEntityRelationTypeRepository(projectId, db).findByNormalizedName(
+      normalized.normalizedName,
+    );
+    if (duplicate && duplicate.id !== resolved.snapshot.value.id) {
+      throw new Error(`Relation type "${normalized.name}" already exists`);
+    }
+    const value: EntityRelationType = {
+      ...resolved.snapshot.value,
+      ...normalized,
+      updatedAt: now(),
+    };
+    const relations = await db
+      .select()
+      .from(EntityRelationTable)
+      .where(
+        and(
+          eq(EntityRelationTable.projectId, projectId),
+          eq(EntityRelationTable.relationTypeId, value.id),
+        ),
+      );
+    for (const relation of relations) {
+      const checked = validateRelationAgainstType(value, {
+        fromKind: normalizeEntityKind(relation.fromKind),
+        fromId: relation.fromId,
+        toKind: normalizeEntityKind(relation.toKind) as EntityRefTargetKind,
+        toId: relation.toId,
+      });
+      if (!checked.ok) throw new Error(`Relation "${relation.id}": ${checked.message}`);
+      if (
+        checked.relation.fromKind !== relation.fromKind ||
+        checked.relation.fromId !== relation.fromId ||
+        checked.relation.toKind !== relation.toKind ||
+        checked.relation.toId !== relation.toId
+      ) {
+        throw new Error(
+          `Relation "${relation.id}" must swap endpoints before this type can become symmetric.`,
+        );
+      }
+    }
+    return { ...common, mutation: { kind: 'update_relation_type', value } };
+  }
+  if (toolName === 'update_category') {
+    const before = resolved.snapshot.value as BookElementCategory;
+    const updates: Partial<BookElementCategory> = {};
+    if (typeof request.arguments.name === 'string') {
+      const name = request.arguments.name.trim();
+      if (name && name !== before.name) updates.name = name;
+    }
+    if (request.arguments.templateFacts !== undefined) {
+      updates.elementTemplateKvJson = stringifyKv(parseFacts(request.arguments.templateFacts));
+    }
+    if (Object.keys(updates).length === 0) {
+      throw new Error(
+        'update_category requires a changed name or templateFacts; edit body.md for category prose',
+      );
+    }
+    return { ...common, mutation: { kind: 'update_category', updates } };
+  }
+  if (
+    toolName === 'update_comment' ||
+    toolName === 'set_comment_status' ||
+    toolName === 'set_comment_kind'
+  ) {
+    const before = resolved.snapshot.value as Comment;
+    const updates: Partial<Comment> = {};
+    if (typeof request.arguments.body === 'string') {
+      updates.bodyJson = createPlainCommentDoc(request.arguments.body);
+    }
+    const kind = parseCommentKind(request.arguments.kind);
+    if (kind) updates.kind = kind;
+    const status = parseCommentStatus(request.arguments.status);
+    if (status) {
+      updates.status = status;
+      updates.resolvedAt = status === 'resolved' ? now() : null;
+    }
+    if (typeof request.arguments.targetKind === 'string') {
+      const targetKind = normalizeEntityKind(request.arguments.targetKind);
+      if (!isStructuralEntityKind(targetKind)) {
+        throw new Error('Comment targetKind must be node, element, patch, storyline, or category');
+      }
+      updates.targetKind = targetKind as CommentTargetKind;
+      updates.targetId = await resolveEntityId(db, projectId, targetKind, request.arguments.target);
+    }
+    if (Object.keys(updates).length === 0) {
+      throw new Error(`${toolName} requires a changed body, kind, status, or target`);
+    }
+    if (Object.entries(updates).every(([key, value]) => value === before[key as keyof Comment])) {
+      throw new Error(`${toolName} would not change the comment`);
+    }
+    return { ...common, mutation: { kind: 'update_comment', updates } };
+  }
+  const before = resolved.snapshot.value as AgentRuntimeEntityRelationSnapshotValue;
+  const fromKind =
+    request.arguments.fromKind === undefined
+      ? normalizeEntityKind(before.fromKind)
+      : normalizeEntityKind(
+          requiredString(request.arguments.fromKind, 'fromKind must be a supported entity kind'),
+        );
+  const toKind =
+    request.arguments.toKind === undefined
+      ? normalizeEntityKind(before.toKind)
+      : normalizeEntityKind(
+          requiredString(request.arguments.toKind, 'toKind must be a supported entity kind'),
+        );
+  if (!isStructuralEntityKind(toKind)) {
+    throw new Error(`Relation target kind "${toKind}" is not structural`);
+  }
+  const fromId =
+    request.arguments.from === undefined
+      ? before.fromId
+      : await resolveEntityId(db, projectId, fromKind, request.arguments.from);
+  const toId =
+    request.arguments.to === undefined
+      ? before.toId
+      : await resolveEntityId(db, projectId, toKind, request.arguments.to);
+  assertDifferentRelationEndpoints(fromKind, fromId, toKind, toId);
+  if ('kind' in request.arguments) {
+    throw new Error('assign_relation_type.kind is retired; use relationType');
+  }
+  const relationTypeName = requiredString(
+    request.arguments.relationType,
+    'assign_relation_type requires relationType',
+  );
+  const relationType = await createEntityRelationTypeRepository(projectId, db).findByNormalizedName(
+    normalizeRelationTypeName(relationTypeName),
+  );
+  if (!relationType) throw new Error(`Relation type "${relationTypeName}" does not exist`);
+  const checked = validateRelationAgainstType(relationType, {
+    fromKind,
+    fromId,
+    toKind,
+    toId,
+  });
+  if (!checked.ok) throw new Error(checked.message);
+  const updates = {
+    ...checked.relation,
+    relationTypeId: relationType.id,
+  };
+  if (
+    updates.fromKind === before.fromKind &&
+    updates.fromId === before.fromId &&
+    updates.toKind === before.toKind &&
+    updates.toId === before.toId &&
+    updates.relationTypeId === before.relationTypeId
+  ) {
+    throw new Error('The relation is unchanged');
+  }
+  return { ...common, mutation: { kind: 'update_relation', updates } };
+}
+
+function relationTypeDefinitionFromArgs(
+  args: Record<string, unknown>,
+): EntityRelationTypeDefinition {
+  const orientation = args.orientation;
+  if (orientation !== 'directed' && orientation !== 'symmetric') {
+    throw new Error('Relation type orientation must be directed or symmetric');
+  }
+  const rawSourceKinds = stringArray(args.sourceKinds);
+  const rawTargetKinds = stringArray(args.targetKinds);
+  if (rawSourceKinds.some((kind) => !isEntityKind(kind))) {
+    throw new Error('Relation type contains an unsupported source entity kind');
+  }
+  if (rawTargetKinds.some((kind) => !isStructuralEntityKind(kind))) {
+    throw new Error('Relation type contains an unsupported target entity kind');
+  }
+  const sourceKinds = rawSourceKinds as EntityRefSourceKind[];
+  const targetKinds = rawTargetKinds as EntityRefTargetKind[];
+  return {
+    name: requiredString(args.name, 'relation type requires name'),
+    description: typeof args.description === 'string' ? args.description : '',
+    orientation,
+    sourceRole: typeof args.sourceRole === 'string' ? args.sourceRole : '',
+    targetRole: typeof args.targetRole === 'string' ? args.targetRole : '',
+    sourceKinds,
+    targetKinds,
+  };
+}
+
+async function resolveExistingTarget(
+  toolName: DriftingStructuralWriteTool,
+  projectId: string,
+  args: Record<string, unknown>,
+  db: DbExecutor,
+): Promise<{
+  entityKind: Exclude<ExpectedEntityKind, 'project'>;
+  snapshot: AgentRuntimeEntityWriteSnapshot;
+  readTool: string;
+}> {
+  if (toolName === 'delete_node') {
+    const node = resolveNode(projectId, args.node);
+    const value = await createBookNodeSqliteRepository(projectId, db).findById(node.id);
+    if (!value) throw new Error('The node no longer exists');
+    return {
+      entityKind: 'node',
+      snapshot: snapshotAgentRuntimeEntity(value, 'node'),
+      readTool: 'read_node',
+    };
+  }
+  if (toolName === 'delete_element') {
+    const element = resolveElement(projectId, args.element);
+    const value = await createBookElementSqliteRepository(projectId, db).findById(element.id);
+    if (!value) throw new Error('The element no longer exists');
+    return {
+      entityKind: 'element',
+      snapshot: snapshotAgentRuntimeEntity(value, 'element'),
+      readTool: 'read_element',
+    };
+  }
+  if (toolName === 'delete_storyline') {
+    const storyline = resolveStoryline(projectId, args.storyline);
+    const value = await createStorylineRepository(projectId, db).getStorylineById(storyline.id);
+    if (!value) throw new Error('The storyline no longer exists');
+    return {
+      entityKind: 'storyline',
+      snapshot: snapshotAgentRuntimeEntity(value, 'storyline'),
+      readTool: 'get_storyline',
+    };
+  }
+  if (toolName === 'delete_category' || toolName === 'update_category') {
+    const category = resolveCategory(projectId, args.category);
+    return {
+      entityKind: 'category',
+      snapshot: snapshotAgentRuntimeEntity(category, 'category'),
+      readTool: 'read_node',
+    };
+  }
+  if (
+    toolName === 'delete_comment' ||
+    toolName === 'update_comment' ||
+    toolName === 'set_comment_status' ||
+    toolName === 'set_comment_kind'
+  ) {
+    const id = requiredString(args.commentId, `${toolName} requires commentId`);
+    const value = await createCommentRepository(projectId, db).findById(id);
+    if (!value || value.projectId !== projectId)
+      throw new Error(`Comment "${id}" no longer exists`);
+    const actions =
+      toolName === 'delete_comment'
+        ? await createCommentActionRepository(projectId, db).findByComment(id)
+        : [];
+    return {
+      entityKind: 'comment',
+      snapshot:
+        toolName === 'delete_comment'
+          ? { kind: 'comment', value, actions }
+          : snapshotAgentRuntimeEntity(value, 'comment'),
+      readTool: 'list_comments',
+    };
+  }
+  if (toolName === 'update_relation_type' || toolName === 'delete_relation_type') {
+    const name = requiredString(args.relationType, `${toolName} requires relationType`);
+    const value = await createEntityRelationTypeRepository(projectId, db).findByNormalizedName(
+      normalizeRelationTypeName(name),
+    );
+    if (!value) throw new Error(`Relation type "${name}" no longer exists`);
+    return {
+      entityKind: 'relation_type',
+      snapshot: snapshotAgentRuntimeEntity(value, 'relation_type'),
+      readTool: 'get_relation_types',
+    };
+  }
+  const id = requiredString(args.relationId, `${toolName} requires relationId`);
+  const value = await loadRelation(db, projectId, id);
+  if (!value) throw new Error(`Relation "${id}" no longer exists`);
+  return {
+    entityKind: 'relation',
+    snapshot: snapshotAgentRuntimeEntity(value, 'relation'),
+    readTool: 'get_entity_relations',
+  };
+}
+
+async function readCurrentVersion(
+  tx: DbExecutor,
+  expectation: PersistedAgentRuntimeWriteExpectation,
+  payload: StructuralWritePayload,
+): Promise<{ revision: string } | null> {
+  if (
+    expectation.projectId !== payload.projectId ||
+    expectation.entityKind !== payload.expectedEntityKind ||
+    expectation.entityId !== payload.expectedEntityId
+  ) {
+    return null;
+  }
+  if (payload.expectedEntityKind === 'project') {
+    const value = await createProjectRepository(undefined, tx).findById(payload.projectId);
+    return value ? { revision: value.updatedAt } : null;
+  }
+  const snapshot = await loadActiveSnapshot(
+    tx,
+    payload.projectId,
+    payload.expectedEntityKind,
+    payload.expectedEntityId,
+  );
+  return snapshot ? { revision: snapshot.value.updatedAt } : null;
+}
+
+async function applyForwardInTransaction(
+  tx: DbExecutor,
+  payload: StructuralWritePayload,
+  sessionId: string,
+  now: () => string,
+  journal: AgentAuthoredJournal,
+): Promise<AtomicResult> {
+  const changes = journal.createChangeSet();
+  const sync = transactionRunner(tx, journal, changes);
+  let postimage: AgentRuntimeEntityWriteSnapshot | null = null;
+  switch (payload.mutation.kind) {
+    case 'create_node': {
+      const mutation = payload.mutation;
+      const contentJson = mutation.contentJson;
+      const nodeRepository = createBookNodeSqliteRepository(payload.projectId, tx);
+      const value = await nodeRepository.create(mutation.value);
+      await createBookContentRepository(tx).create({
+        nodeId: value.id,
+        contentJson,
+      });
+      await sync.runner(payload.projectId, async (_inner, writeSync, changes) => {
+        await writeSync(
+          'node',
+          'create',
+          value.id,
+          payload.projectId,
+          buildNodeCreateSyncPayload(nodePayload(value)),
+        );
+        await appendAuthoredProseSeedInTransaction(tx, changes, {
+          entityType: 'node',
+          entityId: value.id,
+          stateUpdate: await createYjsProseSeedState(contentJson),
+          source: { kind: 'agent' },
+        });
+      });
+      postimage = snapshotAgentRuntimeEntity(value, 'node');
+      break;
+    }
+    case 'create_element': {
+      const mutation = payload.mutation;
+      const value = await sync.runner(payload.projectId, async (_inner, writeSync, changes) => {
+        const repo = createBookElementSqliteRepository(payload.projectId, tx);
+        await repo.create({ ...mutation.value, kvJson: '[]', aliases: [] });
+        if (mutation.factsProvided) {
+          await replaceEntityKvEntriesInTransaction(tx, changes, {
+            projectId: payload.projectId,
+            ownerKind: 'element',
+            ownerId: payload.entityId,
+            namespace: 'facts',
+            nextJson: mutation.value.kvJson,
+          });
+        } else {
+          const categoryId = mutation.value.categoryId;
+          if (!categoryId) throw new Error('Created element lost its category template owner');
+          await cloneEntityKvEntriesInTransaction(tx, changes, {
+            source: {
+              projectId: payload.projectId,
+              ownerKind: 'element-category',
+              ownerId: categoryId,
+              namespace: 'element-template',
+            },
+            target: {
+              projectId: payload.projectId,
+              ownerKind: 'element',
+              ownerId: payload.entityId,
+              namespace: 'facts',
+            },
+          });
+        }
+        await replaceElementAliasesInTransaction(tx, changes, {
+          projectId: payload.projectId,
+          elementId: payload.entityId,
+          aliases: mutation.value.aliases,
+        });
+        const persisted = (await repo.findById(payload.entityId))!;
+        await writeSync(
+          'element',
+          'create',
+          persisted.id,
+          payload.projectId,
+          elementPayload(persisted),
+        );
+        await appendAuthoredProseSeedInTransaction(tx, changes, {
+          entityType: 'element',
+          entityId: persisted.id,
+          stateUpdate: await createYjsProseSeedState(persisted.contentJson),
+          source: { kind: 'agent' },
+        });
+        return persisted;
+      });
+      postimage = snapshotAgentRuntimeEntity(value, 'element');
+      break;
+    }
+    case 'create_storyline': {
+      const mutation = payload.mutation;
+      const value = await sync.runner(payload.projectId, async (_inner, writeSync, changes) => {
+        const repo = createStorylineRepository(payload.projectId, tx);
+        await repo.createStoryline({
+          ...mutation.value,
+          kvJson: '[]',
+        });
+        await cloneEntityKvEntriesInTransaction(tx, changes, {
+          source: {
+            projectId: payload.projectId,
+            ownerKind: 'project',
+            ownerId: payload.projectId,
+            namespace: 'storyline-template',
+          },
+          target: {
+            projectId: payload.projectId,
+            ownerKind: 'storyline',
+            ownerId: payload.entityId,
+            namespace: 'facts',
+          },
+        });
+        const persisted = (await repo.getStorylineById(payload.entityId))!;
+        await writeSync(
+          'storyline',
+          'create',
+          persisted.id,
+          payload.projectId,
+          storylinePayload(persisted),
+        );
+        await appendPlannedAuthoredOrderInTransaction(tx, changes, {
+          projectId: payload.projectId,
+          listKind: 'storyline',
+          scope: payload.projectId,
+          desiredEntityIds: entityIdsByNumericPlacement(
+            (await repo.getStorylinesByProject()).map((entry) => ({
+              entityId: entry.id,
+              projection: entry.orderKey,
+            })),
+          ),
+        });
+        await appendAuthoredProseSeedInTransaction(tx, changes, {
+          entityType: 'storyline',
+          entityId: persisted.id,
+          stateUpdate: await createYjsProseSeedState(persisted.contentJson),
+          source: { kind: 'agent' },
+        });
+        return persisted;
+      });
+      postimage = snapshotAgentRuntimeEntity(value, 'storyline');
+      break;
+    }
+    case 'create_category': {
+      const mutation = payload.mutation;
+      const value = await sync.runner(payload.projectId, async (_inner, writeSync, changes) => {
+        const repo = createElementCategoryRepository(payload.projectId, tx);
+        await repo.create({ ...mutation.value, elementTemplateKvJson: '[]' });
+        await replaceEntityKvEntriesInTransaction(tx, changes, {
+          projectId: payload.projectId,
+          ownerKind: 'element-category',
+          ownerId: payload.entityId,
+          namespace: 'element-template',
+          nextJson: mutation.value.elementTemplateKvJson,
+        });
+        const persisted = (await repo.findAll()).find((item) => item.id === payload.entityId)!;
+        await writeSync(
+          'elementCategory',
+          'create',
+          persisted.id,
+          payload.projectId,
+          categoryPayload(persisted),
+        );
+        await appendAuthoredProseSeedInTransaction(tx, changes, {
+          entityType: 'category',
+          entityId: persisted.id,
+          stateUpdate: await createYjsProseSeedState(persisted.contentJson),
+          source: { kind: 'agent' },
+        });
+        return persisted;
+      });
+      postimage = snapshotAgentRuntimeEntity(value, 'category');
+      break;
+    }
+    case 'create_relation_type': {
+      const value = await createEntityRelationTypeRepository(payload.projectId, tx).create(
+        payload.mutation.value,
+      );
+      await sync.runner(payload.projectId, (_inner, writeSync) =>
+        writeSync('entityRelationType', 'create', value.id, payload.projectId, { ...value }),
+      );
+      postimage = snapshotAgentRuntimeEntity(value, 'relation_type');
+      break;
+    }
+    case 'add_relation': {
+      const relation = payload.mutation.value;
+      await assertRelationEndpoints(tx, relation);
+      await tx.insert(EntityRelationTable).values(relation);
+      await sync.runner(payload.projectId, (_inner, writeSync) =>
+        writeSync(
+          'entityRelation',
+          'create',
+          payload.entityId,
+          payload.projectId,
+          relationPayload(relation),
+        ),
+      );
+      postimage = snapshotAgentRuntimeEntity(relation, 'relation');
+      break;
+    }
+    case 'delete_entity': {
+      await assertStructuralDeleteAllowed(
+        tx,
+        payload.projectId,
+        payload.entityKind,
+        payload.entityId,
+      );
+      await deleteEntity(tx, payload, now());
+      await sync.runner(payload.projectId, async (_inner, writeSync) => {
+        await writeSync(
+          syncEntityType(payload.entityKind),
+          structuralDeleteMutation(payload.entityKind),
+          payload.entityId,
+          payload.projectId,
+        );
+        if (payload.preimage?.kind === 'comment') {
+          for (const action of payload.preimage.actions ?? []) {
+            await writeSync(
+              'commentAction',
+              'softDelete',
+              action.id,
+              payload.projectId,
+            );
+          }
+        }
+      });
+      break;
+    }
+    case 'update_category': {
+      const mutation = payload.mutation;
+      const value = await sync.runner(payload.projectId, async (_inner, writeSync, changes) => {
+        const repo = createElementCategoryRepository(payload.projectId, tx);
+        const { elementTemplateKvJson, ...scalarUpdates } = mutation.updates;
+        await repo.update(payload.entityId, { ...scalarUpdates, updatedAt: now() });
+        if (elementTemplateKvJson !== undefined) {
+          await replaceEntityKvEntriesInTransaction(tx, changes, {
+            projectId: payload.projectId,
+            ownerKind: 'element-category',
+            ownerId: payload.entityId,
+            namespace: 'element-template',
+            nextJson: elementTemplateKvJson,
+          });
+        }
+        const persisted = (await repo.findAll()).find((item) => item.id === payload.entityId);
+        if (!persisted) throw new Error('The category disappeared during update');
+        const authoredScalar = Object.keys(scalarUpdates).length > 0;
+        if (authoredScalar) {
+          await writeSync(
+            'elementCategory',
+            'update',
+            persisted.id,
+            payload.projectId,
+            categoryPayload(persisted),
+          );
+        }
+        return persisted;
+      });
+      if (!value) throw new Error('The category disappeared during update');
+      postimage = snapshotAgentRuntimeEntity(value, 'category');
+      break;
+    }
+    case 'update_comment': {
+      const value = await createCommentRepository(payload.projectId, tx).update(payload.entityId, {
+        ...payload.mutation.updates,
+        updatedAt: now(),
+      });
+      if (!value) throw new Error('The comment disappeared during update');
+      await sync.runner(payload.projectId, (_inner, writeSync) =>
+        writeSync('comment', 'update', value.id, payload.projectId, commentPayload(value)),
+      );
+      postimage = snapshotAgentRuntimeEntity(value, 'comment');
+      break;
+    }
+    case 'update_relation': {
+      const timestamp = now();
+      if (payload.preimage?.kind !== 'relation') {
+        throw new Error('The relation update lost its exact preimage');
+      }
+      const next = {
+        ...payload.preimage.value,
+        ...payload.mutation.updates,
+        id: payload.entityId,
+        projectId: payload.projectId,
+        updatedAt: timestamp,
+      } as AgentRuntimeEntityRelationSnapshotValue;
+      await assertRelationEndpoints(tx, next);
+      const rows = await tx
+        .update(EntityRelationTable)
+        .set({ ...payload.mutation.updates, updatedAt: timestamp })
+        .where(
+          and(
+            eq(EntityRelationTable.id, payload.entityId),
+            eq(EntityRelationTable.projectId, payload.projectId),
+          ),
+        )
+        .returning();
+      if (!rows[0]) throw new Error('The relation disappeared during update');
+      const value = relationFromRow(rows[0]);
+      await sync.runner(payload.projectId, (_inner, writeSync) =>
+        writeSync('entityRelation', 'update', value.id, payload.projectId, relationPayload(value)),
+      );
+      postimage = snapshotAgentRuntimeEntity(value, 'relation');
+      break;
+    }
+    case 'update_relation_type': {
+      if (payload.preimage?.kind !== 'relation_type') {
+        throw new Error('The relation type update lost its exact preimage');
+      }
+      const timestamp = now();
+      const value = { ...payload.mutation.value, updatedAt: timestamp };
+      await createEntityRelationTypeRepository(payload.projectId, tx).update(value);
+      await sync.runner(payload.projectId, (_inner, writeSync) =>
+        writeSync('entityRelationType', 'update', value.id, payload.projectId, { ...value }),
+      );
+      postimage = snapshotAgentRuntimeEntity(value, 'relation_type');
+      break;
+    }
+  }
+  const receipt = await createAgentRuntimeEntityWriteReceiptRepository(tx).persist({
+    id: receiptId(payload, 'forward'),
+    effectId: payload.effectId,
+    commandId: payload.commandId,
+    direction: 'forward',
+    projectId: payload.projectId,
+    sessionId,
+    toolName: payload.toolName,
+    entityKind: payload.entityKind,
+    entityId: payload.entityId,
+    expectedRevision: payload.expectedRevision,
+    resultRevision: postimage?.value.updatedAt ?? null,
+    preimage: payload.preimage,
+    preimageHash: payload.preimage ? await hashEntityWriteValue(payload.preimage) : null,
+    postimage,
+    postimageHash: postimage ? await hashEntityWriteValue(postimage) : null,
+    createdAt: now(),
+  });
+  await journal.record(tx, {
+    projectId: payload.projectId,
+    changes,
+    committedAt: receipt.createdAt,
+  });
+  return { receipt };
+}
+
+async function applyInverseInTransaction(
+  tx: DbExecutor,
+  payload: StructuralWritePayload,
+  effect: PersistedAgentRuntimeWriteEffect,
+  forward: PersistedAgentRuntimeEntityWriteReceipt,
+  now: () => string,
+  journal: AgentAuthoredJournal,
+): Promise<AtomicResult> {
+  const receiptRepo = createAgentRuntimeEntityWriteReceiptRepository(tx);
+  const raced = await receiptRepo.get(payload.commandId, 'inverse');
+  if (raced) return { receipt: raced };
+  const changes = journal.createChangeSet();
+  const sync = transactionRunner(tx, journal, changes);
+  let postimage: AgentRuntimeEntityWriteSnapshot | null = null;
+  if (isCreateTool(payload.toolName)) {
+    const current = await loadActiveSnapshot(
+      tx,
+      payload.projectId,
+      payload.entityKind,
+      payload.entityId,
+    );
+    await assertUnchanged(
+      current,
+      forward,
+      'The created entity changed; exact reject is unavailable',
+    );
+    await deleteEntity(tx, payload, now());
+    await sync.runner(payload.projectId, (_inner, writeSync) =>
+      writeSync(
+        syncEntityType(payload.entityKind),
+        structuralDeleteMutation(payload.entityKind),
+        payload.entityId,
+        payload.projectId,
+      ),
+    );
+  } else if (isDeleteTool(payload.toolName)) {
+    if (!payload.preimage) throw new Error('The delete inverse lost its preimage');
+    postimage = await restoreDeletedEntity(tx, payload, payload.preimage, now());
+    const restorableEntityType = authoredLifecycleRestoreEntityType(payload.entityKind);
+    if (restorableEntityType) {
+      await appendAuthoredLifecycleRestoreInTransaction(tx, changes, {
+        projectId: payload.projectId,
+        entityType: restorableEntityType,
+        entityId: payload.entityId,
+      });
+    } else {
+      await sync.runner(payload.projectId, async (_inner, writeSync) => {
+        await writeSync(
+          syncEntityType(payload.entityKind),
+          structuralRestoreMutation(payload.entityKind),
+          payload.entityId,
+          payload.projectId,
+          snapshotPayload(postimage!),
+        );
+      });
+    }
+    if (postimage?.kind === 'comment') {
+      const restoredActions = postimage.actions ?? [];
+      await sync.runner(payload.projectId, async (_inner, writeSync) => {
+        for (const action of restoredActions) {
+          await writeSync(
+            'commentAction',
+            'restore',
+            action.id,
+            payload.projectId,
+            commentActionPayload(action),
+          );
+        }
+      });
+    }
+  } else {
+    const current = await loadActiveSnapshot(
+      tx,
+      payload.projectId,
+      payload.entityKind,
+      payload.entityId,
+    );
+    await assertUnchanged(
+      current,
+      forward,
+      'The updated entity changed; exact reject is unavailable',
+    );
+    if (!payload.preimage) throw new Error('The update inverse lost its preimage');
+    postimage = await restoreUpdatedEntity(tx, changes, payload, payload.preimage, now());
+    await sync.runner(payload.projectId, (_inner, writeSync) =>
+      writeSync(
+        syncEntityType(payload.entityKind),
+        'update',
+        payload.entityId,
+        payload.projectId,
+        snapshotPayload(postimage!),
+      ),
+    );
+  }
+  const receipt = await receiptRepo.persist({
+    id: receiptId(payload, 'inverse'),
+    effectId: payload.effectId,
+    commandId: payload.commandId,
+    direction: 'inverse',
+    projectId: payload.projectId,
+    sessionId: effect.sessionId,
+    toolName: payload.toolName,
+    entityKind: payload.entityKind,
+    entityId: payload.entityId,
+    expectedRevision: forward.resultRevision,
+    resultRevision: postimage?.value.updatedAt ?? null,
+    preimage: payload.preimage,
+    preimageHash: payload.preimage ? await hashEntityWriteValue(payload.preimage) : null,
+    postimage,
+    postimageHash: postimage ? await hashEntityWriteValue(postimage) : null,
+    createdAt: now(),
+  });
+  await journal.record(tx, {
+    projectId: payload.projectId,
+    changes,
+    committedAt: receipt.createdAt,
+  });
+  return { receipt };
+}
+
+async function deleteEntity(
+  tx: DbExecutor,
+  payload: StructuralWritePayload,
+  timestamp: string,
+): Promise<void> {
+  if (payload.entityKind === 'comment') {
+    await createCommentRepository(payload.projectId, tx).delete(payload.entityId);
+    return;
+  }
+  if (payload.entityKind === 'relation') {
+    await tx.delete(EntityRelationTable).where(eq(EntityRelationTable.id, payload.entityId));
+    return;
+  }
+  if (payload.entityKind === 'relation_type') {
+    await createEntityRelationTypeRepository(payload.projectId, tx).remove(payload.entityId);
+    return;
+  }
+  const table = structuralTable(payload.entityKind);
+  await tx
+    .update(table)
+    .set({ deletedAt: timestamp, updatedAt: timestamp })
+    .where(and(eq(table.id, payload.entityId), eq(table.projectId, payload.projectId)));
+}
+
+async function assertStructuralDeleteAllowed(
+  db: DbExecutor,
+  projectId: string,
+  entityKind: StructuralEntityWriteKind,
+  entityId: string,
+): Promise<void> {
+  if (entityKind === 'relation_type') {
+    const count = await createEntityRelationTypeRepository(projectId, db).countRelations(entityId);
+    if (count > 0) {
+      throw new Error(`This relation type is still used by ${count} relations.`);
+    }
+    return;
+  }
+  if (entityKind !== 'relation') {
+    const relations = await db
+      .select({ id: EntityRelationTable.id })
+      .from(EntityRelationTable)
+      .where(
+        and(
+          eq(EntityRelationTable.projectId, projectId),
+          or(
+            and(
+              eq(EntityRelationTable.fromKind, entityKind),
+              eq(EntityRelationTable.fromId, entityId),
+            ),
+            and(eq(EntityRelationTable.toKind, entityKind), eq(EntityRelationTable.toId, entityId)),
+          ),
+        ),
+      )
+      .limit(20);
+    if (relations.length > 0) {
+      throw new Error(
+        `This entity still has curated relations: ${relations
+          .map((relation) => `实体关系「${relation.id}」`)
+          .join('、')}。Remove those relations before deleting the entity.`,
+      );
+    }
+  }
+
+  if (
+    entityKind === 'node' ||
+    entityKind === 'element' ||
+    entityKind === 'storyline' ||
+    entityKind === 'category'
+  ) {
+    const comments = await db
+      .select({ id: CommentTable.id })
+      .from(CommentTable)
+      .where(
+        and(
+          eq(CommentTable.projectId, projectId),
+          eq(CommentTable.targetKind, entityKind),
+          eq(CommentTable.targetId, entityId),
+        ),
+      )
+      .limit(20);
+    if (comments.length > 0) {
+      throw new Error(
+        `This entity still has attached comments or TODOs: ${comments
+          .map((comment) => `批注或待办「${comment.id}」`)
+          .join(
+            '、',
+          )}。Delete them, or assign them to another authored object, before deleting the entity.`,
+      );
+    }
+  }
+
+  if (entityKind === 'category') {
+    const children = await db
+      .select({
+        categoryName: ElementCategoryTable.name,
+        elementName: BookElementTable.name,
+      })
+      .from(BookElementTable)
+      .innerJoin(
+        ElementCategoryTable,
+        and(
+          eq(ElementCategoryTable.id, BookElementTable.categoryId),
+          eq(ElementCategoryTable.projectId, projectId),
+        ),
+      )
+      .where(
+        and(
+          eq(BookElementTable.projectId, projectId),
+          eq(BookElementTable.categoryId, entityId),
+          isNull(BookElementTable.deletedAt),
+        ),
+      )
+      .limit(20);
+    if (children.length > 0) {
+      throw new Error(
+        `This category still contains elements: ${children
+          .map((child) => `要素「${child.elementName}」（分类「${child.categoryName}」）`)
+          .join('、')}。Move or delete those elements before deleting the category.`,
+      );
+    }
+  }
+
+  if (entityKind === 'node' || entityKind === 'storyline') {
+    const memberships = await db
+      .select({ storylineName: StorylineTable.name })
+      .from(NodeStorylineLinkTable)
+      .innerJoin(
+        StorylineTable,
+        and(
+          eq(StorylineTable.id, NodeStorylineLinkTable.storylineId),
+          eq(StorylineTable.projectId, projectId),
+          isNull(StorylineTable.deletedAt),
+        ),
+      )
+      .where(
+        entityKind === 'node'
+          ? eq(NodeStorylineLinkTable.nodeId, entityId)
+          : eq(NodeStorylineLinkTable.storylineId, entityId),
+      )
+      .limit(20);
+    if (memberships.length > 0) {
+      throw new Error(
+        `This entity still has storyline memberships in: ${[
+          ...new Set(
+            memberships.map((membership) => `故事线「${membership.storylineName}」章节关系`),
+          ),
+        ].join('、')}。Remove those storyline memberships before deleting the entity.`,
+      );
+    }
+  }
+}
+
+async function restoreDeletedEntity(
+  tx: DbExecutor,
+  payload: StructuralWritePayload,
+  preimage: AgentRuntimeEntityWriteSnapshot,
+  updatedAt: string,
+): Promise<AgentRuntimeEntityWriteSnapshot> {
+  if (preimage.kind === 'comment') {
+    const value = await createCommentRepository(payload.projectId, tx).create({
+      ...preimage.value,
+      updatedAt,
+    });
+    const actionRepository = createCommentActionRepository(payload.projectId, tx);
+    const actions: CommentAction[] = [];
+    for (const action of preimage.actions ?? []) {
+      actions.push(await actionRepository.create(action));
+    }
+    return { kind: 'comment', value, actions };
+  }
+  if (preimage.kind === 'relation') {
+    const value = { ...preimage.value, updatedAt };
+    await tx.insert(EntityRelationTable).values(value);
+    return snapshotAgentRuntimeEntity(value, 'relation');
+  }
+  if (preimage.kind === 'relation_type') {
+    const value = { ...preimage.value, updatedAt };
+    await createEntityRelationTypeRepository(payload.projectId, tx).create(value);
+    return snapshotAgentRuntimeEntity(value, 'relation_type');
+  }
+  if (
+    preimage.kind === 'project' ||
+    preimage.kind === 'storyline_membership' ||
+    preimage.kind === 'memory' ||
+    preimage.kind === 'authoring_scope'
+  ) {
+    throw new Error(`${preimage.kind} cannot be restored through a structural entity delete`);
+  }
+  const table = structuralTable(preimage.kind);
+  await tx
+    .update(table)
+    .set({ deletedAt: null, updatedAt })
+    .where(and(eq(table.id, payload.entityId), eq(table.projectId, payload.projectId)));
+  const restored = await loadActiveSnapshot(tx, payload.projectId, preimage.kind, payload.entityId);
+  if (!restored) throw new Error('The deleted entity could not be restored');
+  return restored;
+}
+
+async function restoreUpdatedEntity(
+  tx: DbExecutor,
+  changes: ReturnType<AgentAuthoredJournal['createChangeSet']>,
+  payload: StructuralWritePayload,
+  preimage: AgentRuntimeEntityWriteSnapshot,
+  updatedAt: string,
+): Promise<AgentRuntimeEntityWriteSnapshot> {
+  if (preimage.kind === 'category') {
+    const { elementTemplateKvJson, ...scalarValue } = preimage.value;
+    const repo = createElementCategoryRepository(payload.projectId, tx);
+    await repo.update(
+      payload.entityId,
+      { ...scalarValue, updatedAt },
+    );
+    await replaceEntityKvEntriesInTransaction(tx, changes, {
+      projectId: payload.projectId,
+      ownerKind: 'element-category',
+      ownerId: payload.entityId,
+      namespace: 'element-template',
+      nextJson: elementTemplateKvJson,
+    });
+    const value = (await repo.findAll()).find((category) => category.id === payload.entityId);
+    if (!value) throw new Error('The category inverse failed');
+    return snapshotAgentRuntimeEntity(value, 'category');
+  }
+  if (preimage.kind === 'comment') {
+    const value = await createCommentRepository(payload.projectId, tx).update(payload.entityId, {
+      ...preimage.value,
+      updatedAt,
+    });
+    if (!value) throw new Error('The comment inverse failed');
+    return snapshotAgentRuntimeEntity(value, 'comment');
+  }
+  if (preimage.kind === 'relation') {
+    const rows = await tx
+      .update(EntityRelationTable)
+      .set({
+        fromKind: preimage.value.fromKind,
+        fromId: preimage.value.fromId,
+        toKind: preimage.value.toKind,
+        toId: preimage.value.toId,
+        relationTypeId: preimage.value.relationTypeId,
+        updatedAt,
+      })
+      .where(eq(EntityRelationTable.id, payload.entityId))
+      .returning();
+    if (!rows[0]) throw new Error('The relation inverse failed');
+    return snapshotAgentRuntimeEntity(relationFromRow(rows[0]), 'relation');
+  }
+  if (preimage.kind === 'relation_type') {
+    const value = { ...preimage.value, updatedAt };
+    await createEntityRelationTypeRepository(payload.projectId, tx).update(value);
+    return snapshotAgentRuntimeEntity(value, 'relation_type');
+  }
+  throw new Error(`Unsupported structural update inverse for ${preimage.kind}`);
+}
+
+async function loadActiveSnapshot(
+  tx: DbExecutor,
+  projectId: string,
+  kind: ExpectedEntityKind,
+  id: string,
+): Promise<AgentRuntimeEntityWriteSnapshot | null> {
+  if (kind === 'node') {
+    const active = await tx
+      .select({ id: BookNodeTable.id })
+      .from(BookNodeTable)
+      .where(
+        and(
+          eq(BookNodeTable.id, id),
+          eq(BookNodeTable.projectId, projectId),
+          isNull(BookNodeTable.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!active[0]) return null;
+    const value = await createBookNodeSqliteRepository(projectId, tx).findById(id);
+    return value ? snapshotAgentRuntimeEntity(value, 'node') : null;
+  }
+  if (kind === 'element') {
+    const active = await tx
+      .select({ id: BookElementTable.id })
+      .from(BookElementTable)
+      .where(
+        and(
+          eq(BookElementTable.id, id),
+          eq(BookElementTable.projectId, projectId),
+          isNull(BookElementTable.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!active[0]) return null;
+    const value = await createBookElementSqliteRepository(projectId, tx).findById(id);
+    return value ? snapshotAgentRuntimeEntity(value, 'element') : null;
+  }
+  if (kind === 'storyline') {
+    const active = await tx
+      .select({ id: StorylineTable.id })
+      .from(StorylineTable)
+      .where(
+        and(
+          eq(StorylineTable.id, id),
+          eq(StorylineTable.projectId, projectId),
+          isNull(StorylineTable.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!active[0]) return null;
+    const value = await createStorylineRepository(projectId, tx).getStorylineById(id);
+    return value ? snapshotAgentRuntimeEntity(value, 'storyline') : null;
+  }
+  if (kind === 'category') {
+    const rows = await tx
+      .select()
+      .from(ElementCategoryTable)
+      .where(
+        and(
+          eq(ElementCategoryTable.id, id),
+          eq(ElementCategoryTable.projectId, projectId),
+          isNull(ElementCategoryTable.deletedAt),
+        ),
+      )
+      .limit(1);
+    return rows[0] ? snapshotAgentRuntimeEntity(rows[0] as BookElementCategory, 'category') : null;
+  }
+  if (kind === 'comment') {
+    const value = await createCommentRepository(projectId, tx).findById(id);
+    return value?.projectId === projectId ? snapshotAgentRuntimeEntity(value, 'comment') : null;
+  }
+  if (kind === 'relation') {
+    const value = await loadRelation(tx, projectId, id);
+    return value ? snapshotAgentRuntimeEntity(value, 'relation') : null;
+  }
+  if (kind === 'relation_type') {
+    const value = await createEntityRelationTypeRepository(projectId, tx).findById(id);
+    return value ? snapshotAgentRuntimeEntity(value, 'relation_type') : null;
+  }
+  return null;
+}
+
+async function loadRelation(
+  db: DbExecutor,
+  projectId: string,
+  id: string,
+): Promise<AgentRuntimeEntityRelationSnapshotValue | null> {
+  const rows = await db
+    .select()
+    .from(EntityRelationTable)
+    .where(and(eq(EntityRelationTable.id, id), eq(EntityRelationTable.projectId, projectId)))
+    .limit(1);
+  return rows[0] ? relationFromRow(rows[0]) : null;
+}
+
+function relationFromRow(
+  row: typeof EntityRelationTable.$inferSelect,
+): AgentRuntimeEntityRelationSnapshotValue {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    fromKind: row.fromKind,
+    fromId: row.fromId,
+    toKind: row.toKind,
+    toId: row.toId,
+    relationTypeId: row.relationTypeId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function structuralTable(kind: 'node' | 'element' | 'storyline' | 'category') {
+  if (kind === 'node') return BookNodeTable;
+  if (kind === 'element') return BookElementTable;
+  if (kind === 'storyline') return StorylineTable;
+  return ElementCategoryTable;
+}
+
+function syncEntityType(kind: StructuralEntityWriteKind) {
+  if (kind === 'category') return 'elementCategory' as const;
+  if (kind === 'relation') return 'entityRelation' as const;
+  if (kind === 'relation_type') return 'entityRelationType' as const;
+  return kind;
+}
+
+function structuralDeleteMutation(_kind: StructuralEntityWriteKind) {
+  return 'softDelete' as const;
+}
+
+function structuralRestoreMutation(_kind: StructuralEntityWriteKind) {
+  return 'restore' as const;
+}
+
+function authoredLifecycleRestoreEntityType(
+  kind: StructuralEntityWriteKind,
+): 'node' | 'storyline' | 'element' | 'elementCategory' | null {
+  if (kind === 'node' || kind === 'storyline' || kind === 'element') return kind;
+  return kind === 'category' ? 'elementCategory' : null;
+}
+
+function snapshotPayload(snapshot: AgentRuntimeEntityWriteSnapshot): Record<string, unknown> {
+  if (snapshot.kind === 'node') return nodePayload(snapshot.value);
+  if (snapshot.kind === 'element') return elementPayload(snapshot.value);
+  if (snapshot.kind === 'storyline') return storylinePayload(snapshot.value);
+  if (snapshot.kind === 'category') return categoryPayload(snapshot.value);
+  if (snapshot.kind === 'comment') return commentPayload(snapshot.value);
+  if (snapshot.kind === 'relation') return relationPayload(snapshot.value);
+  if (snapshot.kind === 'relation_type') return { ...snapshot.value };
+  return {};
+}
+
+function nodePayload(value: BookNode): Record<string, unknown> {
+  return {
+    id: value.id,
+    title: value.title,
+    summary: value.summary,
+    bookOrder: value.bookOrder,
+    narrativeOrder: value.narrativeOrder,
+    kind: value.kind,
+    driftGroupId: value.driftGroupId,
+    positionX: value.position.x,
+    positionY: value.position.y,
+    wordCount: value.wordCount,
+    wordCountBasisKind: value.wordCountBasisKind ?? null,
+    wordCountBasisHash: value.wordCountBasisHash ?? null,
+    wordCountBasisRevision: value.wordCountBasisRevision ?? null,
+    wordCountBasisServerSeq: value.wordCountBasisServerSeq ?? null,
+    writingStatus: value.writingStatus,
+  };
+}
+
+function elementPayload(value: BookElement): Record<string, unknown> {
+  return {
+    id: value.id,
+    categoryId: value.categoryId,
+    name: value.name,
+    summary: value.summary,
+    groupName: value.groupName,
+    portraitAssetId: value.portraitAssetId,
+  };
+}
+
+function storylinePayload(value: Storyline): Record<string, unknown> {
+  return {
+    id: value.id,
+    name: value.name,
+    color: value.color,
+    summary: value.summary,
+    nodeContentTemplateJson: value.nodeContentTemplateJson,
+  };
+}
+
+function categoryPayload(value: BookElementCategory): Record<string, unknown> {
+  return {
+    id: value.id,
+    name: value.name,
+    elementTemplateJson: value.elementTemplateJson,
+    color: value.color,
+    layoutMode: value.layoutMode,
+    gridX: value.gridX,
+    gridY: value.gridY,
+  };
+}
+
+function commentPayload(value: Comment): Record<string, unknown> {
+  return {
+    id: value.id,
+    kind: value.kind,
+    targetKind: value.targetKind,
+    targetId: value.targetId,
+    targetBlockId: value.targetBlockId,
+    anchorJson: value.anchorJson,
+    authorKind: value.authorKind,
+    authorId: value.authorId,
+    authorName: value.authorName,
+    bodyJson: value.bodyJson,
+    status: value.status,
+    priority: value.priority,
+    source: value.source,
+    metadataJson: value.metadataJson,
+    targetBlockIdsJson: value.targetBlockIdsJson,
+    resolvedAt: value.resolvedAt,
+  };
+}
+
+function commentActionPayload(value: CommentAction): Record<string, unknown> {
+  return {
+    id: value.id,
+    commentId: value.commentId,
+    kind: value.kind,
+    label: value.label,
+    payloadJson: value.payloadJson,
+    status: value.status,
+    resultJson: value.resultJson,
+    createdByKind: value.createdByKind,
+    createdById: value.createdById,
+    appliedAt: value.appliedAt,
+  };
+}
+
+function relationPayload(value: AgentRuntimeEntityRelationSnapshotValue): Record<string, unknown> {
+  return {
+    id: value.id,
+    fromKind: value.fromKind,
+    fromId: value.fromId,
+    toKind: value.toKind,
+    toId: value.toId,
+    relationTypeId: value.relationTypeId,
+  };
+}
+
+async function assertRelationEndpoints(
+  tx: DbExecutor,
+  relation: AgentRuntimeEntityRelationSnapshotValue,
+): Promise<void> {
+  const from = await entityExists(tx, relation.projectId, relation.fromKind, relation.fromId);
+  const to = await entityExists(tx, relation.projectId, relation.toKind, relation.toId);
+  if (!from || !to) throw new Error('A relation endpoint no longer exists in this project');
+}
+
+async function entityExists(
+  tx: DbExecutor,
+  projectId: string,
+  kind: string,
+  id: string,
+): Promise<boolean> {
+  if (kind === 'comment') {
+    return Boolean(await createCommentRepository(projectId, tx).findById(id));
+  }
+  if (kind === 'patch') {
+    const rows = await tx
+      .select({ id: ElementPatchTable.id })
+      .from(ElementPatchTable)
+      .where(and(eq(ElementPatchTable.id, id), eq(ElementPatchTable.projectId, projectId)))
+      .limit(1);
+    return Boolean(rows[0]);
+  }
+  if (kind === 'library_item') {
+    const rows = await tx
+      .select({ id: LibraryItemTable.id })
+      .from(LibraryItemTable)
+      .where(and(eq(LibraryItemTable.id, id), eq(LibraryItemTable.projectId, projectId)))
+      .limit(1);
+    return Boolean(rows[0]);
+  }
+  if (kind === 'node' || kind === 'element' || kind === 'storyline' || kind === 'category') {
+    return Boolean(await loadActiveSnapshot(tx, projectId, kind, id));
+  }
+  return false;
+}
+
+function resolveNode(projectId: string, value: unknown) {
+  return resolveNamed(
+    useDataStore.getState().bookNodes.filter((item) => item.projectId === projectId),
+    value,
+    (item) => item.title,
+    'node',
+  );
+}
+
+function resolveElement(projectId: string, value: unknown) {
+  const elements = useDataStore
+    .getState()
+    .bookElements.filter((item) => item.projectId === projectId);
+  const reference = requiredString(value, 'element reference is required');
+  const direct = elements.find((element) => element.id === reference);
+  if (direct) return direct;
+  const matches = elements.filter((element) =>
+    allElementNames(element).some((name) => sameName(name, reference)),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No element named "${reference}" exists in this project`
+        : `element reference "${reference}" is ambiguous`,
+    );
+  }
+  return matches[0]!;
+}
+
+function resolveStoryline(projectId: string, value: unknown) {
+  return resolveNamed(
+    useDataStore.getState().storylines.filter((item) => item.projectId === projectId),
+    value,
+    (item) => item.name,
+    'storyline',
+  );
+}
+
+function resolveCategory(projectId: string, value: unknown) {
+  const categories = useDataStore
+    .getState()
+    .bookElementCategories.filter((item) => item.projectId === projectId);
+  try {
+    return resolveNamed(categories, value, (item) => item.name, 'category');
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('No category named')) {
+      const reference = requiredString(value, 'category reference is required');
+      const normalizedReference = normalizedName(reference);
+      const containedMatches = categories.filter((category) => {
+        const candidate = normalizedName(category.name);
+        return candidate.includes(normalizedReference) || normalizedReference.includes(candidate);
+      });
+      if (containedMatches.length === 1) return containedMatches[0]!;
+      throw new Error(
+        `${error.message}. Create 要素分类「${reference}」 first with create_element_category, then retry the same element.`,
+      );
+    }
+    throw error;
+  }
+}
+
+function resolveNamed<T extends { id: string }>(
+  values: readonly T[],
+  raw: unknown,
+  name: (value: T) => string,
+  kind: string,
+): T {
+  const reference = requiredString(raw, `${kind} reference is required`);
+  const direct = values.find((value) => value.id === reference);
+  if (direct) return direct;
+  const matches = values.filter((value) => sameName(name(value), reference));
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No ${kind} named "${reference}" exists in this project`
+        : `${kind} reference "${reference}" is ambiguous`,
+    );
+  }
+  return matches[0]!;
+}
+
+async function resolveEntityId(
+  db: DbExecutor,
+  projectId: string,
+  kind: EntityKind,
+  value: unknown,
+): Promise<string> {
+  if (kind === 'node') return resolveNode(projectId, value).id;
+  if (kind === 'element') return resolveElement(projectId, value).id;
+  if (kind === 'storyline') return resolveStoryline(projectId, value).id;
+  if (kind === 'category') return resolveCategory(projectId, value).id;
+  if (kind === 'comment') {
+    const id = requiredString(value, 'Comment id is required');
+    const comment = useDataStore
+      .getState()
+      .comments.find((item) => item.projectId === projectId && item.id === id);
+    if (!comment) throw new Error(`No comment "${id}" exists in this project`);
+    return id;
+  }
+  if (kind === 'library_item') {
+    return resolveNamed(
+      useDataStore.getState().libraryItems.filter((item) => item.projectId === projectId),
+      value,
+      (item) => item.title,
+      'library item',
+    ).id;
+  }
+  const reference = requiredString(value, 'Element patch id or title is required');
+  const rows = await db
+    .select({ id: ElementPatchTable.id, title: ElementPatchTable.title })
+    .from(ElementPatchTable)
+    .where(eq(ElementPatchTable.projectId, projectId));
+  return resolveNamed(rows, reference, (patch) => patch.title ?? '', 'element patch').id;
+}
+
+function normalizeEntityKind(value: string): EntityKind {
+  if (value === 'chapter' || value === 'drift') return 'node';
+  if (value === 'element_patch') return 'patch';
+  if (value === 'material') return 'library_item';
+  if (
+    value === 'node' ||
+    value === 'element' ||
+    value === 'patch' ||
+    value === 'storyline' ||
+    value === 'category' ||
+    value === 'comment' ||
+    value === 'library_item'
+  ) {
+    return value;
+  }
+  throw new Error(`Unsupported entity kind "${value}"`);
+}
+
+function parseCommentKind(value: unknown): CommentKind | null {
+  return value === 'note' || value === 'todo' ? value : null;
+}
+
+function parseCommentStatus(value: unknown): CommentStatus | null {
+  return value === 'open' || value === 'resolved' ? value : null;
+}
+
+function parseFacts(value: unknown): KvEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+    const key = String((candidate as { key?: unknown }).key ?? '').trim();
+    const factValue = String((candidate as { value?: unknown }).value ?? '');
+    return key ? [{ key, value: factValue }] : [];
+  });
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((candidate): candidate is string => typeof candidate === 'string')
+        .map((candidate) => candidate.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function requireExpectation(
+  expectation: PersistedAgentRuntimeWriteExpectation | null | undefined,
+  request: AgentToolExecutionRequest,
+  entityKind: ExpectedEntityKind,
+  entityId: string,
+): asserts expectation is PersistedAgentRuntimeWriteExpectation {
+  if (
+    !expectation ||
+    expectation.projectId !== request.context.route.projectId ||
+    expectation.sessionId !== request.sessionId ||
+    expectation.writeTurnId !== request.turnId ||
+    expectation.entityKind !== entityKind ||
+    expectation.entityId !== entityId
+  ) {
+    throw new Error(`${request.name} lost its exact dependent-read expectation`);
+  }
+}
+
+function assertExpectedRevision(
+  expectation: PersistedAgentRuntimeWriteExpectation | null | undefined,
+  currentRevision: string,
+  readTool: string,
+): void {
+  if (!expectation || expectation.expectedRevision !== currentRevision) {
+    throw new Error(`The target changed after ${readTool}; read it again before writing`);
+  }
+}
+
+function parsePayload(
+  value: unknown,
+  toolName: DriftingStructuralWriteTool,
+): StructuralWritePayload {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    (value as { kind?: unknown }).kind !== 'structural_write_command' ||
+    (value as { toolName?: unknown }).toolName !== toolName
+  ) {
+    throw new Error(`${toolName} lost its prepared structural payload`);
+  }
+  return value as StructuralWritePayload;
+}
+
+function receiptId(payload: StructuralWritePayload, direction: 'forward' | 'inverse'): string {
+  return `agent-entity-write-receipt:${payload.effectId}:${direction}`;
+}
+
+function assertReceipt(
+  receipt: PersistedAgentRuntimeEntityWriteReceipt | null,
+  payload: StructuralWritePayload,
+  direction: 'forward' | 'inverse',
+): asserts receipt is PersistedAgentRuntimeEntityWriteReceipt {
+  if (
+    !receipt ||
+    receipt.id !== receiptId(payload, direction) ||
+    receipt.commandId !== payload.commandId ||
+    receipt.effectId !== payload.effectId ||
+    receipt.direction !== direction ||
+    receipt.projectId !== payload.projectId ||
+    receipt.toolName !== payload.toolName ||
+    receipt.entityKind !== payload.entityKind ||
+    receipt.entityId !== payload.entityId
+  ) {
+    throw new Error(`${payload.toolName} has no matching immutable ${direction} receipt`);
+  }
+}
+
+function assertEffect(
+  effect: PersistedAgentRuntimeWriteEffect,
+  payload: StructuralWritePayload,
+): void {
+  if (
+    effect.id !== payload.effectId ||
+    effect.projectId !== payload.projectId ||
+    effect.idempotencyKey !== payload.commandId.replace(/^agent-entity-write:/, '')
+  ) {
+    throw new Error('The structural write effect conflicts with its prepared payload');
+  }
+}
+
+async function assertUnchanged(
+  current: AgentRuntimeEntityWriteSnapshot | null,
+  forward: PersistedAgentRuntimeEntityWriteReceipt,
+  message: string,
+): Promise<void> {
+  if (
+    !current ||
+    !forward.postimageHash ||
+    current.value.updatedAt !== forward.resultRevision ||
+    (await hashEntityWriteValue(current)) !== forward.postimageHash
+  ) {
+    throw new Error(message);
+  }
+}
+
+function isCreateTool(tool: DriftingStructuralWriteTool): boolean {
+  return tool.startsWith('create_') || tool === 'add_relation';
+}
+
+function isDeleteTool(tool: DriftingStructuralWriteTool): boolean {
+  return tool.startsWith('delete_') || tool === 'remove_relation';
+}
+
+function committedEffect(
+  payload: StructuralWritePayload,
+  receipt: PersistedAgentRuntimeEntityWriteReceipt,
+) {
+  return {
+    kind: 'entity_write',
+    commandId: payload.commandId,
+    entityKind: payload.entityKind,
+    entityId: payload.entityId,
+    revision: receipt.resultRevision,
+    postimage: receipt.postimage,
+    receiptId: receipt.id,
+    handlerResult: handlerResult(payload, receipt.postimage),
+  };
+}
+
+function inverseEffect(receipt: PersistedAgentRuntimeEntityWriteReceipt, reconciled: boolean) {
+  return {
+    kind: 'entity_write_revert',
+    commandId: receipt.commandId,
+    entityKind: receipt.entityKind,
+    entityId: receipt.entityId,
+    revision: receipt.resultRevision,
+    postimage: receipt.postimage,
+    receiptId: receipt.id,
+    reconciled,
+  };
+}
+
+function handlerResult(
+  payload: StructuralWritePayload,
+  snapshot: AgentRuntimeEntityWriteSnapshot | null,
+): Record<string, unknown> {
+  return {
+    ok: true,
+    entityType: payload.entityKind,
+    entityId: payload.entityId,
+    name: snapshot ? snapshotName(snapshot) : snapshotName(payload.preimage),
+    deleted: snapshot === null && payload.preimage !== null,
+  };
+}
+
+function assertHandlerResult(value: unknown, payload: StructuralWritePayload): void {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    (value as { ok?: unknown }).ok !== true ||
+    (value as { entityId?: unknown }).entityId !== payload.entityId
+  ) {
+    throw new Error('The structural write handler result is invalid');
+  }
+}
+
+function snapshotName(snapshot: AgentRuntimeEntityWriteSnapshot | null): string | null {
+  if (!snapshot) return null;
+  if (snapshot.kind === 'node') return snapshot.value.title;
+  if (
+    snapshot.kind === 'element' ||
+    snapshot.kind === 'storyline' ||
+    snapshot.kind === 'category' ||
+    snapshot.kind === 'project'
+  ) {
+    return snapshot.value.name;
+  }
+  return snapshot.value.id;
+}
+
+/**
+ * Mirrors a committed write into the data store. A new element is also
+ * announced as created, so every open editor links prose that already named
+ * it, as when the author creates one (useBookElement.createElement).
+ * Exported for tests.
+ */
+export function projectSnapshot(
+  payload: Pick<StructuralWritePayload, 'entityKind' | 'entityId'>,
+  snapshot: AgentRuntimeEntityWriteSnapshot | null,
+): void {
+  const data = useDataStore.getState();
+  if (!snapshot) {
+    if (payload.entityKind === 'node') data.removeBookNode(payload.entityId);
+    else if (payload.entityKind === 'element') data.removeBookElement(payload.entityId);
+    else if (payload.entityKind === 'storyline') data.removeStoryline(payload.entityId);
+    else if (payload.entityKind === 'category') data.removeBookElementCategory(payload.entityId);
+    else if (payload.entityKind === 'comment') data.removeComment(payload.entityId);
+    else if (payload.entityKind === 'relation') data.removeEntityRelation(payload.entityId);
+    else if (payload.entityKind === 'relation_type')
+      data.removeEntityRelationType(payload.entityId);
+    return;
+  }
+  if (snapshot.kind === 'node') {
+    const exists = data.bookNodes.some((item) => item.id === snapshot.value.id);
+    if (exists) data.updateBookNode(snapshot.value.id, snapshot.value);
+    else data.addBookNode(snapshot.value);
+  } else if (snapshot.kind === 'element') {
+    const exists = data.bookElements.some((item) => item.id === snapshot.value.id);
+    if (exists) data.updateBookElement(snapshot.value.id, snapshot.value);
+    else {
+      data.addBookElement(snapshot.value);
+      events.emit('element:element-created', { element: snapshot.value });
+    }
+  } else if (snapshot.kind === 'storyline') {
+    const exists = data.storylines.some((item) => item.id === snapshot.value.id);
+    if (exists) data.updateStoryline(snapshot.value.id, snapshot.value);
+    else data.addStoryline(snapshot.value);
+  } else if (snapshot.kind === 'category') {
+    const exists = data.bookElementCategories.some((item) => item.id === snapshot.value.id);
+    if (exists) data.updateBookElementCategory(snapshot.value.id, snapshot.value);
+    else data.addBookElementCategory(snapshot.value);
+  } else if (snapshot.kind === 'comment') {
+    const exists = data.comments.some((item) => item.id === snapshot.value.id);
+    if (exists) data.updateComment(snapshot.value.id, snapshot.value);
+    else data.addComment(snapshot.value);
+    for (const action of snapshot.actions ?? []) {
+      if (!data.commentActions.some((candidate) => candidate.id === action.id)) {
+        data.addCommentAction(action);
+      }
+    }
+  } else if (snapshot.kind === 'relation') {
+    data.removeEntityRelation(snapshot.value.id);
+    data.addEntityRelation(snapshot.value as EntityRelationLink);
+  } else if (snapshot.kind === 'relation_type') {
+    const exists = data.entityRelationTypes.some((item) => item.id === snapshot.value.id);
+    if (exists) data.updateEntityRelationType(snapshot.value.id, snapshot.value);
+    else data.addEntityRelationType(snapshot.value);
+  }
+}
+
+function transactionRunner(
+  tx: DbExecutor,
+  journal: AgentAuthoredJournal,
+  changes: ReturnType<AgentAuthoredJournal['createChangeSet']>,
+): { runner: EntityAtomicTransactionRunner } {
+  return {
+    runner: async (projectId, work) =>
+      work(tx, async (entityType, mutationType, entityId, mutationProjectId, payload, parentId) => {
+        if (mutationProjectId !== projectId) {
+          throw new Error(`Structural write for ${projectId} cannot sync ${mutationProjectId}`);
+        }
+        await appendAgentDomainMutation(journal, changes, projectId, {
+            entityType,
+            mutationType,
+            entityId,
+            payload,
+            parentId,
+          });
+      }, changes),
+  };
+}
+
+function requiredString(value: unknown, message: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(message);
+  return value.trim();
+}
+
+function assertDifferentRelationEndpoints(
+  fromKind: string,
+  fromId: string,
+  toKind: string,
+  toId: string,
+): void {
+  if (fromKind === toKind && fromId === toId) {
+    throw new Error('A relation must connect two different authored objects');
+  }
+}
+
+function sameName(left: string, right: string): boolean {
+  return normalizedName(left) === normalizedName(right);
+}
+
+function normalizedName(value: string): string {
+  return value.trim().normalize('NFKC').toLocaleLowerCase();
+}
+
+/**
+ * A new body's location links resolve against the project's current prose,
+ * and the registered names in it are linked. The new entity has no registered
+ * name yet, so none of its own needs excluding.
+ */
+async function newProseBodyInput(
+  projectId: string,
+  kind: ProseEntityType,
+  input: { content: string; idempotencyKey: string },
+): Promise<Parameters<typeof createWorkspaceProseContentJson>[0]> {
+  const locations = await loadLocationResolver(projectId, { markdown: [input.content] });
+  const names = writtenProseLinkConfig(projectId, kind, '');
+  return { ...input, names, ...(locations ? { locations } : {}) };
+}

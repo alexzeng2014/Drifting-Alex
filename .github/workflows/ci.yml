@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  client-checks:
+    name: client / checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The type check peaks near 2.6 GB, above the heap Node picks for itself
+      # on a small runner; the release verification sets the same limit.
+      NODE_OPTIONS: --max-old-space-size=4096
+      VITE_LOCAL_ONLY_MODE: 'true'
+      VITE_REQUIRE_AUTH: 'false'
+      VITE_AI_TRANSPORT: direct
+      VITE_API_BASE_URL: http://localhost:3000
+      API_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.1
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.17.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ci:contract:check
+      - run: pnpm openai:catalog:check
+      - run: pnpm public:check
+      - run: node scripts/check-macos-icon.mjs --check
+      - run: pnpm security:dependencies
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm locales:check
+      - run: pnpm agent:conversation-sync:check
+      - run: pnpm agent:capabilities:check
+      - run: pnpm exec vite build --config vite.renderer.config.ts
+
+  client-tests:
+    name: client / tests (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
+    env:
+      VITE_LOCAL_ONLY_MODE: 'true'
+      VITE_REQUIRE_AUTH: 'false'
+      VITE_AI_TRANSPORT: direct
+      VITE_API_BASE_URL: http://localhost:3000
+      API_BASE_URL: http://localhost:3000
+      TEST_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.1
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.17.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run --shard="$TEST_SHARD"
+
+  client-renderer:
+    name: client / renderer contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DRIFTING_PERF_CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.1
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.17.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Verify headless browser binary
+        run: '"$DRIFTING_PERF_CHROME" --version'
+      - name: Check current renderer behavior and operation counts
+        run: pnpm perf:renderer --ci --output=.local-data/renderer-performance/ci.json
+      - name: Check renderer resource release
+        run: pnpm perf:renderer:lifecycle --output=.local-data/renderer-performance/lifecycle.json
+      - name: Retain renderer evidence and failure diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: renderer-contracts-${{ github.sha }}
+          path: |
+            .local-data/renderer-performance/ci.json
+            .local-data/renderer-performance/lifecycle.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Keep the stable `client` context required by the main-branch ruleset while
+  # allowing checks, builds, and test shards to finish independently.
+  client:
+    name: client
+    if: ${{ always() }}
+    needs: [client-checks, client-tests, client-renderer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every client lane
+        env:
+          CHECKS_RESULT: ${{ needs.client-checks.result }}
+          TESTS_RESULT: ${{ needs.client-tests.result }}
+          RENDERER_RESULT: ${{ needs.client-renderer.result }}
+        run: |
+          test "$CHECKS_RESULT" = success
+          test "$TESTS_RESULT" = success
+          test "$RENDERER_RESULT" = success
+
+  native:
+    runs-on: macos-26
+    # A cold build of the app plus the shared database tests (five minutes on
+    # a desktop Mac) needs the same room as the release verification.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, toolchain input
+        with:
+          toolchain: 1.96.0
+          components: rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: |
+            src-tauri
+            crates/drifting-core
+            crates/drifting-document
+            crates/drifting-prose
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo check --manifest-path src-tauri/Cargo.toml --locked --all-targets
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
+
+      - run: cargo fmt --manifest-path crates/drifting-core/Cargo.toml --check
+      # core:test first checks the prose journal fixture with a TypeScript
+      # oracle, so this lane needs Node and the frozen dependencies too.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22.23.1
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.17.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm core:test
+      # The Rust lockfiles against the RustSec advisory database; pnpm audit
+      # covers the npm side in client / checks.
+      - run: cargo install cargo-audit --version 0.22.2 --locked
+      - run: pnpm security:rust

@@ -1,0 +1,142 @@
+import path from 'node:path';
+
+import { describe, expect, it, vi } from 'vitest';
+
+// @ts-expect-error The executable Node launcher intentionally lives outside the renderer TS graph.
+import * as installer from '../../../scripts/install-ios-debug-device.mjs';
+
+const {
+  createIosDeviceDebugPlan,
+  installIosDebugDevice,
+  parseIosDeviceDebugArguments,
+} = installer;
+
+// iOS builds need Xcode, so only macOS runs these.
+describe.skipIf(process.platform !== 'darwin')('standalone iOS device Debug installer', () => {
+  it('explicit online installation carries the origin into native configuration and bundled CSP', async () => {
+    const execute = vi.fn(async (command: string) => {
+      if (command === '/usr/bin/plutil') return 'cc.drifting.client\n';
+      if (command === 'xcodebuild') return JSON.stringify([{ target: 'drifting_iOS', buildSettings: { DRIFTING_HOSTED_ORIGIN: 'https://service.example.test' } }]);
+      return '';
+    });
+    const createEnvironment = vi.fn(() => ({ DRIFTING_HOSTED_ORIGIN: 'https://service.example.test',
+      VITE_API_BASE_URL: 'https://service.example.test', VITE_LOCAL_ONLY_MODE: 'false' }));
+    await installIosDebugDevice(['--device', 'paired-id', '--online', '--no-launch'], {
+      baseEnvironment: {}, platform: 'darwin', pathExists: () => true, execute,
+      createEnvironment, writeBuildConfiguration: () => ({ signingConfigured: false }),
+    });
+    expect(createEnvironment).toHaveBeenCalledWith('ios', expect.objectContaining({ mode: 'online' }));
+    const args = execute.mock.calls[1] as unknown as [string, string[]];
+    const config = JSON.parse(args[1][args[1].indexOf('--config') + 1]);
+    expect(config.app.security.csp).toContain('https://service.example.test');
+  });
+  it('accepts pnpm argument forwarding, explicit devices, and no-launch mode', () => {
+    expect(
+      parseIosDeviceDebugArguments(['--', '--device', 'Author iPhone', '--no-launch'], {}),
+    ).toEqual({ device: 'Author iPhone', launch: false, help: false });
+    expect(parseIosDeviceDebugArguments([], { DRIFTING_IOS_DEVICE: 'paired-id' })).toEqual({
+      device: 'paired-id',
+      launch: true,
+      help: false,
+    });
+  });
+
+  it('fails before building when the physical device target is ambiguous', () => {
+    expect(() => parseIosDeviceDebugArguments([], {})).toThrow('A paired iOS device is required');
+    expect(() => parseIosDeviceDebugArguments(['--device'], {})).toThrow(
+      '--device requires a device name or identifier',
+    );
+    expect(() => parseIosDeviceDebugArguments(['--open'], {})).toThrow(
+      'Unsupported option: --open',
+    );
+  });
+
+  it('builds a bundled arm64 archive and installs without a development server', () => {
+    const root = '/workspace/drifting';
+    const plan = createIosDeviceDebugPlan({
+      device: 'paired-id',
+      root,
+      pnpmExecutable: 'pnpm',
+    });
+
+    expect(plan.build).toEqual({
+      command: 'pnpm',
+      arguments: [
+        '--dir',
+        root,
+        'exec',
+        'tauri',
+        'ios',
+        'build',
+        '--debug',
+        '--target',
+        'aarch64',
+        '--archive-only',
+        '--ci',
+      ],
+    });
+    expect(plan.build.arguments).not.toContain('dev');
+    expect(plan.appPath).toBe(
+      path.join(
+        root,
+        'src-tauri/gen/apple/build/drifting_iOS.xcarchive/Products/Applications/Drifting.app',
+      ),
+    );
+    expect(plan.verifySignature.arguments).toContain(plan.appPath);
+    expect(plan.install.arguments).toEqual([
+      'devicectl',
+      'device',
+      'install',
+      'app',
+      '--device',
+      'paired-id',
+      plan.appPath,
+    ]);
+    expect(plan.launch?.arguments).toContain('cc.drifting.client');
+  });
+
+  it('prepares local-only signing build state, validates the bundle, installs, and launches', async () => {
+    const calls: Array<{
+      command: string;
+      arguments: readonly string[];
+      environment?: Record<string, string>;
+      captureOutput?: boolean;
+    }> = [];
+    const execute = vi.fn(
+      async (
+        command: string,
+        args: readonly string[],
+        options: { environment?: Record<string, string>; captureOutput?: boolean },
+      ) => {
+        calls.push({ command, arguments: args, ...options });
+        return command === '/usr/bin/plutil' ? 'cc.drifting.client\n' : '';
+      },
+    );
+
+    await installIosDebugDevice(['--device', 'paired-id'], {
+      baseEnvironment: {},
+      platform: 'darwin',
+      pathExists: () => true,
+      execute,
+      createEnvironment: (_target: string, options: { baseEnvironment: Record<string, string> }) =>
+        options.baseEnvironment,
+      writeBuildConfiguration: () => ({ signingConfigured: true }),
+    });
+
+    expect(calls.map((call) => call.command)).toEqual([
+      'pnpm',
+      '/usr/bin/codesign',
+      '/usr/bin/plutil',
+      'xcrun',
+      'xcrun',
+    ]);
+    expect(calls[0]?.environment).toMatchObject({
+      VITE_LOCAL_ONLY_MODE: 'true',
+      VITE_REQUIRE_AUTH: 'false',
+      VITE_AI_TRANSPORT: 'direct',
+    });
+    expect(calls[2]?.captureOutput).toBe(true);
+    expect(calls[3]?.arguments).toContain('install');
+    expect(calls[4]?.arguments).toContain('launch');
+  });
+});

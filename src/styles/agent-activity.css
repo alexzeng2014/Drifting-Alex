@@ -1,0 +1,173 @@
+/*
+ * Agent activity perception (#17). Status lives on the entity's leading GLYPH
+ * (the chapter stripe / element diamond / drift mark to the left of the name):
+ *   - working → the glyph blinks and glows in the accent color.
+ *   - done    → the cell glyph is replaced by a plain "M" (modified) marker in
+ *     muted ink — a still, low-key sign the agent touched this entity, no
+ *     high-contrast recolor (set inline by each panel).
+ *
+ * The same signal bubbles UP two layers — cell → group (storyline/category)
+ * header → left tab switcher. While a child is busy the parent keeps its own
+ * glyph and blinks it in accent; only once the run finishes and leaves unviewed
+ * changes (busy is false) does a group's glyph give way to a plain count of the
+ * changed-but-unopened children (`.agent-count`), and a tab's label gain one
+ * sand dot (`.agent-tab-dot`). Both go once the user has reviewed everything
+ * (count → 0). See agentActivityBubble.ts.
+ */
+
+/* Working: the glyph pulses opacity and an accent glow. drop-shadow follows the
+   glyph's rendered shape, so it works for both the text marks and the stripe. */
+.agent-glyph-busy {
+  animation: agentGlyphBusy 1.3s ease-in-out infinite;
+  will-change: opacity, filter;
+}
+@keyframes agentGlyphBusy {
+  0%,
+  100% {
+    opacity: 0.4;
+    filter: drop-shadow(0 0 1px hsl(var(--accent) / 0.3));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 5px hsl(var(--accent) / 0.95));
+  }
+}
+
+/* Respect reduced-motion: keep the glyph lit (via inline accent color) but stop
+   the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-glyph-busy {
+    animation: none;
+    opacity: 1;
+    filter: drop-shadow(0 0 3px hsl(var(--accent) / 0.8));
+  }
+}
+
+/* Count — replaces a layer's glyph (group dot / tab glyph) once a run has
+   finished and left unviewed changes beneath it. The number is how many changed
+   children the user has not read yet; clicking the number acknowledges its
+   scope and restores the glyph. It's a plain, low-key number (no pill, no blink) — as quiet
+   as the glyph it stands in for, matching the cell-level "M" marker. While a run
+   is still working the parent shows its blinking glyph instead, never this. */
+.agent-change-indicator.agent-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: hsl(var(--ink-2));
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.agent-change-indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.agent-change-indicator__label {
+  opacity: 1;
+  transition: opacity 140ms ease;
+}
+
+.agent-change-indicator__read {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1ch;
+  height: 1em;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.agent-change-indicator__read {
+  display: grid;
+  place-items: center;
+}
+
+.agent-change-indicator__read > .brush-icon {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.agent-change-indicator:hover > .agent-change-indicator__label {
+  opacity: 0;
+}
+
+.agent-change-indicator:hover > .agent-change-indicator__read {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-change-indicator__label,
+  .agent-change-indicator__read {
+    transition: none;
+  }
+}
+
+.agent-change-indicator:focus-visible {
+  outline: 1px solid hsl(var(--accent));
+  outline-offset: 2px;
+}
+
+/* A left panel tab: its button holds only the words, centred in the tab's
+   share of the row, and reaches over the whole share through ::before. Unread
+   changes leave one sand dot at the label's upper corner, hung from a
+   zero-width slot after the words, so the dot never asks the row for room:
+   the sidebar's minimum (labels, 12px gaps, 6px ends) holds with dots on. */
+.agent-panel-tab {
+  gap: 0;
+}
+
+.agent-panel-tab > .app-panel-tab {
+  position: static;
+  flex: none;
+}
+
+.agent-panel-tab > .app-panel-tab::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+html[data-shell-mode='desktop'] .agent-panel-tab > .app-panel-tab {
+  padding-inline: 0;
+}
+
+.agent-panel-tab__mark {
+  position: relative;
+  z-index: 1;
+  align-self: stretch;
+  width: 0;
+  font-size: var(--ui-font-secondary, 11.5px);
+}
+
+/* The hit area is a little larger than the dot and, on the last tab, ends
+   where the row's 6px end does. */
+.agent-change-indicator.agent-tab-dot {
+  position: absolute;
+  left: -2px;
+  top: calc(50% - 0.45em - 5px);
+  width: 8px;
+  height: 10px;
+  padding: 0;
+}
+
+.agent-tab-dot .sand {
+  --sand-c: hsl(var(--ink-2));
+  width: 6px;
+  height: 6px;
+}

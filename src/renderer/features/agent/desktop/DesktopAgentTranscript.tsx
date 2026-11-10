@@ -1,0 +1,328 @@
+import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useAgentMessageBlocks, type AgentMessageBlock } from '../useAgentMessageBlocks';
+import { useAgentTranscriptSummary } from '../useAgentTranscriptSummary';
+import { useAgentChatTranscript } from '../useAgentChatMessages';
+import { selectAutomaticContinuation, selectAgentSliceProgress, selectAgentTaskContinuationReason, selectControlStatus, selectPendingControl, selectRunning } from '../../../store/agent-chat-store';
+import { useAgentChatViewStore } from '../AgentChatViewContext';
+import { useAgentActivityStore } from '../../../store/agent-activity-store';
+import { useWorkspaceNavigator } from '../../workspace/navigation/WorkspaceNavigationContext';
+import { BrushIcon } from '../../../components/ui/BrushIcon';
+import { collectTurnEntityRefs, type ToolEntityRef } from '../../../lib/agent/tool-entity-ref';
+import { AgentSliceProgress, EntityLinkChip, MessageView, PendingRow, RuntimeControlCard, STREAM_FOLLOW_BOTTOM_THRESHOLD_PX, fmtCost, fmtTokens } from '../AgentMessageViews';
+import { AgentGlassContext } from '../agent-glass';
+import { events } from '../../../lib/events';
+import { useSettingsStore } from '../../../store/settings-store';
+import { AgentOnboarding } from '../onboarding/AgentOnboarding';
+import {
+  agentOnboardingWaitsOnChange,
+  noteAgentOnboarding,
+  resolveAgentOnboardingView,
+} from '../onboarding/agent-onboarding';
+
+const DesktopMessageBlock = memo(function DesktopMessageBlock({ block }: { block: AgentMessageBlock }) {
+  return <>{block.messages.map((m, i) => <MessageView key={i} msg={m} />)}</>;
+});
+
+export interface AgentTranscriptHandle { follow(): void }
+
+export interface AgentTranscriptOnboarding {
+  /** null while the credential check has not answered. */
+  usable: boolean | null;
+  onPick(text: string): void;
+}
+
+const noteChangeSeen = () => noteAgentOnboarding({ type: 'change-seen' });
+
+/** How long after the author's own wheel, touch or key a scroll still counts as theirs. */
+const AUTHOR_SCROLL_WINDOW_MS = 400;
+
+/** The visible transcript owns display subscriptions and scroll state. The
+ * canonical run continues independently when this view is unmounted. */
+export const DesktopAgentTranscript = memo(forwardRef<AgentTranscriptHandle, { canRun?: boolean; onboarding?: AgentTranscriptOnboarding }>(function DesktopAgentTranscript({ canRun = true, onboarding }: { canRun?: boolean; onboarding?: AgentTranscriptOnboarding }, ref) {
+  const { t } = useTranslation();
+  const messages = useAgentChatTranscript();
+  const messageBlocks = useAgentMessageBlocks(messages);
+  const running = useAgentChatViewStore(selectRunning);
+  const starting = useAgentChatViewStore(s => s.starting);
+  const controlStatus = useAgentChatViewStore(selectControlStatus);
+  const pendingControl = useAgentChatViewStore(selectPendingControl);
+  const continuationReason = useAgentChatViewStore(selectAgentTaskContinuationReason);
+  const automaticContinuation = useAgentChatViewStore(selectAutomaticContinuation);
+  const sliceProgress = useAgentChatViewStore(selectAgentSliceProgress);
+  const continueTask = useAgentChatViewStore(s => s.continueTask);
+  const respondPermission = useAgentChatViewStore(s => s.respondPermission);
+  const cancelRecoveredControl = useAgentChatViewStore(s => s.cancelRecoveredControl);
+  const logRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
+  const [firstVisibleBlock, setFirstVisibleBlock] = useState<number | null>(null);
+  const visibleStart = firstVisibleBlock ?? Math.max(0, messageBlocks.length - 2);
+  useLayoutEffect(() => {
+    // History may arrive after this keyed conversation mounts. Anchor the
+    // initial page once it exists, then retain it across live append boundaries.
+    if (firstVisibleBlock === null && messageBlocks.length > 0) setFirstVisibleBlock(visibleStart);
+  }, [firstVisibleBlock, messageBlocks.length, visibleStart]);
+  const prependScroll = useRef<{ height: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const previous = prependScroll.current;
+    const el = logRef.current;
+    if (previous && el) {
+      el.scrollTop = previous.top + el.scrollHeight - previous.height;
+      prependScroll.current = null;
+    }
+  }, [firstVisibleBlock]);
+
+  // Runs on the actual log mount, including after authentication or returning
+  // from working memory. A parent effect can run before this DOM exists.
+  useLayoutEffect(() => {
+    if (stickRef.current && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [messages, pendingControl, controlStatus]);
+  // Only the author scrolling leaves the newest line. A scroll the layout
+  // causes — the composer shrinking back after a send, the sidebar sliding
+  // back in, a message growing as it arrives — keeps the transcript following.
+  const authorScroll = useRef({ holding: false, at: -Infinity });
+  const noteAuthorScroll = useCallback(() => { authorScroll.current.at = performance.now(); }, []);
+  const onPointerDown = useCallback(() => {
+    // Dragging the scrollbar scrolls for as long as the button is held.
+    authorScroll.current.holding = true;
+    const release = () => {
+      authorScroll.current = { holding: false, at: performance.now() };
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+  }, []);
+  const onScroll = useCallback(() => {
+    const el = logRef.current;
+    if (!el) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < STREAM_FOLLOW_BOTTOM_THRESHOLD_PX;
+    const authorScrolling = authorScroll.current.holding || performance.now() - authorScroll.current.at < AUTHOR_SCROLL_WINDOW_MS;
+    if (!bottom && stickRef.current && !authorScrolling) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    if (stickRef.current === bottom) return;
+    stickRef.current = bottom;
+    setAtBottom(bottom);
+  }, []);
+  const jumpToBottom = useCallback(() => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    if (!stickRef.current) { stickRef.current = true; setAtBottom(true); }
+  }, []);
+  useImperativeHandle(ref, () => ({ follow: jumpToBottom }), [jumpToBottom]);
+
+  // Show a "思考中…" placeholder whenever the agent is running but nothing is
+  // actively streaming — i.e. the dead-air gaps (right after send, and between a
+  // tool finishing and the next token), where there was previously no feedback.
+  const lastMsg = messages.at(messages.length - 1);
+  const iterationBoundary = lastMsg?.kind === 'usage' && lastMsg.boundary === 'iteration_limit';
+  const busyTail =
+    !!lastMsg &&
+    (((lastMsg.kind === 'assistant' || lastMsg.kind === 'thinking') && lastMsg.streaming) ||
+      (lastMsg.kind === 'tool' && lastMsg.status === 'running'));
+  const waiting = (running || starting) && !busyTail && !pendingControl;
+
+  // Session totals — summed across the conversation's per-turn usage rows (which
+  // persist in the transcript), plus a tool-call count. Drives the footer.
+  const sessionUsage = useAgentTranscriptSummary(messageBlocks).usage;
+
+  // Entities the agent created/edited this turn → clickable "本轮改动" links.
+  const { open: openEntity } = useWorkspaceNavigator();
+  const turnRefs = useMemo(
+    () => (running ? [] : collectTurnEntityRefs(messages.toArray())),
+    [messages, running],
+  );
+  // First run: the first turn that changes something waits for the author
+  // once — its links drift until one is opened, beside the version history.
+  const onboardingStep = useSettingsStore((s) => s.agentOnboardingStep);
+  const onboardingView = onboarding
+    ? resolveAgentOnboardingView({
+        step: onboardingStep,
+        usable: onboarding.usable,
+        emptyConversation: messages.length === 0 && !running && !starting,
+      })
+    : null;
+  const waitsOnChange = agentOnboardingWaitsOnChange(onboardingStep, turnRefs.length);
+  const openRef = useCallback(
+    (ref: ToolEntityRef) => {
+      openEntity({ entityType: ref.entityType, id: ref.id });
+      useAgentActivityStore.getState().clearTouched(ref.entityType, ref.id);
+      noteChangeSeen();
+    },
+    [openEntity],
+  );
+  const openChangeHistory = useCallback(() => {
+    const ref = turnRefs[0];
+    if (ref) events.emit('snapshot-history:open', { entityKind: ref.entityType, entityId: ref.id });
+    noteChangeSeen();
+  }, [turnRefs]);
+
+  return (<AgentGlassContext.Provider value>
+      <div style={logWrap}>
+        <div ref={logRef} className="agt-log--glass" style={logStyle} onScroll={onScroll}
+          onWheel={noteAuthorScroll} onTouchMove={noteAuthorScroll} onKeyDown={noteAuthorScroll} onPointerDown={onPointerDown}>
+          {messages.length === 0 ? (
+            onboardingView && onboarding
+              ? <AgentOnboarding view={onboardingView} onPick={onboarding.onPick} />
+              : <div className="agt-panel-empty">{t('agentPanel.empty.start')}</div>
+          ) : (
+            <>
+              {visibleStart > 0 && <button type="button" className="agt-toolbar-action" onClick={() => {
+                const el = logRef.current;
+                if (el) prependScroll.current = { height: el.scrollHeight, top: el.scrollTop };
+                stickRef.current = false; setAtBottom(false);
+                setFirstVisibleBlock(index => Math.max(0, (index ?? visibleStart) - 2));
+              }}>{t('agentPanel.history.loadEarlier')}</button>}
+              {messageBlocks.slice(visibleStart).map(block => <DesktopMessageBlock key={block.start} block={block} />)}
+            </>
+          )}
+          {sliceProgress ? <AgentSliceProgress status={sliceProgress} /> : waiting && <PendingRow status={controlStatus} />}
+          {pendingControl && (
+            <RuntimeControlCard
+              pending={pendingControl}
+              onPermission={(decision, scope) => {
+                if (canRun) void respondPermission(decision, scope);
+              }}
+              onCancelRecovered={() => {
+                void cancelRecoveredControl();
+              }}
+            />
+          )}
+          {continuationReason && (
+            <div className="agt-control-card agt-control-card--glass glass glass--waiting" role="status">
+              <strong>
+                {automaticContinuation?.stopReason === 'no_progress'
+                  ? t('agentPanel.autoContinue.noProgressTitle')
+                  : iterationBoundary
+                    ? t('agentPanel.slice.saved')
+                    : continuationReason === 'budget_exceeded'
+                      ? t('agentPanel.budget.title', {
+                          defaultValue: '本次上下文需要续接',
+                        })
+                      : t('agentPanel.longTask.title', {
+                          defaultValue: '任务计划尚未完成',
+                        })}
+              </strong>
+              <span>
+                {automaticContinuation?.stopReason === 'no_progress'
+                  ? t('agentPanel.autoContinue.noProgressBody')
+                  : iterationBoundary
+                    ? t('agentPanel.slice.paused')
+                    : continuationReason === 'budget_exceeded'
+                      ? t('agentPanel.budget.body', {
+                          defaultValue:
+                            '已完成的进度会保留。继续后，Agent 会从持久化状态恢复并接着处理。',
+                        })
+                      : t('agentPanel.longTask.body', {
+                          defaultValue:
+                            '本轮已正常结束，但同一会话的持久化任务计划仍有未完成内容。你可以继续执行下一步。',
+                        })}
+              </span>
+              <div className="agt-control-card__actions">
+                <button
+                  type="button"
+                  className="agt-btn glass glass--primary glass--waiting glass--small"
+                  disabled={!canRun}
+                  onClick={() => { if (canRun) void continueTask(); }}
+                >
+                  {t('agentPanel.budget.continue', {
+                    defaultValue: '继续此任务',
+                  })}
+                </button>
+              </div>
+            </div>
+          )}
+          {turnRefs.length > 0 && (
+            <div className="agt-entity-links">
+              <span style={{ opacity: 0.55, fontSize: 'var(--agent-font-caption, 10.5px)' }}>{t('agentPanel.turnChanges')}</span>
+              {turnRefs.map((r) => (
+                <EntityLinkChip key={`${r.entityType}:${r.id}`} refItem={r} onOpen={openRef} waiting={waitsOnChange} />
+              ))}
+              {waitsOnChange && (
+                <button type="button" className="agt-toolbar-action agt-entity-links__history" onClick={openChangeHistory}>
+                  <BrushIcon name="rotate" size={11} /> {t('agentPanel.onboarding.history')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        {!atBottom && (
+          <button
+            type="button"
+            className="glass glass--rest glass--round"
+            style={jumpBtn}
+            onClick={jumpToBottom}
+            title={t('agentPanel.jumpLatest')}
+          >
+            <BrushIcon name="arrow-down" style={{ '--brush-icon-size': 'var(--glass-round-icon)' } as React.CSSProperties} />
+          </button>
+        )}
+      </div>
+
+      {(sessionUsage.outTok > 0 || sessionUsage.tools > 0) && (
+        <div style={usageFooter} title={t('agentPanel.usage.sessionTitle')}>
+          <span style={{ opacity: 0.7 }}>{t('agentPanel.usage.session')}</span>
+          <span>
+            ↑{fmtTokens(sessionUsage.inTok)} ↓{fmtTokens(sessionUsage.outTok)}
+          </span>
+          {sessionUsage.cost > 0 && <span>{fmtCost(sessionUsage.cost)}</span>}
+          <span>{t('agentPanel.usage.toolsCount', { count: sessionUsage.tools })}</span>
+        </div>
+      )}
+
+  </AgentGlassContext.Provider>);
+}));
+
+const logWrap: React.CSSProperties = {
+  position: 'relative',
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+};
+
+const logStyle: React.CSSProperties = {
+  flex: 1,
+  overflowY: 'auto',
+  padding: '8px 12px 12px',
+  fontSize: 'var(--agent-font-body, 12px)',
+  lineHeight: 1.4,
+  minHeight: 120,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+
+const jumpBtn: React.CSSProperties = {
+  position: 'absolute',
+  bottom: 10,
+  right: 12,
+  display: 'grid',
+  placeItems: 'center',
+  width: 'var(--glass-round-size)',
+  height: 'var(--glass-round-size)',
+  padding: 0,
+  border: 0,
+  background: 'var(--glass-fill)',
+  color: 'hsl(var(--ink-1))',
+  cursor: 'pointer',
+  fontSize: 14,
+  lineHeight: 1,
+  zIndex: 10,
+};
+
+const usageFooter: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 10,
+  alignItems: 'center',
+  padding: '4px 12px',
+  fontSize: 'var(--agent-font-caption, 10.5px)',
+  opacity: 0.6,
+  flexShrink: 0,
+  borderTop: '1px solid hsl(var(--rule))',
+  fontVariantNumeric: 'tabular-nums',
+};

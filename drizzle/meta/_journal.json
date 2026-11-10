@@ -1,0 +1,139 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786729511192,
+      "tag": "0000_local_first_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788587417639,
+      "tag": "0001_agent_chat_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789212320486,
+      "tag": "0002_workspace_projection_journal",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789303925817,
+      "tag": "0003_agent_checkpoint_anchors",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790405389302,
+      "tag": "0004_yjs_materialization_admission",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790977361045,
+      "tag": "0005_agent_conversation_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791049836279,
+      "tag": "0006_sync_reducer_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791736198153,
+      "tag": "0007_project_memory_tool_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792522579945,
+      "tag": "0008_sync_journal_truncation",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792948401962,
+      "tag": "0009_material_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793033832125,
+      "tag": "0010_project_trash",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793041074931,
+      "tag": "0011_retire_url_materials",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793072638700,
+      "tag": "0012_material_folders",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793379441003,
+      "tag": "0013_markdown_mirror_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793430319039,
+      "tag": "0014_retire_google_drive_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1793434938526,
+      "tag": "0015_library_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1793712784125,
+      "tag": "0016_writing_day",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1793808514787,
+      "tag": "0017_retire_goal_route_and_sdk_session",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793812280467,
+      "tag": "0018_retire_review_mode",
+      "breakpoints": true
+    }
+  ]
+}

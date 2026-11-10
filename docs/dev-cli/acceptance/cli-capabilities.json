@@ -1,0 +1,639 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": [
+    "src/dev-cli/manifest.ts",
+    "src/renderer/lib/agent/runtime/drifting-workspace-tool-contract.ts",
+    "src/renderer/schema/drizzle.ts"
+  ],
+  "models": [
+    {
+      "name": "project",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace call",
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "project",
+      "note": "Authored project facts use the canonical Agent domain runtime; generic creation and deletion stay disabled until journal-backed workflows exist."
+    },
+    {
+      "name": "node",
+      "scope": "workspace",
+      "authority": "yjs_sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "book_node",
+      "note": "Chapters and free-floating inspirations use canonical domain tools; prose always commits through Yjs."
+    },
+    {
+      "name": "node_content",
+      "scope": "workspace",
+      "authority": "yjs_sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "node_content",
+      "note": "content_json is only a seed/cache projection and is never exposed as generic CRUD."
+    },
+    {
+      "name": "entity_kv_entry",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "entity_kv_entry",
+      "note": "Stable authored fact entries are inspectable; generic writes remain disabled until every owner workflow journals normalized KV mutations atomically."
+    },
+    {
+      "name": "plot_grid_authority",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [],
+      "note": "Normalized document, row, column and cell authority is owned by journal-backed Plot Grid workflows; generic row access stays closed."
+    },
+    {
+      "name": "storyline",
+      "scope": "workspace",
+      "authority": "yjs_sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "storylines",
+      "note": "Canonical storyline domain tools, including authored body prose."
+    },
+    {
+      "name": "node_storyline_link",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "node_storyline_link",
+      "note": "Membership and primary-storyline invariants are enforced by domain commands."
+    },
+    {
+      "name": "element_category",
+      "scope": "workspace",
+      "authority": "yjs_sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "element_category",
+      "note": "Canonical element-category lifecycle and prose body."
+    },
+    {
+      "name": "element",
+      "scope": "workspace",
+      "authority": "yjs_sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "element",
+      "note": "Canonical element lifecycle, facts, aliases and authored prose."
+    },
+    {
+      "name": "element_patch",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "element_patch",
+      "note": "Sanctioned canon evolution channel with durable Agent receipts."
+    },
+    {
+      "name": "comment",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "comment",
+      "note": "Unified note/todo/comment lifecycle through the canonical domain runtime."
+    },
+    {
+      "name": "comment_action",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "comment_action",
+      "note": "Actions are workflow evidence; only inspect through the CLI."
+    },
+    {
+      "name": "relation_type",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "entity_relation_type",
+      "note": "Endpoint-kind and orientation validation stay in the domain runtime."
+    },
+    {
+      "name": "relation_type_endpoint_kind",
+      "scope": "workspace",
+      "authority": "derived",
+      "coverage": "derived_rebuild",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "entity_relation_type_endpoint_kind",
+      "note": "Rebuilt atomically from relation-type definitions; no independent CRUD."
+    },
+    {
+      "name": "entity_relation",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "entity_relation",
+      "note": "Typed cross-entity relations with endpoint validation."
+    },
+    {
+      "name": "inline_mention",
+      "scope": "ops",
+      "authority": "derived",
+      "coverage": "derived_rebuild",
+      "commands": [
+        "ops inspect"
+      ],
+      "table": "inline_mention",
+      "note": "Derived from authored prose; never generic CRUD."
+    },
+    {
+      "name": "book_act",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "book_act",
+      "note": "Act boundaries are inspectable; generic writes are disabled until they use the authored journal."
+    },
+    {
+      "name": "drift_group",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "drift_group",
+      "note": "Nested inspiration folders are inspectable; generic writes cannot bypass domain transactions."
+    },
+    {
+      "name": "timeline_marker",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "timeline_marker",
+      "note": "Narrative-axis pins are inspectable; generic writes cannot bypass domain transactions."
+    },
+    {
+      "name": "library_item",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "library_item",
+      "note": "Material lifecycle is owned by the renderer import workflow and local asset store."
+    },
+    {
+      "name": "material_folder",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "material_folder",
+      "note": "Material folders are inspectable; generic writes cannot bypass domain transactions."
+    },
+    {
+      "name": "writing_day",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "writing_day",
+      "note": "Words per book, day and device for the shelf heatmap; only the open book's recorder writes them."
+    },
+    {
+      "name": "project_asset",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "workspace resource list",
+        "workspace resource get"
+      ],
+      "table": "project_asset",
+      "note": "Local asset import owns writes; source bytes live in app-owned storage."
+    },
+    {
+      "name": "block_section",
+      "scope": "ops",
+      "authority": "derived",
+      "coverage": "derived_rebuild",
+      "commands": [
+        "ops inspect"
+      ],
+      "table": "block_section",
+      "note": "Rolling summaries from the retired Copilot; no longer produced."
+    },
+    {
+      "name": "agent_conversation",
+      "scope": "agent",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "agent turn"
+      ],
+      "table": "agent_conversation",
+      "note": "Conversation lifecycle is owned by Agent transport."
+    },
+    {
+      "name": "agent_runtime",
+      "scope": "agent",
+      "authority": "sqlite",
+      "coverage": "inspect_reconcile",
+      "commands": [
+        "ops inspect"
+      ],
+      "note": "Sessions, turns, messages, events, tool calls, checkpoints, tasks and receipts are append-only runtime evidence."
+    },
+    {
+      "name": "agent_memory",
+      "scope": "workspace",
+      "authority": "sqlite",
+      "coverage": "full_lifecycle",
+      "commands": [
+        "workspace call"
+      ],
+      "table": "agent_memory",
+      "note": "Project-scoped durable memories through certified domain commands."
+    },
+    {
+      "name": "agent_working_memory",
+      "scope": "agent",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "agent turn"
+      ],
+      "table": "agent_working_memory",
+      "note": "Long-turn document is owned by the Agent working-memory runtime."
+    },
+    {
+      "name": "agent_mcp_server",
+      "scope": "agent",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [],
+      "table": "agent_mcp_server",
+      "note": "MCP configuration remains owned by the App runtime; credentials stay in secure storage."
+    },
+    {
+      "name": "agent_permission_grant",
+      "scope": "agent",
+      "authority": "sqlite",
+      "coverage": "inspect_reconcile",
+      "commands": [
+        "agent turn",
+        "ops inspect"
+      ],
+      "table": "agent_permission_grant",
+      "note": "Durable exact grants are policy evidence, not generic records."
+    },
+    {
+      "name": "entity_snapshot_history",
+      "scope": "ops",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "ops inspect"
+      ],
+      "table": "entity_snapshot_history",
+      "note": "Restore uses the history-restore Yjs origin and guarded workflow."
+    },
+    {
+      "name": "markdown_mirror_file",
+      "scope": "ops",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "ops inspect"
+      ],
+      "table": "markdown_mirror_file",
+      "note": "Device-local ledger of the Markdown folder; only the folder sync workflow writes it."
+    },
+    {
+      "name": "library_state",
+      "scope": "ops",
+      "authority": "sqlite",
+      "coverage": "workflow_only",
+      "commands": [
+        "ops inspect"
+      ],
+      "table": "library_state",
+      "note": "Device-local library state such as the built-in sample marker; only the first-run workflow writes it."
+    },
+    {
+      "name": "yjs_updates_and_snapshots",
+      "scope": "ops",
+      "authority": "yjs_sqlite",
+      "coverage": "inspect_reconcile",
+      "commands": [
+        "ops inspect"
+      ],
+      "note": "Append-only CRDT authority; never row-level CRUD."
+    },
+    {
+      "name": "yjs_revision_and_provenance",
+      "scope": "ops",
+      "authority": "yjs_sqlite",
+      "coverage": "inspect_reconcile",
+      "commands": [
+        "ops inspect"
+      ],
+      "note": "Revision/provenance evidence is append-only and runtime-owned."
+    },
+    {
+      "name": "sync_engine_state",
+      "scope": "ops",
+      "authority": "sqlite",
+      "coverage": "inspect_reconcile",
+      "commands": [
+        "ops inspect"
+      ],
+      "note": "Sync generation identity, immutable journal, reducer clocks, frontiers, transfers and recovery state are engine-owned and never generic CRUD."
+    },
+    {
+      "name": "workspace_projection_coverage",
+      "scope": "ops",
+      "authority": "derived",
+      "coverage": "excluded",
+      "commands": [],
+      "note": "Local trigger-owned invalidation cursors are rebuildable projection metadata; no generic CRUD or sync authority."
+    },
+    {
+      "name": "server_http_request",
+      "scope": "server",
+      "authority": "server",
+      "coverage": "workflow_only",
+      "commands": [
+        "server request"
+      ],
+      "note": "Explicit developer diagnostics only; the App does not use this command as a sync transport."
+    },
+    {
+      "name": "secure_credentials",
+      "scope": "agent",
+      "authority": "secret_store",
+      "coverage": "excluded",
+      "commands": [],
+      "note": "BYOK and MCP secrets never enter stdout, JSON fixtures or SQLite CRUD."
+    },
+    {
+      "name": "retired_shadow_arc_goal_evolve",
+      "scope": "agent",
+      "authority": "derived",
+      "coverage": "excluded",
+      "commands": [],
+      "note": "Retired products are intentionally absent."
+    }
+  ],
+  "tables": {
+    "project": "project",
+    "workspace_projection_clock": "workspace_projection_coverage",
+    "workspace_projection_change": "workspace_projection_coverage",
+    "element_category": "element_category",
+    "project_asset": "project_asset",
+    "storylines": "storyline",
+    "book_node": "node",
+    "drift_group": "drift_group",
+    "node_content": "node_content",
+    "entity_kv_entry": "entity_kv_entry",
+    "plot_grid_document": "plot_grid_authority",
+    "plot_grid_row": "plot_grid_authority",
+    "plot_grid_column": "plot_grid_authority",
+    "plot_grid_cell": "plot_grid_authority",
+    "element": "element",
+    "node_storyline_link": "node_storyline_link",
+    "element_patch": "element_patch",
+    "block_section": "block_section",
+    "entity_relation_type": "relation_type",
+    "entity_relation_type_endpoint_kind": "relation_type_endpoint_kind",
+    "entity_relation": "entity_relation",
+    "inline_mention": "inline_mention",
+    "comment": "comment",
+    "comment_action": "comment_action",
+    "library_item": "library_item",
+    "material_folder": "material_folder",
+    "writing_day": "writing_day",
+    "agent_conversation": "agent_conversation",
+    "agent_chat_branch": "agent_runtime",
+    "agent_chat_object": "agent_runtime",
+    "agent_chat_binding": "agent_runtime",
+    "agent_chat_queue": "agent_runtime",
+    "agent_chat_cursor": "agent_runtime",
+    "agent_chat_delivery": "agent_runtime",
+    "agent_runtime_session": "agent_runtime",
+    "agent_runtime_turn": "agent_runtime",
+    "agent_runtime_message": "agent_runtime",
+    "agent_runtime_event": "agent_runtime",
+    "agent_runtime_tool_call": "agent_runtime",
+    "agent_runtime_read_receipt": "agent_runtime",
+    "agent_runtime_read_observation": "agent_runtime",
+    "agent_runtime_result_blob": "agent_runtime",
+    "agent_runtime_result_artifact": "agent_runtime",
+    "agent_runtime_write_effect": "agent_runtime",
+    "agent_runtime_element_patch_receipt": "agent_runtime",
+    "agent_runtime_entity_write_receipt": "agent_runtime",
+    "agent_runtime_write_expectation": "agent_runtime",
+    "agent_runtime_write_review": "agent_runtime",
+    "agent_runtime_write_review_block": "agent_runtime",
+    "agent_runtime_checkpoint": "agent_runtime",
+    "agent_runtime_task": "agent_runtime",
+    "agent_runtime_task_chapter_manifest": "agent_runtime",
+    "agent_runtime_task_step": "agent_runtime",
+    "agent_runtime_task_constraint": "agent_runtime",
+    "agent_runtime_task_command": "agent_runtime",
+    "agent_memory": "agent_memory",
+    "agent_working_memory": "agent_working_memory",
+    "book_act": "book_act",
+    "timeline_marker": "timeline_marker",
+    "agent_mcp_server": "agent_mcp_server",
+    "agent_permission_grant": "agent_permission_grant",
+    "entity_snapshot_history": "entity_snapshot_history",
+    "markdown_mirror_file": "markdown_mirror_file",
+    "library_state": "library_state",
+    "yjs_updates": "yjs_updates_and_snapshots",
+    "yjs_snapshots": "yjs_updates_and_snapshots",
+    "yjs_document_revision": "yjs_revision_and_provenance",
+    "yjs_document_revision_provenance": "yjs_revision_and_provenance",
+    "yjs_prose_command_receipt": "yjs_revision_and_provenance",
+    "sync_app_authority": "sync_engine_state",
+    "sync_apply_receipt": "sync_engine_state",
+    "sync_yjs_materialization_receipt": "sync_engine_state",
+    "sync_blob_state": "sync_engine_state",
+    "sync_change_set": "sync_engine_state",
+    "sync_checkpoint": "sync_engine_state",
+    "sync_conflict": "sync_engine_state",
+    "sync_connect_attempt": "sync_engine_state",
+    "sync_connect_generation_attempt": "sync_engine_state",
+    "sync_cursor": "sync_engine_state",
+    "sync_entity_lifecycle": "sync_engine_state",
+    "sync_field_clock": "sync_engine_state",
+    "sync_frontier": "sync_engine_state",
+    "sync_frontier_gap": "sync_engine_state",
+    "sync_local_object": "sync_engine_state",
+    "sync_mutation": "sync_engine_state",
+    "sync_order_register": "sync_engine_state",
+    "sync_provider_account": "sync_engine_state",
+    "sync_provider_binding": "sync_engine_state",
+    "sync_quarantined_object": "sync_engine_state",
+    "sync_journal_truncation": "sync_engine_state",
+    "sync_reducer_base": "sync_engine_state",
+    "sync_reducer_snapshot": "sync_engine_state",
+    "sync_remote_object": "sync_engine_state",
+    "sync_restore_attempt": "sync_engine_state",
+    "sync_segment": "sync_engine_state",
+    "sync_set_tag": "sync_engine_state",
+    "sync_transfer": "sync_engine_state",
+    "sync_generation": "sync_engine_state",
+    "sync_generation_purge": "sync_engine_state",
+    "sync_generation_writer_state": "sync_engine_state"
+  },
+  "providerTools": {
+    "read": [
+      "get_project_overview",
+      "get_project_facts",
+      "list_chapters",
+      "read_chapter",
+      "list_inspirations",
+      "read_inspiration",
+      "list_element_categories",
+      "read_element_category",
+      "list_elements",
+      "read_element",
+      "get_element_patches",
+      "find_element_appearances",
+      "list_storylines",
+      "read_storyline",
+      "list_relations",
+      "list_relation_types",
+      "list_entity_relations",
+      "list_comments",
+      "list_project_memory",
+      "list_materials",
+      "read_material",
+      "read_book_structure",
+      "read_plot_grid",
+      "view_material",
+      "search_prose",
+      "search_project"
+    ],
+    "write": [
+      "create_chapter",
+      "rename_chapter",
+      "set_chapter_summary",
+      "revise_chapter",
+      "replace_chapter_body",
+      "delete_chapter",
+      "create_inspiration",
+      "rename_inspiration",
+      "set_inspiration_summary",
+      "revise_inspiration",
+      "replace_inspiration_body",
+      "delete_inspiration",
+      "create_element",
+      "update_element",
+      "revise_element",
+      "replace_element_body",
+      "delete_element",
+      "create_element_category",
+      "update_element_category",
+      "replace_element_category_body",
+      "delete_element_category",
+      "create_storyline",
+      "update_storyline",
+      "revise_storyline",
+      "replace_storyline_body",
+      "delete_storyline",
+      "add_chapter_to_storyline",
+      "remove_chapter_from_storyline",
+      "set_chapter_primary_storyline",
+      "replace_storyline_chapters",
+      "create_relation",
+      "update_relation",
+      "delete_relation",
+      "create_relation_type",
+      "update_relation_type",
+      "delete_relation_type",
+      "create_comment",
+      "update_comment",
+      "delete_comment",
+      "update_project_facts",
+      "create_project_memory",
+      "update_project_memory",
+      "delete_project_memory",
+      "create_element_patch",
+      "update_element_patch",
+      "delete_element_patch",
+      "create_material_note",
+      "revise_material_note",
+      "replace_material_note_body",
+      "update_material",
+      "create_material_folder",
+      "update_material_folder",
+      "delete_material_folder",
+      "create_act",
+      "update_act",
+      "delete_act",
+      "move_chapter",
+      "set_timeline_position",
+      "create_timeline_marker",
+      "update_timeline_marker",
+      "delete_timeline_marker",
+      "write_plot_grid"
+    ]
+  }
+}

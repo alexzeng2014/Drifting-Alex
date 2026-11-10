@@ -1,0 +1,188 @@
+/**
+ * Renderer-owned General Agent protocol.
+ *
+ * The Tauri renderer must not import types from the former Electron main
+ * process. A future desktop sidecar or remote-agent transport can implement
+ * this protocol without reintroducing a renderer -> shell dependency.
+ */
+
+export type AgentControlStatus =
+  | 'running'
+  | 'waiting_permission'
+  | 'waiting_user'
+  | 'cancelling'
+  | 'committing';
+
+export type AgentPermissionScope = 'once' | 'session' | 'project';
+
+export interface AgentPermissionRequest {
+  requestId: string;
+  sessionId: string;
+  turnId: string;
+  callId: string;
+  toolName: string;
+  access: 'read' | 'write';
+  arguments: Record<string, unknown>;
+  argumentsHash: string;
+  revision: string | null;
+  /**
+   * Local executable-definition generation. Dynamic tools use this to bind an
+   * approval request to the exact handler/schema shown to the user.
+   */
+  toolDefinitionRevision?: string;
+  reason?: string;
+  allowedScopes: readonly AgentPermissionScope[];
+}
+
+export interface AgentPermissionResolutionInput {
+  requestId: string;
+  sessionId: string;
+  turnId: string;
+  callId: string;
+  argumentsHash: string;
+  revision: string | null;
+  decision: 'allow' | 'deny';
+  scope: AgentPermissionScope;
+  reason?: string;
+}
+
+export interface AgentUserInputRequest {
+  requestId: string;
+  sessionId: string;
+  turnId: string;
+  callId: string;
+  prompt: string;
+}
+
+export interface AgentUserInputResponseInput {
+  requestId: string;
+  sessionId: string;
+  turnId: string;
+  callId: string;
+  text: string;
+}
+
+export interface AgentSteeringInput {
+  turnId: string;
+  text: string;
+}
+
+export interface AgentStopAfterToolInput {
+  turnId: string;
+}
+
+/** Exact active turn to cancel. Omitting this is supported only by legacy
+ * single-turn callers; concurrent product surfaces must always provide it. */
+export interface AgentAbortInput {
+  turnId?: string;
+}
+
+/** Exact session whose in-memory route/history binding should be retired. */
+export interface AgentResetSessionInput {
+  sessionId?: string;
+}
+
+export interface AgentPendingControl {
+  sessionId: string;
+  turnId: string;
+  status: 'waiting_permission' | 'waiting_user';
+  permissionRequest?: AgentPermissionRequest;
+  userInputRequest?: AgentUserInputRequest;
+  /**
+   * True when the renderer process that owned the original execution stack is
+   * gone. The control may be displayed or safely cancelled, but must not be
+   * presented as directly resumable.
+   */
+  requiresContinuation: boolean;
+}
+
+export interface AgentListPendingControlsInput {
+  sessionId: string;
+}
+
+export interface AgentCancelPendingControlInput {
+  sessionId: string;
+  turnId: string;
+  requestId: string;
+  reason?: string;
+}
+
+export type AgentMode = 'oauth' | 'apikey' | 'hosted';
+export type AgentProviderChoice =
+  | 'deepseek'
+  | 'anthropic'
+  | 'openai'
+  | 'openai-codex'
+  | 'opencode-go';
+export type AgentModelChoice = string;
+export type AgentEffortChoice = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+export type AgentThinkingChoice = 'adaptive' | 'off';
+export type AgentToolSearchChoice = 'off' | 'auto' | 'on';
+export type AgentToolAccessChoice = 'read_only' | 'read_write';
+export type AgentPromptSource = 'author' | 'runtime_continuation';
+
+export type AgentStartRoute = { kind: 'chat'; projectId: string; conversationId?: string };
+
+export interface AgentStartInput {
+  prompt: string;
+  /** Runtime continuation prompts steer the model but are not author messages. */
+  promptSource?: AgentPromptSource;
+  /** Canonical destination for runtime events and tool execution. */
+  route?: AgentStartRoute;
+  /** Legacy compatibility field. Prefer `route.projectId` in new transports. */
+  projectId?: string;
+  mode?: AgentMode;
+  /** Immutable provider route captured when the author submits this turn. */
+  provider?: AgentProviderChoice;
+  newConversation?: boolean;
+  resume?: string;
+  turnId?: string;
+  model?: AgentModelChoice;
+  effort?: AgentEffortChoice;
+  thinking?: AgentThinkingChoice;
+  toolSearch?: AgentToolSearchChoice;
+  /** Hard runtime tool boundary; read_only removes write definitions entirely. */
+  toolAccess?: AgentToolAccessChoice;
+  /** Canonical author-visible project name, never inferred from `projectId`. */
+  projectName?: string;
+  projectFacts?: { key: string; value: string }[];
+  /** Active PROJECT_MEMORY.md entries, oldest first. */
+  memories?: { id?: string; kind: string; body: string }[];
+  /** Recent rolling context shared by every General Agent conversation. */
+  workingMemory?: {
+    contentMd: string;
+    revision: number;
+    approxTokens: number;
+    /** Set when this turn should ask the Agent to consolidate it. */
+    consolidate?: boolean;
+  };
+}
+
+export interface GeneralAgentAuthStatus {
+  byokConnected: boolean;
+  apiKeyConnected: boolean;
+  hostedAvailable: boolean;
+  /**
+   * Native-only ChatGPT subscription sign-in. Optional so older remote
+   * transports remain compatible with the renderer-owned protocol.
+   */
+  chatgptConnected?: boolean;
+}
+
+/**
+ * Product-level availability for the General Agent surface. A ChatGPT sign-in
+ * is sufficient to open the surface even when the currently selected BYOK
+ * provider has no API key; the composer remains responsible for route choice.
+ */
+export function isGeneralAgentUsable(
+  mode: AgentMode,
+  status: GeneralAgentAuthStatus | null,
+): boolean {
+  if (!status) return false;
+  if (status.chatgptConnected === true) return true;
+  return mode === 'hosted'
+    ? status.hostedAvailable
+    : mode === 'apikey'
+      ? status.apiKeyConnected
+      : status.byokConnected;
+}

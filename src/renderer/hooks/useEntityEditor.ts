@@ -1,0 +1,621 @@
+import { EditorSuggestionGate } from '../lib/editor-suggestion-interaction';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEditor } from '@tiptap/react';
+import { useTranslation } from 'react-i18next';
+import type { Editor } from '@tiptap/core';
+import type { AnyExtension, JSONContent } from '@tiptap/core';
+import Underline from '@tiptap/extension-underline';
+import Link from '@tiptap/extension-link';
+import TextAlign from '@tiptap/extension-text-align';
+import { Placeholder } from '@tiptap/extensions';
+import Collaboration from '@tiptap/extension-collaboration';
+import type * as Y from 'yjs';
+import loglevel from 'loglevel';
+
+import type { OutlineItem } from '../lib/outline';
+import { EditorSelectionBar, selectionRectOf, type EditorSelectionBarOptions, type SelectionRect } from '../features/editor/editor-selection-bar';
+import { useRetroactiveEntityLinks } from '../features/editor/useRetroactiveEntityLinks';
+import { useEntityEditorSession } from '../features/editor/useEntityEditorSession';
+import type { EditorPersistDerived } from '../features/editor/entity-editor-session';
+export type { EditorPersistDerived } from '../features/editor/entity-editor-session';
+import { BlockId, isBlockType } from '../lib/extensions/block-id';
+import { InlineMarkdownRules } from '../lib/extensions/inline-markdown-rules';
+import { ParagraphIndent } from '../lib/extensions/paragraph-indent';
+import {
+  noteOnlyExtensions,
+  noteParagraphIndent,
+  profileStarterKit,
+  type EditorSchemaProfile,
+} from '../lib/editor-schema-profile';
+import {
+  AgentDiffDecoration,
+} from '../lib/extensions/agent-diff-decoration';
+import {
+  EntityLink,
+  type EntityKind,
+  type EntityLinkRef,
+} from '../lib/extensions/entity-link';
+import {
+  EntityMentionSuggestion,
+  type MentionableEntity,
+} from '../lib/extensions/entity-mention-suggestion';
+import {
+  createDefaultSlashMenu,
+  type SlashMenuExtraItem,
+} from '../lib/slash-menu';
+import type { EditorView } from '@tiptap/pm/view';
+import { useDataStore } from '../store/data-store';
+import { useSettingsStore } from '../store/settings-store';
+import { useAuthStore } from '../store/auth';
+import { useBookElement } from '../usecase/useBookElement';
+import { useProjectNavigation } from './useProjectNavigation';
+import type { CommentTargetKind } from '../domain/comment';
+import { isCommentTargetKind } from '../domain/entity-kinds';
+import { useTypewriterScrolling } from './useTypewriterScrolling';
+import { useEntityLinkConfiguration } from '../features/editor/useEntityLinkConfiguration';
+import { openEntityLinkTarget } from '../features/editor/open-entity-link';
+import { useAgentEditorDecorations } from '../features/editor/useAgentEditorDecorations';
+import { useEditorSurfaceLifecycle } from '../components/editor/editor-surface-lifecycle-context';
+import { buildEntityAutoDetectTargets, selectEntityLinkNames } from '../lib/entity-link-names';
+
+const log = loglevel.getLogger('useEntityEditor');
+log.setLevel(loglevel.levels.WARN);
+
+const DEFAULT_DOC: JSONContent = {
+  type: 'doc',
+  content: [{ type: 'paragraph' }],
+};
+
+export interface EditorCommentRequest {
+  projectId: string;
+  sourceKind: CommentTargetKind;
+  sourceId: string;
+  targetBlockId: string;
+  /** All top-level blocks the selection spans (incl. targetBlockId), in order —
+   *  for a multi-block comment anchor. Single-block selections yield [targetBlockId]. */
+  targetBlockIds: string[];
+  selectedText: string;
+  anchorJson: string;
+  clientX: number;
+  clientY: number;
+}
+
+function parseContentJson(content: string | null): JSONContent {
+  if (!content) return DEFAULT_DOC;
+  try {
+    const parsed = JSON.parse(content);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      parsed.type === 'doc' &&
+      Array.isArray(parsed.content)
+    ) {
+      return parsed as JSONContent;
+    }
+  } catch (error) {
+    log.warn('Failed to parse content JSON, falling back to empty doc:', error);
+  }
+  return DEFAULT_DOC;
+}
+
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
+
+
+export interface UseEntityEditorConfig {
+  // What this editor is editing — drives projection direction and self-exclusion.
+  sourceKind: EntityKind;
+  sourceId: string;
+  projectId: string;
+
+  // Optional element this content lives under (patches on element X pass
+  // X.id here). Used to extend self-exclusion past sourceKind/sourceId so
+  // a patch on Mira doesn't auto-link its own "Mira" / alias mentions
+  // back to Mira's element page. Apply to both the auto-detect map and
+  // the @-picker.
+  parentElementId?: string;
+
+  // Initial document JSON string from the persisted row. Null = empty doc.
+  // JSON-backed editors receive this in their TipTap constructor so an empty
+  // editor/placeholder can never paint before the real content is installed.
+  content: string | null;
+
+  // Yjs editors must declare their authority even while the Y.Doc is loading.
+  // This keeps readiness false until the TipTap instance carrying the actual
+  // Collaboration extension has replaced its temporary, never-visible shell.
+  documentMode?: 'json' | 'yjs';
+
+  // Optional Y.Doc backing this editor. When set, the Collaboration extension
+  // binds Tiptap directly to ydoc's default fragment, replacing the legacy
+  // content-string load path. The caller is responsible for wiring sync via
+  // useYjsSync. The hook still calls onPersist after each edit so chapter
+  // word-count / outline derivation continues to work.
+  ydoc?: Y.Doc;
+
+  // Fired after every persistable edit. Receives the editor plus pre-computed
+  // derived data (pmJson string, parsed outline, serialized outlineJson) so
+  // callers don't redundantly re-walk the doc. Callers add entity-specific
+  // extras (e.g. wordCount for chapters) and forward to their own persist
+  // helpers.
+  onPersist: (editor: Editor, derived: EditorPersistDerived) => void;
+
+  // Optional slash menu items beyond the defaults.
+  slashExtraItems?: SlashMenuExtraItem[];
+
+  // Editor click on an entity-link mark. Defaults to navigation by targetKind.
+  onEntityClick?: (ref: EntityLinkRef) => void;
+
+  // Surface options
+  autoFocus?: boolean;
+  placeholder?: string;
+  editorClass?: string;
+  minHeight?: string;
+  // Primary long-form prose surfaces opt in to typewriter scrolling. Embedded
+  // patch/template/popover editors stay false so they never move a whole page.
+  typewriterScrolling?: boolean;
+
+  // Optional top-level tab selection key. Popovers / virtualized editors leave
+  // this unset so their transient caret positions don't focus newly-opened tabs.
+  selectionKey?: string | null;
+
+  // Optional Word-style comment creation entry. The hook only detects the
+  // selected block and selected text; persistence/UI lives above it.
+  onAddCommentRequest?: (request: EditorCommentRequest) => void;
+
+  // Optional "新建补丁" entry on the same selection context menu (chapter
+  // editors only). Receives the SAME EditorCommentRequest the comment entry
+  // would — the caller derives the patch anchor (chapter/block + text anchor)
+  // from it. The hook only adds the menu item; the modal/UI lives above it.
+  onAddPatchRequest?: (request: EditorCommentRequest) => void;
+
+  // When false, the prose body is read-only (e.g. a locked chapter
+  // review). Defaults to true. The caller keys the editor on this so toggling it
+  // remounts + re-creates the editor with the new editable state.
+  editable?: boolean;
+
+  // Schema profile of the document (lib/editor-schema-profile.ts). Material
+  // notes use 'note'; every book surface keeps the default 'prose'. Fixed for
+  // the editor's lifetime, like the document it edits.
+  profile?: EditorSchemaProfile;
+  // Note-only extensions with live node views (the material embed); defaults
+  // to the headless set.
+  noteExtensions?: AnyExtension[];
+}
+
+export interface UseEntityEditorResult {
+  editor: Editor | null;
+  /** True only when this exact TipTap instance owns its canonical document. */
+  ready: boolean;
+  // Live outline derived from the editor's current doc (h1/h2/h3 nodes).
+  // Updates on every edit and once on load. Empty array before the editor
+  // mounts or when the doc has no headings.
+  outline: OutlineItem[];
+}
+
+// Single shared hook backing all entity rich-text editors:
+//   ChapterEditor, ElementEditorView, PatchEditorCard, CategoryEditorView,
+//   StorylineEditorView.
+//
+// Encapsulates:
+//   • the full extension set (StarterKit + Underline + Link + TextAlign
+//     + BlockId + EntityLink + EntityMentionSuggestion + SlashMenu
+//     + optional Placeholder),
+//   • constructor-time JSON loading plus a canonical-document readiness signal,
+//   • a canonical editor session owning persistence, selection and outline presentation,
+//   • the entity-link config sync (auto-detect map + enabled flag),
+//   • the @-picker (mentionable entities and "+ create element" affordance),
+//   • the active-editor registry hookup (Cmd+S, Cmd+F bindings).
+interface SelectionBarRefs {
+  source: { current: { projectId: string; sourceKind: string; sourceId: string } };
+  onAddCommentRequest: { current: ((request: EditorCommentRequest) => void) | undefined };
+  onAddPatchRequest: { current: ((request: EditorCommentRequest) => void) | undefined };
+  translate: { current: (key: string) => string };
+}
+
+/** The selection bar's actions for an editor's current selection, or null when it has none. */
+function resolveSelectionBar(view: EditorView, rect: SelectionRect, refs: SelectionBarRefs): EditorSelectionBarOptions | null {
+  // The「格式」entry is available in ANY editable editor, so the bar shows
+  // for any non-empty selection — not only commentable ones. The comment /
+  // patch entries layer on top when their handlers and a
+  // commentable source are present (resolved below).
+  if (!view.editable) return null;
+  const { selection } = view.state;
+  if (selection.empty) return null;
+  const selectedText = view.state.doc
+    .textBetween(selection.from, selection.to, '\n')
+    .trim();
+  if (!selectedText) return null;
+
+  // --- Comment-family entries (require a commentable source) --------
+  // Resolve the selection into a comment anchor only when commentable.
+  // Any failure here just leaves these undefined (→「格式」-only menu);
+  // it never aborts the menu.
+  let onAddComment: (() => void) | undefined;
+  let onAddPatch: (() => void) | undefined;
+  const handler = refs.onAddCommentRequest.current;
+  const source = refs.source.current;
+  if (source.projectId && source.sourceId && isCommentTargetKind(source.sourceKind)) {
+    // Resolve the enclosing block once, so we can grab both its id
+    // and its plain-text snapshot in a single walk. The snapshot
+    // lets the card render the selection in context AND survives
+    // the block being edited or deleted (see sticky-note orphan
+    // handling).
+    const resolved = view.state.doc.resolve(selection.from);
+    let blockId: string | null = null;
+    let blockText = '';
+    let blockStartInDoc = 0;
+    for (let depth = resolved.depth; depth >= 0; depth--) {
+      const node = resolved.node(depth);
+      if (!isBlockType(node.type.name)) continue;
+      const id = node.attrs?.id as string | null | undefined;
+      if (!id) continue;
+      blockId = id;
+      blockText = node.textContent;
+      blockStartInDoc = resolved.before(depth) + 1;
+      break;
+    }
+    if (blockId) {
+      // All top-level blocks the selection spans (in order) — for a
+      // multi-block comment anchor. Capture each block's id, original
+      // plain text (so the card can show the source on demand even
+      // after edits/deletes), and doc-start position (char offsets).
+      const spanBlocks: { id: string; text: string; docStart: number }[] = [];
+      view.state.doc.forEach((node, offset) => {
+        if (offset + node.nodeSize > selection.from && offset < selection.to) {
+          const id = node.attrs?.id as string | null | undefined;
+          if (id) spanBlocks.push({ id, text: node.textContent, docStart: offset + 1 });
+        }
+      });
+      if (spanBlocks.length === 0) {
+        spanBlocks.push({ id: blockId, text: blockText, docStart: blockStartInDoc });
+      }
+      const spanBlockIds = spanBlocks.map((b) => b.id);
+
+      // Map doc-relative selection offsets into blockText-relative
+      // ones. Direct subtraction works for plain prose; inline atoms
+      // (entity links etc.) can shift positions, so we sanity-check
+      // against the actual slice and fall back to indexOf on mismatch.
+      let blockSelectionFrom = selection.from - blockStartInDoc;
+      let blockSelectionTo = selection.to - blockStartInDoc;
+      if (blockText.slice(blockSelectionFrom, blockSelectionTo) !== selectedText) {
+        const idx = blockText.indexOf(selectedText);
+        if (idx >= 0) {
+          blockSelectionFrom = idx;
+          blockSelectionTo = idx + selectedText.length;
+        } else {
+          blockSelectionFrom = -1;
+          blockSelectionTo = -1;
+        }
+      }
+
+      // Precise text anchor: start = first spanned block + its
+      // in-block offset (reuse the validated blockSelectionFrom),
+      // end = last spanned block + the selection-end offset within
+      // it. Drives the hover highlight + text-level change detection.
+      const firstSpan = spanBlocks[0]!;
+      const lastSpan = spanBlocks[spanBlocks.length - 1]!;
+      const startOffset =
+        blockSelectionFrom >= 0
+          ? blockSelectionFrom
+          : Math.max(
+              0,
+              Math.min(firstSpan.text.length, selection.from - firstSpan.docStart),
+            );
+      const endOffset =
+        spanBlocks.length === 1 && blockSelectionTo >= 0
+          ? blockSelectionTo
+          : Math.max(0, Math.min(lastSpan.text.length, selection.to - lastSpan.docStart));
+
+      const request: EditorCommentRequest = {
+        projectId: source.projectId,
+        sourceKind: source.sourceKind,
+        sourceId: source.sourceId,
+        targetBlockId: blockId,
+        targetBlockIds: spanBlockIds,
+        selectedText,
+        anchorJson: JSON.stringify({
+          selectedText,
+          selectionFrom: selection.from,
+          selectionTo: selection.to,
+          createdAt: new Date().toISOString(),
+          blockText,
+          blockSelectionFrom,
+          blockSelectionTo,
+          blockSnapshots: spanBlocks.map((b) => ({ blockId: b.id, blockText: b.text })),
+          textAnchor: {
+            startBlockId: firstSpan.id,
+            startOffset,
+            endBlockId: lastSpan.id,
+            endOffset,
+            text: selectedText,
+          },
+        }),
+        clientX: rect.left,
+        clientY: rect.bottom,
+      };
+      if (handler) onAddComment = () => handler(request);
+      // "新建补丁" — chapter editors only (a patch's source is a chapter).
+      const patchHandler = refs.onAddPatchRequest.current;
+      onAddPatch =
+        patchHandler && source.sourceKind === 'node'
+          ? () => patchHandler(request)
+          : undefined;
+    }
+  }
+
+  return {
+    rect,
+    onAddComment,
+    onAddPatch,
+    labels: {
+      format: refs.translate.current('entityEditor.contextMenu.format'),
+      addComment: refs.translate.current('entityEditor.contextMenu.addComment'),
+      addPatch: refs.translate.current('entityEditor.contextMenu.addPatch'),
+    },
+  };
+}
+
+export function useEntityEditor(config: UseEntityEditorConfig): UseEntityEditorResult {
+  const { t } = useTranslation();
+  // Menu labels are read when invoked; locale changes must not recreate the
+  // canonical editor and its undo history.
+  const translateRef = useLatestRef(t);
+  const {
+    sourceKind,
+    sourceId,
+    projectId,
+    parentElementId,
+    content,
+    documentMode: requestedDocumentMode,
+    ydoc,
+    onPersist,
+    slashExtraItems,
+    onEntityClick,
+    autoFocus,
+    placeholder,
+    editorClass,
+    minHeight,
+    typewriterScrolling = false,
+    selectionKey,
+    onAddCommentRequest,
+    onAddPatchRequest,
+    editable = true,
+    profile = 'prose',
+    noteExtensions,
+  } = config;
+  const documentMode = requestedDocumentMode ?? (ydoc ? 'yjs' : 'json');
+
+  const sourceRef = useLatestRef({ projectId, sourceKind, sourceId, parentElementId });
+  const slashExtraItemsRef = useLatestRef(slashExtraItems);
+  const onEntityClickRef = useLatestRef(onEntityClick);
+  const onAddCommentRequestRef = useLatestRef(onAddCommentRequest);
+  const onAddPatchRequestRef = useLatestRef(onAddPatchRequest);
+  const { isCommandActive, isVisible, isPreparing } = useEditorSurfaceLifecycle();
+  // The later DOM handler delegates to the current canonical editor's owner.
+  const selectionBarRef = useRef<EditorSelectionBar | null>(null);
+  const suggestionGate = useMemo(() => new EditorSuggestionGate(), []);
+
+  const userId = useAuthStore((state) => state.user?.id);
+  const editorUndoDepth = useSettingsStore((state) => state.editorUndoDepth);
+  const autoElementLinkEnabled = useSettingsStore((state) => state.autoElementLinkEnabled);
+
+  // Name/appearance projections are shared across retained editors. Metric or
+  // body updates can change domain arrays without invalidating these selectors.
+  const entityNames = useDataStore(selectEntityLinkNames);
+  const autoDetectTargets = useMemo(
+    () => buildEntityAutoDetectTargets(entityNames, sourceKind, sourceId, parentElementId),
+    [entityNames, sourceKind, sourceId, parentElementId],
+  );
+
+  // @-picker source: pulled live from the store so the popover stays in sync.
+  const getMentionableEntities = useCallback((): MentionableEntity[] => {
+    const state = useDataStore.getState();
+    const {
+      sourceKind: currentSourceKind,
+      sourceId: currentSourceId,
+      parentElementId: currentParentElementId,
+    } = sourceRef.current;
+    const elements: MentionableEntity[] = state.bookElements
+      .filter(
+        (el) =>
+          !(currentSourceKind === 'element' && el.id === currentSourceId) &&
+          !(currentParentElementId && el.id === currentParentElementId),
+      )
+      .map((el) => ({ kind: 'element', id: el.id, name: el.name, aliases: el.aliases }));
+    const nodes: MentionableEntity[] = state.bookNodes
+      .filter((n) => !(currentSourceKind === 'node' && n.id === currentSourceId))
+      .map((n) => ({ kind: 'node', id: n.id, name: n.title }));
+    return [...elements, ...nodes];
+  }, [sourceRef]);
+
+  // "+ create element" from picker
+  const elementUsecases = useBookElement({ projectId, userId: userId ?? '' });
+  const createElement = elementUsecases.createElement;
+  const createElementRef = useLatestRef(createElement);
+  const handleCreateElementFromPicker = useCallback(
+    async (name: string): Promise<{ id: string; name: string } | null> => {
+      const categoryId = useDataStore.getState().bookElementCategories[0]?.id;
+      if (!categoryId) {
+        log.warn('Cannot create element from picker — project has no element categories');
+        return null;
+      }
+      try {
+        const created = await createElementRef.current({ categoryId, name });
+        return created ? { id: created.id, name: created.name } : null;
+      } catch (error) {
+        log.error('Failed to create element from picker:', error);
+        return null;
+      }
+    },
+    [createElementRef],
+  );
+
+  // Default click handler: open the target (and its cited paragraphs). Caller can override.
+  const openEntityRef = useLatestRef(useProjectNavigation().openEntity);
+  const handleEntityClick = useCallback(
+    (ref: EntityLinkRef) => {
+      const override = onEntityClickRef.current;
+      if (override) {
+        override(ref);
+        return;
+      }
+      openEntityLinkTarget(openEntityRef.current, ref);
+    },
+    [openEntityRef, onEntityClickRef],
+  );
+
+  const getSlashItems = useCallback((): SlashMenuExtraItem[] => {
+    const extraItems = slashExtraItemsRef.current;
+    return extraItems ? [...extraItems] : [];
+  }, [slashExtraItemsRef]);
+
+  const initialContent = documentMode === 'json' ? parseContentJson(content) : null;
+  const jsonDocumentKey =
+    documentMode === 'json' ? `${projectId}:${sourceKind}:${sourceId}` : null;
+
+  const editor = useEditor(
+    {
+      extensions: [
+        // The prose profile is the novel-writing surface: no code or lists.
+        // Disabling the nodes/marks also strips their input rules (`- `, `1. `,
+        // ``` ``` ```) and keymaps (Mod-Shift-7/8, Mod-e, Mod-Alt-c), so there's
+        // no way to create them. Notes enable them (see editor-schema-profile).
+        // Collaboration ships its own y-undo manager; if StarterKit's
+        // undoRedo is left on alongside it, ProseMirror's history plugin
+        // collides with the Yjs binding and crashes on first edit.
+        profileStarterKit(profile, { undoRedo: ydoc ? false : { depth: editorUndoDepth } }),
+        // `**粗体**`, `*斜体*`, `~~删除线~~` right after a character, which
+        // StarterKit's rules (start of block or after a space) never see in
+        // Chinese prose.
+        InlineMarkdownRules,
+        Underline,
+        Link.configure({ openOnClick: false, autolink: true }),
+        TextAlign.configure({
+          types: ['heading', 'paragraph'],
+          alignments: ['left', 'center', 'right'],
+          defaultAlignment: 'left',
+        }),
+        ...(placeholder && (documentMode === 'json' || ydoc)
+          ? [Placeholder.configure({ placeholder })]
+          : []),
+        // Collaboration must come AFTER StarterKit so it can swap the doc
+        // contents. The default fragment name 'default' matches the one the
+        // double-write hook in useYjsSync serializes from.
+        // @tiptap/extension-collaboration (v3.19+) ships its own
+        // collab-aware undo/redo: registers y-prosemirror's yUndoPlugin +
+        // Mod-z / Mod-y / Shift-Mod-z keymaps. So when ydoc is set we both
+        // (a) disable StarterKit's `undoRedo` above (it would race the Yjs
+        // binding) and (b) NOT add a second yUndoPlugin — Collaboration's
+        // built-in one is the only one we want. The Y.UndoManager is scoped
+        // to the local ySyncPlugin origin, so Cmd+Z only reverts this user's
+        // edits, never a peer's.
+        ...(ydoc ? [Collaboration.configure({ document: ydoc, field: 'default' })] : []),
+        BlockId,
+        // Tab / Shift-Tab block indent. Without this Tab has no binding (lists
+        // are disabled, so listKeymap is gone) and the browser default blurs
+        // the editor. Always consumes Tab; in notes only after lists/tables.
+        profile === 'note' ? noteParagraphIndent : ParagraphIndent,
+        // Agent-edit auto-reveal mask decorations. Inert until the decoration
+        // controller pushes a DecorationSet for this editor.
+        AgentDiffDecoration,
+        // These callbacks are registered with ProseMirror and execute later,
+        // outside React render. They intentionally read latest-value refs.
+        // eslint-disable-next-line react-hooks/refs
+        EntityLink.configure({
+          autoDetectTargets,
+          autoDetectEnabled: autoElementLinkEnabled,
+          onClick: handleEntityClick,
+        }),
+        // eslint-disable-next-line react-hooks/refs
+        EntityMentionSuggestion.configure({
+          gate: suggestionGate,
+          getEntities: getMentionableEntities,
+          onCreateElement: handleCreateElementFromPicker,
+        }),
+        // eslint-disable-next-line react-hooks/refs
+        createDefaultSlashMenu({ extraItems: getSlashItems, gate: suggestionGate }),
+        ...(profile === 'note' ? (noteExtensions ?? noteOnlyExtensions()) : []),
+      ],
+      content: initialContent,
+      autofocus: autoFocus ? 'end' : false,
+      editable,
+      // Its base styles load once with the app (styles/tiptap-base.css).
+      injectCSS: false,
+      editorProps: {
+        attributes: {
+          class: editorClass ?? 'prose max-w-none focus:outline-none',
+          style: minHeight ? `min-height: ${minHeight}` : '',
+          spellcheck: 'false',
+        },
+      },
+    },
+    [
+      editorUndoDepth,
+      placeholder,
+      autoFocus,
+      editorClass,
+      minHeight,
+      documentMode,
+      jsonDocumentKey,
+      // Yjs surfaces remain hidden until the rebuilt instance below carries
+      // this exact document's Collaboration extension.
+      ydoc,
+    ],
+  );
+
+  const collaboration = editor?.extensionManager.extensions.find(
+    (extension) => extension.name === 'collaboration',
+  );
+  const canonicalReady =
+    documentMode === 'json'
+      ? Boolean(editor)
+      : Boolean(editor && ydoc && collaboration?.options.document === ydoc);
+
+  const { outline, ready: sessionReady } = useEntityEditorSession(editor, {
+    projectId, sourceKind, sourceId, canonicalReady, onPersist, selectionKey, autoFocus,
+    presentationNeeded: isVisible || isPreparing, isCommandActive,
+  });
+
+  useTypewriterScrolling(editor, typewriterScrolling && canonicalReady, { isVisible, isPreparing });
+
+  useLayoutEffect(() => {
+    if (!editor || !canonicalReady) return;
+    // Right-clicking is left to the system menu; a settled text selection
+    // shows the editing actions as a bar floating over it instead.
+    const owner = new EditorSelectionBar(editor, () => resolveSelectionBar(editor.view, selectionRectOf(editor), {
+      source: sourceRef,
+      onAddCommentRequest: onAddCommentRequestRef,
+      onAddPatchRequest: onAddPatchRequestRef,
+      translate: translateRef,
+    }));
+    selectionBarRef.current = owner;
+    return () => {
+      if (selectionBarRef.current === owner) selectionBarRef.current = null;
+      owner.dispose();
+    };
+  }, [editor, canonicalReady, projectId, sourceKind, sourceId]); // eslint-disable-line react-hooks/exhaustive-deps -- refs are stable
+  useLayoutEffect(() => {
+    selectionBarRef.current?.setEnabled(canonicalReady && editable && isVisible && isCommandActive);
+  }, [editor, canonicalReady, editable, projectId, sourceKind, sourceId, isVisible, isCommandActive]);
+
+  useLayoutEffect(() => {
+    suggestionGate.setEditor(canonicalReady && editable && isVisible && isCommandActive ? editor : null);
+    return () => { suggestionGate.setEditor(null); };
+  }, [suggestionGate, editor, canonicalReady, editable, projectId, sourceKind, sourceId, isVisible, isCommandActive]);
+
+  const linksReady = useEntityLinkConfiguration(editor, { autoDetectTargets, autoDetectEnabled: autoElementLinkEnabled }, {
+    canonicalReady, presentationNeeded: isVisible || isPreparing,
+  });
+
+  const decorationsReady = useAgentEditorDecorations(editor, sourceKind, sourceId, isVisible || isPreparing);
+  const ready = canonicalReady && sessionReady && decorationsReady && linksReady;
+
+  useRetroactiveEntityLinks(editor, { projectId, sourceKind, sourceId, parentElementId, canonicalReady });
+
+  return { editor, outline, ready };
+}

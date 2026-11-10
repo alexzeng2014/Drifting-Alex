@@ -1,0 +1,840 @@
+/* ============================================================
+   Bottom Timeline
+   Always expanded. On the desktop it fills the Bottom Panel under the
+   paper (shared with the plot planner), which the timeline toggle opens
+   and closes; the old "collapsed strip" mode is gone.
+   ============================================================ */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+.btl {
+  --btl-lane-bg: hsl(var(--page));
+  --btl-secondary-rail-bg: hsl(var(--paper));
+  --btl-guide-line: var(--workspace-ui-bg);
+  display: flex;
+  flex-direction: column;
+  background: var(--workspace-ui-bg);
+  position: relative;
+  /* Popovers (未放置) portal to body; the inner scroll container
+     (.btl__scroll) owns its own clipping so horizontal content never leaks
+     outside the panel. */
+  overflow: visible;
+  font-family: var(--font-sans);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ---------------- Head bar ----------------
+   The Bottom Panel's shared header row (`.bottom-panel-head`, desktop-shell.css)
+   carries the height, padding and desk colour; the border on top and the
+   resize handle are the panel's own. */
+
+/* View toggle (书序 ↔ 叙事时) leads the head-left cluster. On desktop it is
+   a GlassSlider: the two words on the dock, one glass slab under the chosen. */
+.btl__view-toggle {
+  margin-left: 4px;
+}
+
+/* Desktop head toggles (未归属 shows its lane, 未放置 opens its popover):
+   like the scope toggle, one word that never changes and its count, the
+   resting glass line while off, the floating fill and still selected glass
+   while on or open. Mobile keeps the bordered buttons below. */
+.btl__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: var(--ui-font-caption, 10px)/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background-color 0.24s ease-out;
+}
+.btl__toggle:hover {
+  color: hsl(var(--ink-1));
+}
+.btl__toggle[aria-pressed='true'],
+.btl__toggle[aria-expanded='true'] {
+  background: var(--glass-fill);
+  color: hsl(var(--ink-1));
+}
+.btl__toggle-count {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+/* ---------------- Unplaced popover (narrative view, head-right) ----------
+   Replaces the old vertical-stack drawer that took half the timeline's
+   height with a compact "未放置 N" button and a chevron that opens a popover panel
+   anchored to the head bar. Chips inside the popover are draggable just
+   like before — the drag handlers don't care where the chip came from. */
+.btl__unplaced {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.btl__unplaced-arrow {
+  margin-left: 1px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+.btl__unplaced-popover {
+  /* Portaled + fixed by AnchoredPopover so dock overflow cannot clip it. */
+  z-index: var(--z-popover);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--menu-surface-bg);
+  border-color: var(--menu-surface-border);
+  border-radius: var(--menu-surface-radius);
+  box-shadow: var(--menu-surface-shadow);
+}
+.btl__unplaced-empty {
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: var(--ui-font-secondary, 11.5px);
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  padding: 8px 6px;
+}
+.btl__unplaced-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.btl__unplaced-chip-num {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9.5px);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+/* Desktop rows: menu rows edge to edge, no fill; the row under the pointer
+   becomes a ring of flowing glass in its chapter's storyline colour, led by
+   the chapter's sand seal. Mobile keeps the paper chips above. */
+.btl__unplaced-popover--rows {
+  padding: 6px 0;
+}
+.btl__unplaced-popover--rows .btl__unplaced-list {
+  gap: 0;
+}
+.btl__unplaced-row {
+  gap: 7px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-drag: none;
+}
+.btl__unplaced-row:active {
+  cursor: grabbing;
+}
+html[data-shell-mode] .menu-surface__item.btl__unplaced-row::before {
+  --menu-line: color-mix(in srgb, var(--clip-color, hsl(var(--ink-3))) 50%, var(--glass-clear));
+}
+html[data-shell-mode] .menu-surface__item.btl__unplaced-row:active::before {
+  --menu-line: color-mix(in srgb, var(--clip-color, hsl(var(--ink-3))) 75%, var(--glass-clear));
+}
+
+/* ---------------- Unaffiliated toggle (head, next to 书序/叙事时) ----
+   Mirrors the unplaced button styling so the two head-level toggles read as
+   a matching pair. Active state uses the same darker tint as `.is-open` to
+   reinforce that the lane is currently visible. */
+
+.btl__unplaced-chip-title {
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 11.5px);
+  color: hsl(var(--ink-1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- Scroll container ---------------- */
+.btl__scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+.btl__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------------- Storyline row ---------------- */
+.btl-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  gap: 0;
+  /* Floor that keeps the node title (one line, ~14px line-box + 6px content
+     padding + 8px clip top/bottom inset) from getting vertically clipped when
+     many storylines compress the rows-area. */
+  min-height: 30px;
+  background: var(--workspace-ui-bg);
+}
+
+/* A sub-pixel header-tone rule separates adjacent white storyline tracks.
+   It stays inside the scrollable track: the sticky name rail already uses
+   the same workspace/header tone, so drawing over it would add no hierarchy. */
+.btl-row + .btl-row .btl-track::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 0.5px;
+  background: var(--btl-guide-line);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ---------------- Rail (sticky left) ---------------- */
+.btl-rail {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-right: 1px solid hsl(var(--rule));
+  background: var(--workspace-ui-bg);
+  cursor: default;
+  overflow: hidden;
+  /* Above clips (incl. selected) and pins so the sticky rail always
+     covers content scrolling under it. */
+  z-index: 20;
+}
+.btl-rail__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
+.btl-rail__name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: var(--ui-font-body, 12.5px);
+  font-weight: 500;
+  color: hsl(var(--ink-2));
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btl-rail.is-active .btl-rail__name {
+  color: hsl(var(--ink-1));
+}
+/* Desktop: a real storyline's name is a sand cell inset in its rail (the
+   brush frame then fits inside the rail's clip): the hover ring and, while
+   the storyline is open, the drawn frame. Synthetic lanes keep the same
+   inset without a cell. */
+.btl .btl-rail {
+  padding: 3px 4px;
+}
+.btl-rail__cell {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 6px 0 5px;
+  border-radius: 2px;
+}
+.btl .btl-rail > .btl-rail__main {
+  padding: 0 6px 0 5px;
+}
+.btl-rail__count {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9px);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  line-height: 1.2;
+}
+
+/* ---------------- Track lane ---------------- */
+.btl-track {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--btl-lane-bg);
+  cursor: default;
+  /* Double-clicking an empty spot creates a chapter there; it must not also
+     select the clip titles around it. */
+  user-select: none;
+}
+/* Desktop shape grammar: small radii stop at 3px. */
+.btl .btl-track {
+  border-radius: 2px;
+}
+
+/* ---------------- Time axis row (narrative view only) ---------------- */
+.btl-axis {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  height: 22px;
+  background: var(--btl-secondary-rail-bg);
+  position: relative;
+}
+.btl-axis__rail {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-right: 1px solid hsl(var(--rule));
+  background: var(--btl-secondary-rail-bg);
+  padding: 0 10px 0 16px;
+  z-index: 20;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9.5px);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+.btl-axis__rail-add {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: var(--ui-font-body, 14px);
+  line-height: 1;
+  padding: 0;
+  margin-left: 6px;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.btl-axis__rail-add:hover {
+  background: hsl(var(--rule));
+  color: hsl(var(--ink-1));
+}
+/* Desktop: a panel header's plain icon button; hover only darkens the ink. */
+.btl .btl-axis__rail-add:hover {
+  background: transparent;
+}
+.btl-axis__rail-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btl-axis__track {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  cursor: default;
+  user-select: none;
+  /* Carry the row's surface at FULL content width. The track cell is the
+     element sized to the scroll content (flex:1 + minWidth:timelineWidth);
+     the parent `.btl-axis` is only as wide as the container, so relying on its
+     background left everything past the pre-scroll right edge bare. */
+  background: var(--btl-secondary-rail-bg);
+}
+
+/* Book mode uses the shared ActRail in the same structural slot as the
+   narrative axis. Inside the timeline the two rails share a slightly lighter
+   gray than the header, without adding another full-width hairline.
+   StoryGraphView keeps the shared default. */
+.btl .actrail {
+  border-bottom: 0;
+  background: var(--btl-secondary-rail-bg);
+}
+.btl .actrail__rail,
+.btl .actrail__track {
+  background: var(--btl-secondary-rail-bg);
+}
+
+/* Static act boundaries use the header tone at sub-pixel width in both the
+   secondary rail and the white storyline lanes below. */
+.btl .actrail__divider::after {
+  left: 3.25px;
+  width: 0.5px;
+  background: var(--btl-guide-line);
+}
+
+.btl .actrail:not(.actrail--glass) .actrail__divider:hover::after {
+  width: 0.5px;
+  background: hsl(var(--accent));
+}
+
+/* ---------------- Time pin (narrative view, draggable marker) ----------------
+   A pin spans the axis + rows. Top-to-bottom:
+     1. editable label (sits in the axis row)
+     2. small down-pointing triangle (precise position pointer)
+     3. vertical line down through chapter rows (rendered inside each track)
+   Drag the label or the triangle horizontally to reposition — pins snap
+   to integer narrativeOrder slots. Double-click the label to rename;
+   clearing the label deletes the pin. */
+.btl-pin {
+  position: absolute;
+  top: 0;
+  width: 0;
+  z-index: 7;
+}
+.btl-pin__label {
+  /* Chip sits AFTER the pin line, flowing rightward — and matches the act
+     chip (.actrail__label / .actrail__name): same paper pill, hairline border,
+     mono 500 text, padding. Unified so an act and a time marker read as the
+     same primitive. The old translateX(-50%) centred it on the pin, so an
+     order-0 pin clipped its left half against the track edge. */
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: 6px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9.5px);
+  font-weight: 500;
+  line-height: 13px;
+  letter-spacing: 0.06em;
+  color: hsl(var(--ink-2));
+  background: hsl(var(--paper));
+  border: 1px solid hsl(var(--rule));
+  border-radius: 3px;
+  white-space: nowrap;
+  cursor: grab;
+  outline: none;
+  min-width: 22px;
+  text-align: left;
+  user-select: none;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.1s ease;
+}
+.btl-pin.is-editing .btl-pin__label {
+  cursor: text;
+  user-select: text;
+  border-color: hsl(var(--accent));
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+  overflow: visible;
+}
+.btl-pin.is-dragging .btl-pin__label {
+  cursor: grabbing;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Marker lines use the same sub-pixel header tone through both the secondary
+   rail and the white storyline lanes. */
+.btl-pin__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0.5px;
+  background: var(--btl-guide-line);
+  cursor: grab;
+  transition: opacity 0.1s ease;
+}
+.btl-pin.is-dragging .btl-pin__line {
+  cursor: grabbing;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Bound pin — the marker carries a drift node as its content. Label shows
+   the drift's live title; double-click opens its editor. Accent border +
+   accent line signal "this is a thing, not just a caption". */
+.btl-pin.is-bound .btl-pin__label:not(.glass) {
+  border-color: hsl(var(--accent) / 0.55);
+  background: hsl(var(--accent) / 0.06);
+  color: hsl(var(--ink-1));
+  cursor: pointer;
+}
+/* The drift's own sand eddy marks the marker as bound to a drift node — the
+   same mark the act rail shows for its bound drift, so the two read as one. */
+.btl-pin.is-bound .btl-pin__label:not(.glass)::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 8px;
+  margin-right: 4px;
+  background: hsl(var(--accent));
+  -webkit-mask: url('../assets/design/sand/mark-spiral.png') center / 100% 100% no-repeat;
+  mask: url('../assets/design/sand/mark-spiral.png') center / 100% 100% no-repeat;
+}
+.btl-pin.is-bound .btl-pin__label:not(.glass):hover {
+  background: hsl(var(--accent) / 0.12);
+}
+.btl-pin.is-bound .btl-pin__line {
+  background: var(--btl-guide-line);
+}
+/* Pin grid line — rendered inside each storyline track so it paints
+   below the chapter clips. */
+.btl-pin-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0.5px;
+  background: var(--btl-guide-line);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Active drop indicator (marker OR act drag) — accent, matching the act rail
+   ghost (.actrail__ghost), so the rail half and the lane half read as one
+   continuous accent line. Static lines stay sub-pixel header-tone rules. */
+.btl-pin-line.is-dragging {
+  width: 1.5px;
+  background: hsl(var(--accent));
+  z-index: 12;
+}
+
+/* Desktop time pins: the label is the act chip's resting glass (dense patch,
+   no fill); renamed, it is the still selected glass on the floating fill. A
+   pin bound to a drift leads with the drift's sand eddy (a KindMark: the
+   glass rim owns ::before) and takes no accent of its own. */
+.btl .btl-pin__label.glass {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+.btl .btl-pin.is-editing .btl-pin__label.glass {
+  background: var(--glass-fill);
+  color: hsl(var(--ink-1));
+}
+.btl .btl-pin.is-bound .btl-pin__label.glass {
+  color: hsl(var(--ink-1));
+  cursor: pointer;
+}
+.btl-pin__label > .kind-mark {
+  height: 13px;
+  margin-right: 4px;
+  vertical-align: top;
+}
+.btl-pin__label > .kind-mark > .sand {
+  top: 1px;
+}
+
+/* Desktop drop line (marker or act drag), rail half and lane half alike: a
+   strip of clear glass whose texture runs with the distance dragged
+   (--flow, set by TimelineGuideLines / ActRail), like a moving panel edge. */
+.btl {
+  --btl-drop-glass: color-mix(in srgb, var(--glass-clear), hsl(var(--ink-3)) 50%);
+}
+.btl .btl-pin-line.is-dragging {
+  width: 4px;
+  margin-left: -2px;
+  background: linear-gradient(to right, transparent, var(--btl-drop-glass), transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  -webkit-mask-position: -96px calc(var(--flow, 0) * 1.6px);
+  mask-position: -96px calc(var(--flow, 0) * 1.6px);
+}
+
+/* Playhead removed — the active tile's own selected styling carries the
+   "current chapter" signal in the rows. */
+
+/* ---------------- Clip (chapter card) ---------------- */
+.btl-clip {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  background: var(--clip-color, hsl(var(--ink-3)));
+  color: hsl(var(--paper));
+  border-radius: 1px;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-drag: none;
+  transition:
+    filter 0.12s,
+    box-shadow 0.12s,
+    transform 0.12s;
+}
+.btl-clip:hover {
+  filter: brightness(1.06);
+}
+.btl-clip.is-draft {
+  background: hsl(var(--paper));
+  color: var(--clip-color, hsl(var(--ink-3)));
+  border: 1px dashed var(--clip-color, hsl(var(--ink-3)));
+}
+/* Writing status: finished. No CSS needed — the base `.btl-clip` rule
+   already renders solid `--clip-color` + paper text, which is exactly the
+   "实色背景 + 白字" treatment the design calls for. The class is still
+   emitted by JSX to keep the status taxonomy explicit and to give CSS a
+   hook if we ever need finished-only tweaks. */
+
+/* Writing status: discarded — soft-deleted. Mute the card to paper-deep,
+   strike through the title, knock it back with opacity so it's clearly
+   parked but still scannable + clickable. */
+.btl-clip.is-discarded {
+  background: hsl(var(--paper-deep));
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  border: 1px dashed hsl(var(--rule-strong));
+  opacity: 0.6;
+}
+.btl-clip.is-discarded:hover {
+  opacity: 0.9;
+  filter: none;
+}
+.btl-clip.is-discarded .btl-clip__title {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--ink-4));
+}
+.btl-clip.is-selected.is-discarded {
+  opacity: 1;
+}
+
+.btl-clip.is-selected,
+.btl-clip.is-selected.is-draft,
+.btl-clip.is-selected.is-discarded {
+  /* Same shape as the very first selection style (2px outline + soft
+     depth shadow), but the outline borrows the tile's storyline color
+     from the inline `--clip-color` var so it reads as "this storyline's
+     pick" instead of the old generic ink-black square. */
+  outline: 2px solid var(--clip-color, hsl(var(--ink-1)));
+  outline-offset: 1px;
+  z-index: 10;
+  box-shadow: none;
+}
+
+.btl-clip__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 6px;
+  height: 100%;
+  box-sizing: border-box;
+  min-height: 0;
+  pointer-events: none;
+}
+.btl-clip__title {
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 11.5px);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* Desktop: each chapter is a weighted glass slab filling its lane, square-
+   cornered, its rim in the storyline's colour (materials.css `.glass`; only
+   the desktop presentation adds it, and the dragged ghost keeps it). It rests
+   on the page colour; held, it is the same glass, denser and still. Writing
+   status reads in the text: drafts lighter, discarded faded and struck out. */
+.btl-clip.glass,
+.btl-clip.glass.is-draft,
+.btl-clip.glass.is-discarded,
+.btl-clip.glass.is-selected {
+  top: 0;
+  bottom: 1px;
+  --glass-edge: 40%;
+  --glass-rim: 9px;
+  border: 0;
+  border-radius: 2px;
+  background: hsl(var(--page));
+  color: hsl(var(--ink-1));
+  filter: none;
+  outline: none;
+}
+
+.btl-clip.glass.is-draft {
+  color: hsl(var(--ink-2));
+}
+
+.btl-clip.glass.is-discarded {
+  opacity: 0.55;
+}
+
+.btl-clip.glass .btl-clip__content {
+  justify-content: center;
+  padding: 0 10px;
+}
+
+.btl-clip.glass .btl-clip__title {
+  color: inherit;
+  font-weight: 400;
+  font-size: var(--ui-font-secondary, 12px);
+}
+
+.chapter-lane-pointer-ghost.btl-clip.glass {
+  --glass-g: 1.7;
+  --glass-sp: 1.3;
+}
+
+/* Carried over another lane, the slab already wears that lane's colour
+   (chapter-lane-drag.ts `laneColor` sets --glass-cc on the ghost once per
+   lane); the rim eases into it as the slab snaps over. */
+.chapter-lane-pointer-ghost.btl-clip.glass::before {
+  opacity: 1;
+  animation-play-state: paused;
+  transition: box-shadow var(--motion-glass-bleed) ease-out;
+}
+
+.btl .btl-rail__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: normal;
+}
+
+.btl .btl-rail__text {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--btl-rail-lines, 1);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.btl .btl-rail__name .kind-mark {
+  margin-left: -2px;
+}
+
+/* ---------------- Empty + loading ---------------- */
+.btl-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: var(--ui-font-secondary, 11px);
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  white-space: nowrap;
+  pointer-events: none;
+}
+.btl-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* ---------------- Cross-storyline links overlay ---------------- */
+.btl-crosslinks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Minimap removed: the ActRail (act-rail.css) + storyline rows serve the
+   "overview" role. */
+
+/* ---------------- Rich menu surface ----------------
+   Sharp grouped surface with hairline dividers. The timeline itself has no
+   right-click menus any more (its clips, rails, acts and pins carry hover
+   cards); library cards still reuse these rules. */
+.btl-cmenu {
+  position: fixed;
+  z-index: var(--z-context-menu);
+  overflow: hidden;
+}
+.btl-cmenu__head {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid hsl(var(--rule));
+  background: hsl(var(--paper-deep));
+}
+.btl-cmenu__title {
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: var(--ui-font-body, 13.5px);
+  color: hsl(var(--ink-1));
+  letter-spacing: 0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btl-cmenu__summary {
+  margin-top: 4px;
+  font-size: var(--ui-font-secondary, 11px);
+  line-height: 1.4;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  max-height: 56px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.btl-cmenu__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.btl-cmenu__tag {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9px);
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: hsl(var(--paper));
+  /* background set inline per storyline color */
+}
+.btl-cmenu__group {
+  padding: 5px 4px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+.btl-cmenu__group:last-child {
+  border-bottom: 0;
+}
+.btl-cmenu__item {
+  gap: 10px;
+  letter-spacing: 0.005em;
+}
+.btl-cmenu__glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1;
+  color: hsl(var(--ink-4));
+}
+.btl-cmenu__item:hover .btl-cmenu__glyph {
+  color: hsl(var(--ink-2));
+}
+.btl-cmenu__item.is-danger .btl-cmenu__glyph {
+  color: hsl(var(--destructive) / 0.72);
+}
+.btl-cmenu__label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

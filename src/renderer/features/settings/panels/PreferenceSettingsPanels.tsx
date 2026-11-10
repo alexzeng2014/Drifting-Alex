@@ -1,0 +1,753 @@
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
+import { SettingsSlider } from '../SettingsSlider';
+import {
+  useSettingsStore,
+  TYPEWRITER_POSITION_MAX,
+  TYPEWRITER_POSITION_MIN,
+  type EditorFontSource,
+  type EditorTextWrap,
+  type ParagraphIndent,
+} from '../../../store/settings-store';
+import { platform, type SystemFontFamily } from '../../../platform';
+import {
+  getImportedProseFontMetadata,
+  importProseFont,
+  IMPORTED_PROSE_FONT_ACCEPT,
+  ProseFontImportError,
+  removeImportedProseFont,
+  type ImportedProseFontMetadata,
+} from '../../../lib/prose-fonts';
+import {
+  ENTITY_LINK_COLOR_KINDS,
+  type EntityLinkBandStyle,
+  type EntityLinkColorKind,
+  type EntityLinkColorMode,
+  type EntityLinkHighlightMode,
+} from '../../../lib/entity-link-appearance';
+import {
+  SettingsButton,
+  SettingsColor,
+  SettingsField,
+  SettingsNote,
+  SettingsPanelHeader,
+  SettingsRow,
+  SettingsSectionHeader,
+  SettingsSegment,
+  SettingsToggle,
+  type SettingsRegisterRef,
+} from '../SettingsPrimitives';
+import { getPlatformRuntime } from '../../../platform/runtime';
+import { BrushIcon } from '../../../components/ui/BrushIcon';
+import { GlassSelect } from '../../../components/ui/GlassSelect';
+import { KindMark } from '../../../components/ui/KindMark';
+import type { KindMarkKind } from '../../../components/ui/kind-mark';
+
+/** Each kind's highlight colour is shown in the kind's own sand mark; a patch
+ * has none of its own and takes a round seal. */
+const ENTITY_LINK_KIND_MARK: Record<EntityLinkColorKind, { kind: KindMarkKind; seed?: string }> = {
+  element: { kind: 'element' },
+  chapter: { kind: 'chapter' },
+  drift: { kind: 'drift' },
+  patch: { kind: 'chapter', seed: 'patch' },
+  category: { kind: 'category' },
+  storyline: { kind: 'storyline' },
+};
+
+function formatFontFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function EditorFontControl() {
+  const { t, i18n } = useTranslation();
+  const editorFontSource = useSettingsStore((state) => state.editorFontSource);
+  const setEditorFontSource = useSettingsStore((state) => state.setEditorFontSource);
+  const editorSystemFontFamily = useSettingsStore((state) => state.editorSystemFontFamily);
+  const setEditorSystemFontFamily = useSettingsStore((state) => state.setEditorSystemFontFamily);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [systemFamilyDraft, setSystemFamilyDraft] = useState(editorSystemFontFamily);
+  const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
+  const [loadingSystemFonts, setLoadingSystemFonts] = useState(true);
+  const [systemFontsUnavailable, setSystemFontsUnavailable] = useState(false);
+  const [importedFont, setImportedFont] = useState<ImportedProseFontMetadata | null>(null);
+  const [loadingImportedFont, setLoadingImportedFont] = useState(true);
+  const [fontBusy, setFontBusy] = useState(false);
+  const [fontMessage, setFontMessage] = useState<{
+    tone: 'error' | 'success';
+    text: string;
+  } | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getImportedProseFontMetadata()
+      .then((metadata) => {
+        if (!cancelled) setImportedFont(metadata);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFontMessage({ tone: 'error', text: t('settings.editor.font_error_storage') });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingImportedFont(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void platform.typography
+      .listSystemFonts()
+      .then((fonts) => {
+        if (!cancelled) setSystemFonts(fonts);
+      })
+      .catch(() => {
+        if (!cancelled) setSystemFontsUnavailable(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSystemFonts(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectKnownSystemFont = useCallback(
+    (family: string) => {
+      if (!family) return;
+      setSystemFamilyDraft(family);
+      setEditorSystemFontFamily(family);
+      setEditorFontSource('system-custom');
+      setFontMessage(null);
+    },
+    [setEditorFontSource, setEditorSystemFontFamily],
+  );
+
+  const messageForImportError = useCallback(
+    (error: unknown): string => {
+      if (error instanceof ProseFontImportError) {
+        switch (error.code) {
+          case 'empty':
+            return t('settings.editor.font_error_empty');
+          case 'unsupported-format':
+            return t('settings.editor.font_error_format');
+          case 'too-large':
+            return t('settings.editor.font_error_size');
+          case 'invalid-font':
+            return t('settings.editor.font_error_invalid');
+          case 'storage-unavailable':
+            return t('settings.editor.font_error_storage');
+        }
+      }
+      return t('settings.editor.font_error_unknown');
+    },
+    [t],
+  );
+
+  const applySystemFont = useCallback(() => {
+    const family = systemFamilyDraft.trim();
+    if (!family) {
+      setFontMessage({ tone: 'error', text: t('settings.editor.font_system_required') });
+      return;
+    }
+    setEditorSystemFontFamily(family);
+    setEditorFontSource('system-custom');
+    setFontMessage({ tone: 'success', text: t('settings.editor.font_system_applied') });
+  }, [setEditorFontSource, setEditorSystemFontFamily, systemFamilyDraft, t]);
+
+  const handleFontFile = useCallback(
+    async (file: File) => {
+      setFontBusy(true);
+      setFontMessage(null);
+      try {
+        const metadata = await importProseFont(file);
+        setImportedFont(metadata);
+        setEditorFontSource('imported');
+        setFontMessage({ tone: 'success', text: t('settings.editor.font_import_done') });
+      } catch (error) {
+        setFontMessage({ tone: 'error', text: messageForImportError(error) });
+      } finally {
+        setFontBusy(false);
+      }
+    },
+    [messageForImportError, setEditorFontSource, t],
+  );
+
+  const removeImportedFont = useCallback(async () => {
+    setFontBusy(true);
+    setFontMessage(null);
+    try {
+      await removeImportedProseFont();
+      setImportedFont(null);
+      if (useSettingsStore.getState().editorFontSource === 'imported') {
+        setEditorFontSource('system-serif');
+      }
+      setFontMessage({ tone: 'success', text: t('settings.editor.font_remove_done') });
+    } catch (error) {
+      setFontMessage({ tone: 'error', text: messageForImportError(error) });
+    } finally {
+      setFontBusy(false);
+    }
+  }, [messageForImportError, setEditorFontSource, t]);
+
+  const options: {
+    source: EditorFontSource;
+    label: string;
+    detail: string;
+    disabled?: boolean;
+  }[] = [
+    {
+      source: 'system-serif',
+      label: t('settings.editor.font_system_serif'),
+      detail: t('settings.editor.font_system_serif_desc'),
+    },
+    {
+      source: 'system-sans',
+      label: t('settings.editor.font_system_sans'),
+      detail: t('settings.editor.font_system_sans_desc'),
+    },
+    {
+      source: 'system-mono',
+      label: t('settings.editor.font_system_mono'),
+      detail: t('settings.editor.font_system_mono_desc'),
+    },
+    {
+      source: 'system-custom',
+      label: t('settings.editor.font_system_custom'),
+      detail: editorSystemFontFamily || t('settings.editor.font_not_configured'),
+      disabled: !editorSystemFontFamily,
+    },
+    {
+      source: 'imported',
+      label: t('settings.editor.font_imported'),
+      detail: loadingImportedFont
+        ? t('settings.editor.font_loading')
+        : importedFont?.fileName || t('settings.editor.font_not_imported'),
+      disabled: loadingImportedFont || !importedFont,
+    },
+  ];
+
+  const knownSystemFont = systemFonts.some((font) => font.family === editorSystemFontFamily);
+  const systemFontOptions = systemFonts.map((font) => {
+    const localizedAlias = i18n.resolvedLanguage?.startsWith('zh')
+      ? font.aliases.find((alias) => /[\u3400-\u9fff]/u.test(alias))
+      : undefined;
+    const label = localizedAlias ? `${localizedAlias} — ${font.family}` : font.family;
+    return { value: font.family, label, searchText: label };
+  });
+  const manualField = (
+    <>
+      <SettingsField
+        className="set-font-tool__input"
+        small
+        value={systemFamilyDraft}
+        maxLength={128}
+        placeholder={t('settings.editor.font_system_manual_placeholder')}
+        aria-label={t('settings.editor.font_system_manual_placeholder')}
+        onChange={(event) => setSystemFamilyDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') applySystemFont();
+        }}
+      />
+      <SettingsButton size="sm" disabled={fontBusy} onClick={applySystemFont}>
+        {t('settings.editor.font_use')}
+      </SettingsButton>
+    </>
+  );
+
+  return (
+    <div className="set-font-control">
+      <div
+        className="set-font-options"
+        role="radiogroup"
+        aria-label={t('settings.editor.font_source')}
+      >
+        {options.map((option) => (
+          <button
+            key={option.source}
+            type="button"
+            role="radio"
+            aria-checked={editorFontSource === option.source}
+            className={'set-font-card glass glass--rest' + (editorFontSource === option.source ? ' is-on' : '')}
+            disabled={option.disabled || fontBusy}
+            onClick={() => setEditorFontSource(option.source)}
+          >
+            <span className="set-font-option__name">{option.label}</span>
+            <span className="set-font-option__detail">{option.detail}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="set-font-tools">
+        <div className="set-font-tool">
+          <div className="set-font-tool__copy">
+            <span className="set-font-tool__title">{t('settings.editor.font_system_title')}</span>
+            <span className="set-font-tool__desc">
+              {t('settings.editor.font_system_help')}{' '}
+              {loadingSystemFonts
+                ? t('settings.editor.font_system_loading')
+                : systemFontsUnavailable
+                  ? t('settings.editor.font_system_unavailable')
+                  : t('settings.editor.font_system_loaded', { count: systemFonts.length })}
+            </span>
+          </div>
+          <div className="set-font-tool__actions">
+            <span className="set-font-tool__select">
+              <GlassSelect
+                value={knownSystemFont ? editorSystemFontFamily : null}
+                options={systemFontOptions}
+                onChange={selectKnownSystemFont}
+                ariaLabel={t('settings.editor.font_system_placeholder')}
+                placeholder={
+                  loadingSystemFonts
+                    ? t('settings.editor.font_system_loading')
+                    : t('settings.editor.font_system_placeholder')
+                }
+                disabled={loadingSystemFonts || systemFontsUnavailable || systemFonts.length === 0}
+              />
+            </span>
+          </div>
+          <div className="set-font-tool__manual">
+            <SettingsButton
+              variant="ghost"
+              size="sm"
+              aria-expanded={manualOpen}
+              onClick={() => setManualOpen((open) => !open)}
+            >
+              <BrushIcon name={manualOpen ? 'chevron-down' : 'chevron-right'} size={11} />
+              {t('settings.editor.font_system_manual')}
+            </SettingsButton>
+            {manualOpen && <div className="set-font-tool__manual-actions">{manualField}</div>}
+          </div>
+        </div>
+
+        <div className="set-font-tool">
+          <div className="set-font-tool__copy">
+            <span className="set-font-tool__title">{t('settings.editor.font_import_title')}</span>
+            <span className="set-font-tool__desc">
+              {importedFont
+                ? `${importedFont.fileName} · ${formatFontFileSize(importedFont.byteLength)}`
+                : t('settings.editor.font_import_help')}
+            </span>
+          </div>
+          <div className="set-font-tool__actions">
+            <SettingsButton disabled={fontBusy} onClick={() => fileInputRef.current?.click()}>
+              {fontBusy
+                ? t('settings.editor.font_importing')
+                : importedFont
+                  ? t('settings.editor.font_replace')
+                  : t('settings.editor.font_import')}
+            </SettingsButton>
+            {importedFont && (
+              <SettingsButton variant="ghost" disabled={fontBusy} onClick={() => void removeImportedFont()}>
+                {t('settings.editor.font_remove')}
+              </SettingsButton>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={IMPORTED_PROSE_FONT_ACCEPT}
+            style={{ display: 'none' }}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void handleFontFile(file);
+              event.target.value = '';
+            }}
+          />
+        </div>
+      </div>
+
+      {fontMessage && (
+        <SettingsNote
+          className="set-font-message"
+          icon={fontMessage.tone === 'error' ? 'status-stopped' : 'check'}
+          tone={fontMessage.tone === 'error' ? 'error' : undefined}
+          role={fontMessage.tone === 'error' ? 'alert' : 'status'}
+        >
+          {fontMessage.text}
+        </SettingsNote>
+      )}
+    </div>
+  );
+}
+
+export function EditorPanel({ registerRef }: { registerRef: SettingsRegisterRef }) {
+  const { t } = useTranslation();
+  const {
+    bodyFontSize,
+    setBodyFontSize,
+    lineHeight,
+    setLineHeight,
+    paragraphIndent,
+    setParagraphIndent,
+    editorIndentStep,
+    setEditorIndentStep,
+    paragraphSpacing,
+    setParagraphSpacing,
+    maxLineWidth,
+    setMaxLineWidth,
+    editorTextWrap,
+    setEditorTextWrap,
+    resetEditorStyle,
+    autoImmersiveWriting,
+    setAutoImmersiveWriting,
+    typewriterMode,
+    setTypewriterMode,
+    typewriterPosition,
+    setTypewriterPosition,
+    caretColor,
+    setCaretColor,
+    entityLinkColorMode,
+    setEntityLinkColorMode,
+    entityLinkHighlightMode,
+    setEntityLinkHighlightMode,
+    entityLinkBandStyle,
+    setEntityLinkBandStyle,
+    entityLinkKindColors,
+    setEntityLinkKindColor,
+    autoElementLinkEnabled,
+    setAutoElementLinkEnabled,
+  } = useSettingsStore();
+
+  const entityLinkKindLabels: Record<EntityLinkColorKind, string> = {
+    element: t('settings.editor.entity_link_kind_element'),
+    chapter: t('settings.editor.entity_link_kind_chapter'),
+    drift: t('settings.editor.entity_link_kind_drift'),
+    patch: t('settings.editor.entity_link_kind_patch'),
+    category: t('settings.editor.entity_link_kind_category'),
+    storyline: t('settings.editor.entity_link_kind_storyline'),
+  };
+  // A phone cannot render the 480–1280px paper width literally. Preserve a
+  // readable sample while scaling that range into a visible 78–100% miniature
+  // so the paper-width control still has immediate feedback on mobile.
+  const mobilePreviewWidth = 78 + ((maxLineWidth - 480) / (1280 - 480)) * 22;
+  // Immersive writing belongs to the desktop workspace (behaviour, not look).
+  const desktop = !getPlatformRuntime().isMobileShell;
+  const previewStyle = {
+    '--set-mobile-preview-width': `${mobilePreviewWidth.toFixed(2)}%`,
+  } as CSSProperties;
+
+  return (
+    <section className="set-panel" ref={registerRef} id="editor">
+      <SettingsPanelHeader
+        kicker={t('settings.editor.kicker')}
+        title={t('settings.editor.title')}
+        sub={t('settings.editor.sub')}
+      />
+
+      <div className="set-sec">
+        <SettingsSectionHeader title={t('settings.editor.preview')} hint="PREVIEW" />
+        {/* Live sample — reads the same --editor-* CSS variables the real editor
+            does (set by applyEditorPreferences), so 字号 / 行距 / 段间距 / 段首缩进
+            and the Tab 缩进 width all update here as the controls below change. */}
+        {/* The box's own width tracks 纸张宽度 (--editor-max-width), capped to the
+            settings column, so narrowing the page narrows the preview too. */}
+        <div className="set-preview" style={previewStyle} aria-hidden="true">
+          <h1>{t('settings.editor.preview_h1')}</h1>
+          <p>{t('settings.editor.preview_p1')}</p>
+          <p>{t('settings.editor.preview_p2')}</p>
+          <h2>{t('settings.editor.preview_h2')}</h2>
+          <p>{t('settings.editor.preview_p3')}</p>
+          <p>{t('settings.editor.preview_p4')}</p>
+          <h3>{t('settings.editor.preview_h3')}</h3>
+          <p data-indent="1">{t('settings.editor.preview_p5')}</p>
+          <p>{t('settings.editor.preview_p6')}</p>
+        </div>
+      </div>
+
+      <div className="set-sec">
+        <SettingsSectionHeader
+          title={t('settings.editor.typesetting')}
+          hint="TYPESETTING"
+          action={
+            <SettingsButton variant="ghost" size="sm" onClick={resetEditorStyle}>
+              {t('settings.editor.reset_style')}
+            </SettingsButton>
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.font_source')}
+          desc={t('settings.editor.font_scope_desc')}
+          control={<EditorFontControl />}
+          stack
+        />
+        <SettingsRow
+          label={t('settings.editor.font_size')}
+          desc={t('settings.editor.font_size_desc')}
+          control={
+            <SettingsSlider
+              label={t('settings.editor.font_size')}
+              min={12}
+              max={28}
+              integer
+              value={bodyFontSize}
+              onChange={setBodyFontSize}
+              unit="px"
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.line_height')}
+          control={
+            <SettingsSlider
+              label={t('settings.editor.line_height')}
+              min={1.0}
+              max={2.0}
+              step={0.02}
+              precision={2}
+              value={lineHeight}
+              onChange={setLineHeight}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.text_wrap')}
+          desc={t('settings.editor.text_wrap_desc')}
+          control={
+            <SettingsSegment<EditorTextWrap>
+              value={editorTextWrap}
+              ariaLabel={t('settings.editor.text_wrap')}
+              options={[
+                { value: 'stable', label: t('settings.editor.text_wrap_stable') },
+                { value: 'pretty', label: t('settings.editor.text_wrap_pretty') },
+              ]}
+              onChange={setEditorTextWrap}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.indent')}
+          desc={t('settings.editor.indent_desc')}
+          control={
+            <SettingsSegment<ParagraphIndent>
+              value={paragraphIndent}
+              ariaLabel={t('settings.editor.indent')}
+              options={[
+                { value: 'none', label: t('settings.editor.indent_none') },
+                { value: 'one', label: t('settings.editor.indent_one') },
+                { value: 'two', label: t('settings.editor.indent_two') },
+              ]}
+              onChange={setParagraphIndent}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.tab_indent')}
+          desc={t('settings.editor.tab_indent_desc')}
+          control={
+            <SettingsSegment<string>
+              value={String(editorIndentStep)}
+              ariaLabel={t('settings.editor.tab_indent')}
+              options={['1', '2', '3', '4'].map((v) => ({
+                value: v,
+                label: t('settings.editor.chars_count', { count: v }),
+              }))}
+              onChange={(v) => setEditorIndentStep(Number(v))}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.paragraph_spacing')}
+          desc={t('settings.editor.paragraph_spacing_desc')}
+          control={
+            <SettingsSlider
+              label={t('settings.editor.paragraph_spacing')}
+              min={0}
+              max={2.5}
+              step={0.05}
+              precision={2}
+              value={paragraphSpacing}
+              onChange={setParagraphSpacing}
+              unit="em"
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.page_width')}
+          desc={t('settings.editor.page_width_desc')}
+          control={
+            <SettingsSlider
+              label={t('settings.editor.page_width')}
+              min={480}
+              max={1280}
+              integer
+              step={10}
+              value={maxLineWidth}
+              onChange={setMaxLineWidth}
+              unit="px"
+            />
+          }
+        />
+      </div>
+
+      <div className="set-sec">
+        <SettingsSectionHeader title={t('settings.editor.flow')} hint="FLOW" />
+        {/* Immersive writing is the desktop workspace's. */}
+        {desktop && (
+          <SettingsRow
+            label={t('settings.editor.auto_immersive')}
+            desc={t('settings.editor.auto_immersive_desc')}
+            control={
+              <SettingsToggle
+                on={autoImmersiveWriting}
+                onChange={setAutoImmersiveWriting}
+                aria-label={t('settings.editor.auto_immersive')}
+              />
+            }
+          />
+        )}
+        <SettingsRow
+          label={t('settings.editor.typewriter_mode')}
+          desc={t('settings.editor.typewriter_mode_desc')}
+          control={
+            <SettingsToggle
+              on={typewriterMode}
+              onChange={setTypewriterMode}
+              aria-label={t('settings.editor.typewriter_mode')}
+            />
+          }
+        />
+        {/* Immersive writing keeps the caret on this line too, so on the
+            desktop the position stays adjustable with typewriter mode off. */}
+        <SettingsRow
+          label={t('settings.editor.typewriter_position')}
+          desc={t('settings.editor.typewriter_position_desc')}
+          control={
+            <SettingsSlider
+              label={t('settings.editor.typewriter_position')}
+              min={TYPEWRITER_POSITION_MIN}
+              max={TYPEWRITER_POSITION_MAX}
+              integer
+              value={typewriterPosition}
+              disabled={!typewriterMode && !desktop}
+              onChange={setTypewriterPosition}
+              unit="%"
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.caret_color')}
+          desc={t('settings.editor.caret_color_desc')}
+          control={
+            <SettingsColor
+              value={caretColor}
+              onChange={setCaretColor}
+              ariaLabel={t('settings.editor.caret_color')}
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.editor.entity_link_style')}
+          desc={t('settings.editor.entity_link_style_desc')}
+          stack
+          control={
+            <div className="set-entity-link-style">
+              <SettingsSegment<EntityLinkColorMode>
+                value={entityLinkColorMode}
+                ariaLabel={t('settings.editor.entity_link_style')}
+                options={[
+                  {
+                    value: 'contextual',
+                    label: t('settings.editor.entity_link_style_contextual'),
+                  },
+                  {
+                    value: 'kind',
+                    label: t('settings.editor.entity_link_style_kind'),
+                  },
+                  {
+                    value: 'hover',
+                    label: t('settings.editor.entity_link_style_hover'),
+                  },
+                  {
+                    value: 'prose',
+                    label: t('settings.editor.entity_link_style_prose'),
+                  },
+                ]}
+                onChange={setEntityLinkColorMode}
+              />
+              {entityLinkColorMode === 'kind' && (
+                <div className="set-entity-link-colors">
+                  {ENTITY_LINK_COLOR_KINDS.map((kind) => {
+                    // A label may not hold the swatch's own label.
+                    return (
+                      <div key={kind} className="set-entity-link-color">
+                        <span className="set-entity-link-color__label">
+                          {entityLinkKindLabels[kind]}
+                        </span>
+                        <SettingsColor
+                          value={entityLinkKindColors[kind]}
+                          onChange={(next) => setEntityLinkKindColor(kind, next)}
+                          ariaLabel={entityLinkKindLabels[kind]}
+                          mark={
+                            <KindMark
+                              kind={ENTITY_LINK_KIND_MARK[kind].kind}
+                              seed={ENTITY_LINK_KIND_MARK[kind].seed}
+                              color={entityLinkKindColors[kind]}
+                            />
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          }
+        />
+        {entityLinkColorMode !== 'prose' && (
+          <SettingsRow
+            label={t('settings.editor.entity_link_highlight')}
+            desc={t('settings.editor.entity_link_highlight_desc')}
+            control={
+              <SettingsSegment<EntityLinkHighlightMode>
+                value={entityLinkHighlightMode}
+                ariaLabel={t('settings.editor.entity_link_highlight')}
+                options={[
+                  { value: 'band', label: t('settings.editor.entity_link_highlight_band') },
+                  { value: 'text', label: t('settings.editor.entity_link_highlight_text') },
+                  { value: 'both', label: t('settings.editor.entity_link_highlight_both') },
+                ]}
+                onChange={setEntityLinkHighlightMode}
+              />
+            }
+          />
+        )}
+        {(entityLinkColorMode === 'prose' || entityLinkHighlightMode !== 'text') && (
+          <SettingsRow
+            label={t('settings.editor.entity_link_band_style')}
+            desc={t('settings.editor.entity_link_band_style_desc')}
+            control={
+              <SettingsSegment<EntityLinkBandStyle>
+                value={entityLinkBandStyle}
+                ariaLabel={t('settings.editor.entity_link_band_style')}
+                options={[
+                  { value: 'wash', label: t('settings.editor.entity_link_band_style_wash') },
+                  { value: 'dots', label: t('settings.editor.entity_link_band_style_dots') },
+                ]}
+                onChange={setEntityLinkBandStyle}
+              />
+            }
+          />
+        )}
+        <SettingsRow
+          label={t('settings.editor.auto_element_link')}
+          desc={t('settings.editor.auto_element_link_desc')}
+          control={
+            <SettingsToggle
+              on={autoElementLinkEnabled}
+              onChange={setAutoElementLinkEnabled}
+              aria-label={t('settings.editor.auto_element_link')}
+            />
+          }
+        />
+      </div>
+    </section>
+  );
+}
+
+export { AppearancePanel, LanguagePanel } from './BasicPreferencePanels';

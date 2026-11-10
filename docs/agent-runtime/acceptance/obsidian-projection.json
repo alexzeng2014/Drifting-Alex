@@ -1,0 +1,95 @@
+{
+  "kind": "obsidian-projection-real-application",
+  "generatedAt": "2026-10-30T18:22:00.242Z",
+  "sourceSha256": "e30d6125a4484b7419d3d1352e0791f0e1c98f1e8fdc63e50c1c46ae00e07582",
+  "status": "passed",
+  "synthetic": true,
+  "obsidianVersion": "1.10.6",
+  "runs": [
+    {
+      "mode": "standalone",
+      "checks": [
+        {
+          "name": "relative links and embeds resolve inside the projection",
+          "status": "passed",
+          "links": 24
+        },
+        {
+          "name": "prose carries no block anchors or link fragments",
+          "status": "passed"
+        },
+        {
+          "name": "aliases preserve commas Unicode brackets and colons as separate values",
+          "status": "passed"
+        },
+        {
+          "name": "canonical MCP versions and identity maps stay in hidden manifest metadata",
+          "status": "passed"
+        },
+        {
+          "name": "one named document per entity without technical property clutter",
+          "status": "passed"
+        },
+        {
+          "name": "native passage navigation opens the cited note",
+          "status": "passed"
+        },
+        {
+          "name": "read-only PNG attachment renders from a relative embed",
+          "status": "passed"
+        },
+        {
+          "name": "read-only PDF attachment renders a page in the native PDF viewer",
+          "status": "passed"
+        }
+      ],
+      "markdownFiles": 12
+    },
+    {
+      "mode": "nested",
+      "checks": [
+        {
+          "name": "relative links and embeds resolve inside the projection",
+          "status": "passed",
+          "links": 24
+        },
+        {
+          "name": "prose carries no block anchors or link fragments",
+          "status": "passed"
+        },
+        {
+          "name": "aliases preserve commas Unicode brackets and colons as separate values",
+          "status": "passed"
+        },
+        {
+          "name": "canonical MCP versions and identity maps stay in hidden manifest metadata",
+          "status": "passed"
+        },
+        {
+          "name": "one named document per entity without technical property clutter",
+          "status": "passed"
+        },
+        {
+          "name": "native passage navigation opens the cited note",
+          "status": "passed"
+        },
+        {
+          "name": "read-only PNG attachment renders from a relative embed",
+          "status": "passed"
+        },
+        {
+          "name": "read-only PDF attachment renders a page in the native PDF viewer",
+          "status": "passed"
+        }
+      ],
+      "markdownFiles": 12
+    }
+  ],
+  "boundaries": {
+    "application": "isolated installed Obsidian with real metadata cache, navigation and PNG/PDF rendering",
+    "filesystem": "read-only fixture; native copy integrity ownership and recovery covered by local-mcp.json",
+    "personalVault": "not opened",
+    "reverseSync": "not supported",
+    "otherObsidianVersions": "not tested"
+  }
+}

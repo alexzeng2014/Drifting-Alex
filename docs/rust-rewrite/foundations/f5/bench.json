@@ -1,0 +1,14 @@
+{
+  "note": "CPU time of window.draw (layout + paint) per frame, release build, 1280x800 at 2x, headless Metal",
+  "start": {"init_ms": 1.28, "first_frame_ms": 1.52},
+  "tokens": {"frame_requests_at_rest": 0, "full_redraw_ms": {"n": 60, "p50": 0.724, "p95": 2.043, "max": 2.512}},
+  "controls": {"frame_requests_at_rest": 0, "full_redraw_ms": {"n": 60, "p50": 1.404, "p95": 3.338, "max": 3.872}},
+  "inputs": {"frame_requests_at_rest": 0, "full_redraw_ms": {"n": 60, "p50": 0.176, "p95": 0.308, "max": 0.504}},
+  "floating": {"frame_requests_at_rest": 0, "full_redraw_ms": {"n": 60, "p50": 0.505, "p95": 1.096, "max": 1.357}},
+  "sand": {"frame_requests_at_rest": 0, "full_redraw_ms": {"n": 60, "p50": 0.915, "p95": 2.417, "max": 4.706}},
+  "motion": {"frame_requests_at_rest": 0, "full_redraw_ms": {"n": 60, "p50": 0.390, "p95": 1.595, "max": 1.675}},
+  "loaders_turning": {"frame_ms": {"n": 60, "p50": 1.522, "p95": 2.414, "max": 4.756}, "frame_requests": 3},
+  "hover_drift": {"frame_ms": {"n": 120, "p50": 1.577, "p95": 10.010, "max": 26.660}, "next_frame_requests_while_drifting": 0, "redraw_interval_ms": 33.0, "core_share_p50": 0.048},
+  "press": {"frame_ms": {"n": 30, "p50": 1.471, "p95": 1.649, "max": 2.002}},
+  "release_and_leave": {"frame_ms": {"n": 36, "p50": 1.545, "p95": 2.280, "max": 2.626}, "frame_requests_after": 0}
+}

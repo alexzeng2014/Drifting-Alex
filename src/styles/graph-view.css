@@ -1,0 +1,1004 @@
+/* ============================================================
+   Graph View — fullscreen narrative-structure overlay
+   Storylines as horizontal tracks; chapters as tiles (not dots);
+   cross-storyline trails for shared-node transit. Phase 4 will
+   layer relation edges (同人物 / 引用 / 时序 / 物件 / 回响) on top.
+   ============================================================ */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+.graph-overlay {
+  /* Shared control sizing for the head-bar chips/buttons that live in the
+     SuperViewHeader's slots. Previously scoped under `.graph-head`; moved
+     up here when the wrapper migrated to the shared SuperViewHeader. */
+  --graph-head-control-height: 24px;
+  --graph-head-control-inner-height: calc(var(--graph-head-control-height) - 2px);
+}
+
+/* ---------------- Head-bar chips & controls ----------------
+   The bar's wrapper, title, and back button live in the shared
+   SuperViewHeader component. The rules below style the
+   StoryGraphView-specific controls (view toggle, spread btn,
+   filter chips, edge-mgr button, unplaced popover) that are
+   injected into the header's left/right slots. */
+/* ---------------- Head-bar "未放置" popover (narrative mode) ----------
+   Replaces the below-head drawer. Lives next to the view toggle in
+   `.graph-head__left` and opens a popover anchored to its button. */
+.graph-head__unplaced {
+  position: relative;
+  display: inline-flex;
+}
+.graph-head__unplaced-count {
+  background: hsl(var(--rule));
+  color: hsl(var(--ink-2));
+  padding: 1px 6px;
+  border-radius: 1px;
+  font-size: 9px;
+}
+.graph-head__unplaced-popover {
+  z-index: var(--z-popover);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--menu-surface-bg);
+  border-color: var(--menu-surface-border);
+  border-radius: var(--menu-surface-radius);
+  box-shadow: var(--menu-surface-shadow);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.graph-head__unplaced-empty {
+  width: 100%;
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: 12px;
+  color: hsl(var(--ink-4));
+  padding: 12px 4px;
+  text-align: center;
+}
+.graph-head__unplaced-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 1px;
+  background: hsl(var(--paper));
+  border: 1px solid hsl(var(--rule));
+  cursor: grab;
+  max-width: 260px;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-drag: none;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.graph-head__unplaced-chip:active {
+  cursor: grabbing;
+}
+.graph-head__unplaced-chip:hover {
+  border-color: var(--chip-color, hsl(var(--ink-3)));
+  background: color-mix(in srgb, var(--chip-color, hsl(var(--ink-3))) 6%, hsl(var(--paper)));
+}
+.graph-head__unplaced-chip-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: hsl(var(--ink-3));
+}
+.graph-head__unplaced-chip-title {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: hsl(var(--ink-1));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- Body (scroll grid) ----------------
+   The body is a flex column hosting `.graph-scroll`, the single scroll
+   container for everything — rail labels stick to the left; the act
+   rail (book mode) and the narrative axis row stick to the top, so
+   vertical and horizontal navigation are both a single gesture. Mirrors
+   pattern that BottomTimeline already uses (`.btl__scroll` + sticky
+   `.btl-rail`). */
+.graph-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.graph-scroll {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  background: hsl(var(--page));
+  /* Hide scrollbars on both axes (Firefox + IE/old-Edge + WebKit).
+     Scrolling still works via trackpad / wheel; horizontal scroll via
+     shift+wheel. Matches `.btl__scroll`'s scrollbar-less treatment. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.graph-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Narrative-mode time-axis row.
+   Sticky-top so it stays visible while the user scrolls through many
+   lanes. The rail-cell inside is ALSO sticky-left, so it doubles as
+   the spreadsheet-style frozen corner (sticky in both axes). */
+.graph-axis-row {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  z-index: 25;
+  background: hsl(var(--paper));
+  border-bottom: 1px solid hsl(var(--rule));
+}
+.graph-axis-rail-cell {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 14px;
+  border-right: 1px solid hsl(var(--rule));
+  background: hsl(var(--paper-deep));
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: hsl(var(--ink-4));
+  /* Above .graph-axis-track-cell (its sticky-row sibling) AND above the
+     rail-cell of lane rows below, so the corner always wins. */
+  z-index: 2;
+}
+.graph-axis-track-cell {
+  position: relative;
+  flex-shrink: 0;
+  /* Surface at FULL content width (this cell is sized to canvasContentWidth).
+     The parent `.graph-axis-row` is only container-wide, so its background
+     stopped at the pre-scroll right edge — scrolling revealed bare --page. */
+  background: hsl(var(--paper));
+  /* Double-clicking blank axis adds a marker; it must not also select the
+     nearest pin label. Labels being renamed are editable and still select. */
+  user-select: none;
+}
+
+/* ---------------- Lane row (rail + track) ----------------
+   One per storyline. Rail-cell is sticky-left so labels stay aligned
+   with their tracks at every scroll position. Track-cell hosts the
+   reading line (::before) and the lane's tile children. */
+.graph-lane-row {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  position: relative;
+}
+.graph-rail-cell {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 14px;
+  background: hsl(var(--paper-deep));
+  border-right: 1px solid hsl(var(--rule));
+  border-bottom: 1px dotted hsl(var(--rule));
+  /* Above tiles + edges so the sticky rail always covers content
+     scrolling under it. Matches BottomTimeline's `.btl-rail`. */
+  z-index: 20;
+}
+.graph-track-cell {
+  position: relative;
+  flex-shrink: 0;
+  border-bottom: 1px dotted hsl(var(--rule));
+}
+.graph-track-cell::before {
+  /* The hand-drawn-feeling reading-line — colored by storyline via
+     --track-color on the parent .graph-lane-row. */
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1.5px;
+  background: var(--track-color, hsl(var(--ink-5)));
+  opacity: 0.32;
+  transform: translateY(-50%);
+  z-index: 0;
+}
+.graph-rail__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-style: italic;
+  font-size: 14px;
+  color: hsl(var(--ink-1));
+}
+.graph-rail__meta {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: hsl(var(--ink-4));
+}
+
+/* ---------------- Time axis sub-parts (kept for axis tick rendering) ---------------- */
+.graph-axis__col {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* The vertical tick line extends INTO the tracks area beneath; the
+     `.graph-axis__tick::after` pseudo handles the spill so we don't need
+     a separate full-height element. */
+}
+.graph-axis__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: hsl(var(--rule));
+  pointer-events: none;
+}
+.graph-axis__label {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  padding-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: hsl(var(--ink-4));
+  white-space: nowrap;
+}
+.graph-axis__label.is-major {
+  color: hsl(var(--ink-3));
+  font-weight: 600;
+}
+
+/* ---------------- Axis "+ add pin" button (narrative mode) ----------------
+   Lives inside `.graph-axis-rail-cell` (the sticky corner). The cell
+   itself owns the flex / typography styling now. */
+.graph-rail__axis-add {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  color: hsl(var(--ink-4));
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.graph-rail__axis-add:hover:not(:disabled) {
+  background: hsl(var(--rule));
+  color: hsl(var(--ink-1));
+}
+.graph-rail__axis-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------------- Time pins (narrative mode) ----------------
+   Mirror of `.btl-pin` adapted for graph view's taller axis row.
+   The head + label live inside `.graph-axis`; the vertical line
+   (`.graph-pin-line`) is rendered as a sibling inside `.graph-scroll`
+   so it can span the full canvas height. */
+.graph-pin {
+  position: absolute;
+  top: 0;
+  width: 0;
+  z-index: 7;
+}
+.graph-pin__label {
+  /* Chip sits AFTER the pin line, flowing rightward — and matches the act chip
+     (.actrail__label / .actrail__name): same paper pill, hairline border, mono
+     500 text, padding. Unified so an act and a time marker read as the same
+     primitive. The old translateX(-50%) centred it on the pin, so an order-0
+     pin clipped its left half against the track edge. */
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: 6px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 13px;
+  letter-spacing: 0.06em;
+  color: hsl(var(--ink-2));
+  background: hsl(var(--paper));
+  border: 1px solid hsl(var(--rule));
+  border-radius: 3px;
+  white-space: nowrap;
+  cursor: grab;
+  outline: none;
+  min-width: 24px;
+  text-align: left;
+  user-select: none;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.1s ease;
+}
+.graph-pin.is-editing .graph-pin__label:not(.glass) {
+  cursor: text;
+  user-select: text;
+  border-color: hsl(var(--accent));
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+  overflow: visible;
+}
+.graph-pin.is-dragging .graph-pin__label {
+  cursor: grabbing;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Pin line — the rail-height vertical line at the marker's position, mirroring
+   the act boundary line (.actrail__divider::after). Replaced the old triangle
+   head. Continues downward as .graph-pin-line through the lanes (behind the
+   sticky axis row), so the marker reads as one line from rail to bottom. */
+.graph-pin__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: hsl(var(--rule));
+  cursor: grab;
+  transition: opacity 0.1s ease;
+}
+.graph-pin.is-dragging .graph-pin__line {
+  cursor: grabbing;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Bound pin — see .btl-pin.is-bound; same semantics in the graph axis. */
+.graph-pin.is-bound .graph-pin__label:not(.glass) {
+  border-color: hsl(var(--accent) / 0.55);
+  background: hsl(var(--accent) / 0.06);
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  cursor: pointer;
+}
+/* The drift's own sand eddy marks the marker as bound to a drift node —
+   mirrors the act rail's bound drift so the two read as one concept. */
+.graph-pin.is-bound .graph-pin__label:not(.glass)::before {
+  content: '';
+  display: inline-block;
+  width: 11px;
+  height: 8px;
+  margin-right: 4px;
+  background: hsl(var(--accent));
+  -webkit-mask: url('../assets/design/sand/mark-spiral.png') center / 100% 100% no-repeat;
+  mask: url('../assets/design/sand/mark-spiral.png') center / 100% 100% no-repeat;
+}
+.graph-pin.is-bound .graph-pin__label:not(.glass):hover {
+  background: hsl(var(--accent) / 0.12);
+}
+.graph-pin.is-bound .graph-pin__line {
+  background: hsl(var(--accent));
+}
+
+/* Vertical line that pierces every storyline track for a given pin.
+   Sits IN FRONT of tiles (z-index 4 > tile z-index 3) so it reads as one
+   CONTINUOUS guide from the axis down through every lane. It used to sit
+   behind tiles (z-index 0), which made the line vanish wherever a chapter
+   card happened to sit on its column — the line looked chopped/broken even
+   though it spans the full height. Kept thin + faint (--rule) so crossing a
+   card stays unobtrusive; dragging bumps it to accent. Drift panel
+   (z-index 260, separate stacking context) sits above this regardless.
+   The height is set inline (= scroll content total) because absolute
+   children of `.graph-scroll` only see its layout/viewport height,
+   not its scrollHeight — `bottom: 0` would clip to the visible region. */
+.graph-pin-line {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  background: hsl(var(--rule));
+  pointer-events: none;
+  z-index: 4;
+}
+/* Active drop indicator (marker OR act drag). Lifted ABOVE the sticky axis /
+   act rail (z-index 25) so the line shows in the rail too — otherwise the
+   static line sits behind the rail (z-index 4) and the indicator vanished in
+   the rail, only appearing in the lanes. Now it reads as one continuous accent
+   line from the rail to the bottom. */
+.graph-pin-line.is-dragging {
+  width: 1.5px;
+  background: hsl(var(--accent));
+  z-index: 26;
+}
+
+/* ---------------- Tiles ---------------- */
+.graph-tile {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--tile-color, hsl(var(--ink-3))) 6%, hsl(var(--paper)));
+  border: 1px solid hsl(var(--rule));
+  border-radius: 1px;
+  box-shadow: none;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-drag: none;
+  z-index: 3;
+  overflow: hidden;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.graph-tile:hover {
+  background: color-mix(in srgb, var(--tile-color, hsl(var(--ink-3))) 10%, hsl(var(--paper)));
+  border-color: var(--tile-color, hsl(var(--rule-strong)));
+}
+.graph-tile__num {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: hsl(var(--ink-4));
+  line-height: 1;
+}
+.graph-tile__title {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: hsl(var(--ink-1));
+  line-height: 1.15;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-tile__summary {
+  font-size: 10px;
+  line-height: 1.25;
+  color: hsl(var(--ink-3));
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+/* Writing status: draft (plus AI-pipeline intermediates waiting_review /
+   revising — treated as draft until that flow ships). Paper background +
+   dashed border in storyline color + storyline-color title, matching the
+   redesign mock's `.graph-node--draft` treatment. Finished chapters drop
+   the class and revert to the neutral default tile. */
+.graph-tile.is-draft {
+  background: hsl(var(--paper));
+  border-style: dashed;
+  border-color: var(--tile-color, hsl(var(--rule)));
+  box-shadow: none;
+}
+.graph-tile.is-draft .graph-tile__title {
+  color: var(--tile-color, hsl(var(--ink-3)));
+}
+
+/* Writing status: discarded — soft-deleted. Mute the storyline color and
+   strike through the title so a parked chapter reads as set-aside without
+   disappearing from the canvas. */
+.graph-tile.is-discarded {
+  background: hsl(var(--paper-deep));
+  border-style: dashed;
+  border-color: hsl(var(--rule-strong));
+  box-shadow: none;
+  opacity: 0.6;
+}
+.graph-tile.is-discarded:hover {
+  opacity: 0.9;
+  transform: none;
+}
+.graph-tile.is-discarded .graph-tile__title {
+  color: hsl(var(--ink-3));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--ink-4));
+}
+.graph-tile.is-discarded .graph-tile__summary {
+  color: hsl(var(--ink-4));
+}
+
+/* ---------------- Selected edge ----------------
+   Click an edge → select it. Selection highlights the edge (handled
+   inline via path attrs) and applies `.is-edge-selected` to the two
+   endpoint cards. Relation details/actions live in the shared body portal. */
+.graph-tile.is-edge-selected {
+  border-color: hsl(var(--accent));
+  border-width: 2px;
+  box-shadow: 0 0 0 1px hsl(var(--accent) / 0.18);
+}
+
+/* ---------------- Cross-storyline edges (transit trails) ---------------- */
+.graph-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.graph-edges path {
+  stroke-linecap: round;
+  transition: opacity 0.2s;
+}
+
+/* ---------------- Link source / new-edge dialog ---------------- */
+.graph-tile.is-link-source {
+  /* The "pending source" tile during shift-click edge creation. */
+  outline: 2px dashed hsl(var(--accent));
+  outline-offset: 2px;
+}
+
+.graph-linkbar {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: hsl(var(--ink-1));
+  color: hsl(var(--paper));
+  border-radius: 2px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  box-shadow: 0 10px 24px -14px hsl(var(--ink-1) / 0.5);
+  z-index: 270;
+}
+.graph-linkbar strong {
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+.graph-linkbar button {
+  margin-left: 4px;
+  background: transparent;
+  border: 0;
+  color: hsl(var(--paper) / 0.7);
+  font-size: 16px;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+}
+.graph-linkbar button:hover {
+  color: hsl(var(--paper));
+}
+.graph-newedge {
+  box-sizing: border-box;
+  background: hsl(var(--paper));
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: 2px;
+  padding: 20px 22px 18px;
+  width: min(360px, 100%);
+  min-width: 0;
+  max-width: 100%;
+  box-shadow: 0 14px 34px -16px hsl(var(--ink-1) / 0.34);
+  font-family: var(--font-sans);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.graph-newedge.is-creating-type {
+  width: min(520px, 100%);
+}
+.graph-newedge__pair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: hsl(var(--paper-deep));
+  border: 1px solid hsl(var(--rule));
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: hsl(var(--ink-2));
+  margin-bottom: 14px;
+}
+.graph-newedge__pair > span:first-child,
+.graph-newedge__pair > span:last-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-newedge__pair > span:last-child {
+  text-align: right;
+}
+.graph-newedge__pair > span[aria-hidden] {
+  flex: 0;
+  font-family: var(--font-mono);
+  color: hsl(var(--ink-4));
+}
+
+.graph-newedge__swap {
+  font-size: 15px;
+}
+
+/* ---------------- Node card popover ----------------
+   Anchored to a clicked tile in default state; recenters into a
+   larger sharp surface in upgrade state. */
+.node-card {
+  background: hsl(var(--paper));
+  border: 1px solid hsl(var(--rule));
+  border-radius: 2px;
+  box-shadow: 0 14px 32px -16px hsl(var(--ink-1) / 0.36);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+.node-card.is-upgrade {
+  border-radius: 2px;
+  box-shadow: 0 20px 48px -20px hsl(var(--ink-1) / 0.42);
+}
+.node-card__summary {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  padding: 12px 14px;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: calc(var(--editor-font-size, 17.5px) - 4px);
+  line-height: 1.55;
+  color: hsl(var(--ink-1));
+  min-height: 120px;
+  max-height: min(42vh, 320px);
+  flex: 1;
+}
+.node-card__summary::placeholder {
+  color: hsl(var(--ink-4));
+  font-style: italic;
+}
+.node-card__loading {
+  padding: 24px;
+  text-align: center;
+  color: hsl(var(--ink-3));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+/* Fixed-position edges between drift cards and storyline tiles.
+   Above the graph-overlay (z-index 250) and the drift panel chrome
+   (z-index 260), but below the new-edge dialog (z-index 280). */
+.graph-drift-edges {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 258; /* between graph-overlay 250 and drift drawer 260 */
+  pointer-events: none;
+  animation: graph-drift-edges-in 260ms ease-out;
+}
+@keyframes graph-drift-edges-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Wide transparent hit-target path — only thing in the SVG that opts
+   into pointer events, so the visible (thin, dashed) line stays
+   non-blocking and the user can click anywhere along the band. */
+.graph-drift-edge__hit {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.graph-drift-edge__halo {
+  fill: none;
+  stroke-width: 4;
+  opacity: 0.35;
+  filter: blur(2.5px);
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.graph-drift-edge__line {
+  fill: none;
+  stroke-width: 1.1;
+  opacity: 0.95;
+  stroke-linecap: round;
+  stroke-dasharray: 5 7;
+  pointer-events: none;
+  animation: graph-drift-edge-flow 1.8s linear infinite;
+}
+@keyframes graph-drift-edge-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+/* ─── Desktop (砂笔 + 素玻璃) ─────────────────────────────────────────
+   The story graph follows the Bottom Timeline: lane names sit in the desk-
+   coloured rail as sidebar cells (the storyline's sand dash, a ring of its
+   colour under the pointer); lanes are the page, parted by half-pixel desk
+   lines, with no reading line and no dotted rules. Each chapter is a slab of
+   glass on the page rimmed in its storyline's colour (`.glass--rest`): the
+   ends of a selected relation take the still selected glass, the picked
+   source of a new relation the dense held glass; drafts are a step lighter,
+   set-aside chapters faded and struck out. Act labels and time pins turn on
+   the timeline's glass; their lines are half-pixel desk lines and the drop
+   line while dragging is clear glass running with the distance. The paused
+   mobile shell keeps the tinted tiles and dotted lanes above. */
+html[data-shell-mode] .graph-overlay {
+  --graph-guide-line: var(--workspace-ui-bg);
+  --graph-drop-glass: color-mix(in srgb, var(--glass-clear), hsl(var(--ink-3)) 50%);
+}
+
+html[data-shell-mode] .graph-head__spread {
+  gap: 5px;
+}
+
+html[data-shell-mode] .graph-axis-row {
+  border-bottom: 0;
+  box-shadow: inset 0 -0.5px 0 var(--graph-guide-line);
+}
+
+html[data-shell-mode] .graph-axis-rail-cell {
+  border-right: 0;
+  background: var(--workspace-ui-bg);
+  font-size: var(--ui-font-caption, 10px);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+html[data-shell-mode] .graph-rail__axis-add:hover:not(:disabled) {
+  background: transparent;
+}
+
+html[data-shell-mode] .graph-rail-cell,
+html[data-shell-mode] .graph-track-cell {
+  border-right: 0;
+  border-bottom: 0;
+}
+
+html[data-shell-mode] .graph-lane-row + .graph-lane-row {
+  box-shadow: inset 0 0.5px 0 var(--graph-guide-line);
+}
+
+html[data-shell-mode] .graph-track-cell::before {
+  content: none;
+}
+
+.graph-rail-cell--glass {
+  padding: 3px 4px;
+  background: var(--workspace-ui-bg);
+}
+
+.graph-rail-cell--glass > .graph-rail__main {
+  padding: 0 10px 0 8px;
+}
+
+/* A synthetic lane (本书, 未归属) has no mark: its name keeps the mark's
+   room, so every name and count in the rail start on one line. */
+.graph-rail-cell--glass > .graph-rail__main .graph-rail__name {
+  padding-left: 18px;
+}
+
+.graph-rail__cell {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 10px 0 8px;
+  border-radius: 2px;
+}
+
+.graph-rail__main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Lane names are storylines organizing the chapters, set in the serif
+   structure face like the Bottom Timeline's rail. */
+.graph-rail-cell--glass .graph-rail__name {
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-structure);
+  font-style: normal;
+  font-size: var(--ui-font-body, 13px);
+  font-weight: 400;
+  color: hsl(var(--ink-1));
+}
+
+.graph-rail-cell--glass .graph-rail__name > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-rail-cell--glass .graph-rail__name > .kind-mark {
+  margin-left: -2px;
+}
+
+.graph-rail-cell--glass .graph-rail__meta {
+  padding-left: 18px;
+  font-size: var(--ui-font-caption, 10px);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.graph-tile.glass,
+.graph-tile.glass:hover,
+.graph-tile.glass.is-draft,
+.graph-tile.glass.is-discarded,
+.graph-tile.glass.is-edge-selected,
+.graph-tile.glass.is-link-source {
+  --glass-edge: 40%;
+  --glass-rim: 9px;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 2px;
+  background: hsl(var(--page));
+  box-shadow: none;
+  outline: none;
+  transition: opacity 0.2s ease-out;
+}
+
+.graph-tile.glass .graph-tile__num {
+  font-size: var(--ui-font-caption, 10px);
+  letter-spacing: 0;
+}
+
+.graph-tile.glass .graph-tile__title {
+  font-size: var(--ui-font-secondary, 12.5px);
+}
+
+.graph-tile.glass .graph-tile__summary {
+  font-size: var(--ui-font-caption, 10.5px);
+  line-height: 1.35;
+}
+
+.graph-tile.glass.is-draft .graph-tile__title {
+  color: hsl(var(--ink-2));
+}
+
+.graph-tile.glass.is-discarded {
+  opacity: 0.55;
+}
+
+.graph-tile.glass.is-discarded:hover {
+  opacity: 0.8;
+}
+
+.graph-tile.glass.is-link-source {
+  --glass-g: 1.7;
+  --glass-sp: 1.3;
+}
+
+.graph-tile.glass.is-link-source::before {
+  opacity: 1;
+  animation-play-state: paused;
+}
+
+html[data-shell-mode] .graph-pin__label.glass {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  letter-spacing: 0;
+}
+
+html[data-shell-mode] .graph-pin.is-editing .graph-pin__label.glass {
+  overflow: visible;
+  background: var(--glass-fill);
+  color: hsl(var(--ink-1));
+  cursor: text;
+  user-select: text;
+}
+
+html[data-shell-mode] .graph-pin.is-bound .graph-pin__label.glass {
+  font-family: var(--font-sans);
+  color: hsl(var(--ink-1));
+  cursor: pointer;
+}
+
+.graph-pin__label.glass > .kind-mark {
+  height: 13px;
+  margin-right: 4px;
+  vertical-align: top;
+}
+
+.graph-pin__label.glass > .kind-mark > .sand {
+  top: 1px;
+}
+
+html[data-shell-mode] .graph-pin__line,
+html[data-shell-mode] .graph-pin.is-bound .graph-pin__line,
+html[data-shell-mode] .graph-pin-line {
+  width: 0.5px;
+  background: var(--graph-guide-line);
+}
+
+html[data-shell-mode] .graph-pin-line.is-dragging {
+  width: 4px;
+  margin-left: -2px;
+  background: linear-gradient(to right, transparent, var(--graph-drop-glass), transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  -webkit-mask-position: var(--glass-dense-gx) calc(var(--flow, 0) * 1.6px);
+  mask-position: var(--glass-dense-gx) calc(var(--flow, 0) * 1.6px);
+}
+
+/* Unplaced chapters (narrative): menu rows led by the chapter's seal; the
+   row under the pointer rings in its storyline's colour, held denser, and
+   drags onto the time axis. */
+.graph-head__unplaced-popover--rows {
+  display: block;
+  padding: 6px 0;
+}
+
+.graph-head__unplaced-row {
+  gap: 7px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-drag: none;
+}
+
+.graph-head__unplaced-row:active {
+  cursor: grabbing;
+}
+
+html[data-shell-mode] .menu-surface__item.graph-head__unplaced-row::before {
+  --menu-line: color-mix(in srgb, var(--clip-color, hsl(var(--ink-3))) 50%, var(--glass-clear));
+}
+
+html[data-shell-mode] .menu-surface__item.graph-head__unplaced-row:active::before {
+  --menu-line: color-mix(in srgb, var(--clip-color, hsl(var(--ink-3))) 75%, var(--glass-clear));
+}
+
+.graph-head__unplaced-row .graph-head__unplaced-chip-num {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.graph-head__unplaced-popover--rows .graph-head__unplaced-empty {
+  padding: 10px 14px;
+  font-style: normal;
+  text-align: left;
+}
+
+/* Drift edges: no blurred halo; the dashes stand still until the pointer is
+   on the edge or on its drift card (`is-lit`), then flow at the glass's
+   pace. */
+html[data-shell-mode] .graph-drift-edge__halo {
+  display: none;
+}
+
+html[data-shell-mode] .graph-drift-edge__line {
+  animation-play-state: paused;
+}
+
+html[data-shell-mode] .graph-drift-edge:is(:hover, .is-lit, .is-selected) .graph-drift-edge__line {
+  animation-play-state: running;
+}

@@ -1,0 +1,82 @@
+{
+  "kind": "todo_agent_handoff_acceptance",
+  "status": "passed",
+  "generatedAt": "2026-10-01T16:53:26.450Z",
+  "sourceSha256": "4785c93eb4e0dd724d202a6217b0f37718d1db7c68e9597a15ffc311d2d4773b",
+  "suites": [
+    "src/renderer/store/agent-todo-background.integration.test.ts",
+    "src/renderer/features/comments/todo-agent-task.test.ts",
+    "src/renderer/lib/agent/runtime/system-prompt.test.ts"
+  ],
+  "tests": [
+    {
+      "name": "Todo background Agent conversation starts a distinct durable chat without replacing the displayed chat or draft",
+      "status": "passed"
+    },
+    {
+      "name": "Todo background Agent conversation survives same-project navigation while preparing",
+      "status": "passed"
+    },
+    {
+      "name": "Todo background Agent conversation cancels an unsubmitted task on project switch",
+      "status": "passed"
+    },
+    {
+      "name": "Todo background Agent conversation does not claim an Agent task started when transport rejects it",
+      "status": "passed"
+    },
+    {
+      "name": "Todo Agent handoff carries the task and its anchored evidence without treating the excerpt as current prose",
+      "status": "passed"
+    },
+    {
+      "name": "Todo Agent handoff does not launch a resolved Todo or a note",
+      "status": "passed"
+    },
+    {
+      "name": "Todo Agent handoff resolves the latest valid linked conversation for this Todo",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt states the hard answer-only boundary when the surface removes write tools",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt injects the canonical project name without treating projectId as a title",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt fails closed when no canonical project name is available",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt keeps domain references, scope, and execution boundaries",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt requires requested full reading without constraining reasoning or rereads",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt leaves writing policy to the author and injects only author-owned rules",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt keeps long-task memory available without prescribing a writing workflow",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt injects rolling Working Memory and permits direct answers without a checkpoint",
+      "status": "passed"
+    },
+    {
+      "name": "Drifting General Agent system prompt quotes control characters in an author-controlled project name",
+      "status": "passed"
+    }
+  ],
+  "boundary": {
+    "level": "E1",
+    "provider": "synthetic",
+    "nativeInteraction": "not_run"
+  }
+}

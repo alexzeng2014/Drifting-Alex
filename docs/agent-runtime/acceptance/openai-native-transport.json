@@ -1,0 +1,72 @@
+{
+  "suite": "openai-native-responses-keychain-and-account-model-catalog",
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-02T15:11:26.182Z",
+  "nodeVersion": "v22.23.1",
+  "platform": "darwin",
+  "sourceSetSha256": "sha256:fd28706248fbf5471466d206ad113c8b7625665adbbba39f4fd91230e1792f8b",
+  "vitest": {
+    "files": 5,
+    "tests": 86,
+    "passedTests": 86,
+    "passed": true
+  },
+  "typecheck": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "lint": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "rustOpenAITransport": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "rustSecureStorage": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "rustCheck": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "rustFormat": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "rustCodexCatalog": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "compatibilityManifest": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "evidence": {
+    "responseHost": "fixed-native-https-api.openai.com-v1-responses",
+    "authorization": "native-keychain-injection-never-renderer",
+    "rendererTransport": "ordered-tauri-channel-with-abort-forwarding",
+    "settingsStatus": "existence-only; macos-attributes-with-authentication-ui-skipped",
+    "workspaceTypecheck": "full-tsc-noEmit",
+    "paidLiveCanary": "explicit-separate-command-only",
+    "catalogVersion": "0.166.0",
+    "accountCatalog": "native-only-etag-revalidation; 304-reuses-projection; server-cache-control-and-age",
+    "cacheIsolation": "credential-and-account-scoped; logout-login-epoch-discards-inflight-results",
+    "rendererFreshness": "server-directed-up-to-five-minutes; forced-manual-and-online-refresh",
+    "futureModels": "server-order-and-capabilities; synthetic-unknown-model-tool-loop",
+    "upstreamReview": "weekly-read-only-report; no-automatic-version-bump"
+  },
+  "boundaries": {
+    "macosPromptUI": "OS password-dialog behavior requires interactive acceptance"
+  },
+  "passed": true
+}

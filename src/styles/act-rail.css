@@ -1,0 +1,332 @@
+/* ============================================================
+   ActRail — 幕 strip in track coordinate space.
+   Replaced FullBookLane in book mode: bands span the same x-range
+   as the chapter columns below (host passes orderToX), so the act
+   structure reads vertically against the storyline tracks. Shared
+   between BottomTimeline and StoryGraphView.
+   ============================================================ */
+
+.actrail {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  background: hsl(var(--paper));
+  border-bottom: 1px solid hsl(var(--rule));
+}
+
+/* StoryGraphView modifier: the graph canvas scrolls vertically through many
+   lanes — pin the rail to the top, same recipe as .graph-axis-row. */
+.actrail--sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+}
+
+.actrail__rail {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 16px;
+  border-right: 1px solid hsl(var(--rule));
+  background: hsl(var(--paper));
+  z-index: 21;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: hsl(var(--ink-4));
+}
+/* ＋ new-act button — mirrors the narrative axis head's add button
+   (.btl-axis__rail-add / .graph-rail__axis-add) so book + narrative modes
+   share the same "add to this rail" affordance. */
+.actrail__rail-add {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  color: hsl(var(--ink-4));
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  margin-left: 6px;
+  transition: background 0.12s, color 0.12s;
+}
+.actrail__rail-add:hover:not(:disabled) {
+  background: hsl(var(--rule));
+  color: hsl(var(--ink-1));
+}
+.actrail__rail-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.actrail__track {
+  position: relative;
+  flex-shrink: 0;
+  /* Surface at FULL content width (sized to trackWidth via inline minWidth).
+     The parent `.actrail` row is only container-wide, so its background ended
+     at the pre-scroll right edge — anything scrolled past it lost its surface
+     and the transparent act bands had nothing behind them. */
+  background: hsl(var(--paper));
+}
+
+/* Empty state — book mode renders the rail even with zero acts so the
+   feature stays discoverable via the head ＋. The track itself is plain. */
+.actrail--empty .actrail__track {
+  cursor: default;
+}
+
+.actrail__band {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  /* NO fill, and INERT. The band is just a positioned/clip wrapper that homes
+     the act chip (see .actrail__label) at its boundary; the act reads as a
+     narrative-marker-style chip plus its boundary line (.actrail__divider).
+     pointer-events: none means it no longer captures hovers or double-clicks
+     across the whole segment — all act interaction lives on the chip, so the
+     bare rail between chips reads as empty (double-click → 在此处新建幕),
+     exactly like the timeline-marker rail. (The full-width opaque band that used to "divide"
+     the rail is gone; only the chip + boundary line remain.) */
+  background: transparent;
+  pointer-events: none;
+  cursor: default;
+  user-select: none;
+}
+
+/* The act chip — mirrors the narrative time-pin label (.btl-pin__label /
+   .graph-pin__label): a light paper pill with a hairline border, mono text. */
+.actrail__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 6px;
+  background: hsl(var(--paper));
+  border: 1px solid hsl(var(--rule));
+  border-radius: 3px;
+  line-height: 13px;
+  /* The chip is the ONLY interactive act surface (the band wrapper is inert):
+     its hover card manages the act, double-click renames. Re-enable pointer
+     events the band turned off. */
+  pointer-events: auto;
+  cursor: default;
+}
+/* Every act chip can move its boundary. A book-head anchored first act begins
+   at the left edge and becomes a finite boundary on its first drag. */
+.actrail__label.is-draggable {
+  cursor: grab;
+}
+.actrail__label.is-draggable:active {
+  cursor: grabbing;
+}
+/* Colored acts tint the chip's border (no heavy fill), echoing the act color
+   the way a bound pin tints its label border. */
+.actrail__band.has-color .actrail__label {
+  border-color: color-mix(in srgb, var(--act-color) 55%, hsl(var(--rule)));
+}
+/* ⚓ — the act binds a drift as its notes; click opens it. */
+.actrail__anchor {
+  display: inline-flex;
+  align-self: center;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin-right: 1px;
+  line-height: 1;
+  color: hsl(var(--accent));
+  cursor: pointer;
+  opacity: 0.85;
+}
+.actrail__anchor:hover {
+  opacity: 1;
+}
+.actrail__name {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: hsl(var(--ink-2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.actrail__count {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: hsl(var(--ink-4));
+}
+
+/* The rename input's wrapper fills the band, so the input still spans it. */
+.actrail__edit-field {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.actrail__edit {
+  width: 100%;
+  min-width: 48px;
+  border: none;
+  outline: 1px solid hsl(var(--accent) / 0.6);
+  border-radius: 2px;
+  padding: 1px 4px;
+  font-size: 10.5px;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-1));
+}
+
+.actrail__divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  margin-left: -3.5px;
+  cursor: col-resize;
+  z-index: 3;
+}
+.actrail__divider::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  /* Matches the narrative pin's vertical line (1px --rule) so an act boundary
+     and a time marker read as the same visual primitive. */
+  background: hsl(var(--rule));
+}
+.actrail__divider:hover::after {
+  background: hsl(var(--accent));
+  width: 2px;
+}
+
+.actrail__ghost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: hsl(var(--accent));
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.actrail__label:focus-visible,
+.actrail__divider:focus-visible {
+  outline: 2px solid hsl(var(--accent) / 0.65);
+  outline-offset: 2px;
+}
+
+/* ── Desktop Bottom Timeline: glass (`glass` prop → `.actrail--glass`) ──
+ * The act chip is a resting glass chip, no fill, in the act's colour when it
+ * has one (dense patch of the texture, like every small slab); it flows under
+ * the pointer and thickens while held to drag. Renamed, its field is the
+ * still selected glass on the floating fill. A boundary under the pointer
+ * bleeds a strip of slowly flowing clear glass; the drop line while dragging
+ * is the same strip, its texture running with the distance moved (--flow).
+ * The ＋ is a panel header's plain icon button. No accent anywhere. */
+.actrail--glass {
+  --actrail-glass: color-mix(in srgb, var(--glass-clear), hsl(var(--ink-3)) 50%);
+}
+.actrail--glass .actrail__label.glass {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+.actrail--glass .actrail__band.has-color .actrail__label.glass {
+  --glass-cc: var(--act-color);
+}
+/* Act names are set in the serif structure face, as acts are in the paper's
+   outline; the chapter count stays index type. */
+.actrail--glass .actrail__name,
+.actrail--glass .actrail__edit {
+  font-family: var(--font-structure);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+/* Ideographs drop onto the Latin line, as in the Panel Tabs, so a Chinese
+   act name centres in its chip and sits on the count's line. */
+.actrail--glass .actrail__name[data-script='cjk'] {
+  position: relative;
+  top: 0.15em;
+}
+.actrail--glass .actrail__label:focus-visible,
+.actrail--glass .actrail__divider:focus-visible {
+  outline: none;
+}
+.actrail--glass .actrail__edit-field {
+  border-radius: 2px;
+  background: var(--glass-fill);
+}
+.actrail--glass .actrail__edit {
+  padding: 2px 7px;
+  outline: none;
+  background: transparent;
+}
+.actrail--glass .actrail__divider::before {
+  --glass-gx: -96px;
+  --glass-gy: 0px;
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 3px;
+  background: linear-gradient(to right, transparent, var(--actrail-glass), transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  -webkit-mask-position: var(--glass-gx) var(--glass-gy);
+  mask-position: var(--glass-gx) var(--glass-gy);
+  opacity: 0;
+  pointer-events: none;
+  animation: glass-flow var(--motion-glass-drift) linear infinite paused;
+  transition: opacity 0.24s ease-out;
+}
+.actrail--glass .actrail__divider:hover::before,
+.actrail--glass .actrail__divider:focus-visible::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+/* The static boundary line stays as it is under the pointer. */
+.actrail--glass .actrail__divider:hover::after {
+  width: 0.5px;
+  background: var(--btl-guide-line, hsl(var(--rule)));
+}
+.actrail--glass .actrail__ghost {
+  width: 4px;
+  margin-left: -2px;
+  opacity: 1;
+  background: linear-gradient(to right, transparent, var(--actrail-glass), transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  -webkit-mask-position: -96px calc(var(--flow, 0) * 1.6px);
+  mask-position: -96px calc(var(--flow, 0) * 1.6px);
+}
+.actrail--glass .actrail__rail-add:hover:not(:disabled) {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actrail--glass .actrail__divider::before {
+    animation: none;
+  }
+}

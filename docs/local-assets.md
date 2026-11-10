@@ -1,0 +1,138 @@
+# Local project assets
+
+Status: **current architecture**.
+
+Drifting is pre-release. This document defines the only supported asset format;
+development databases created by an older build must be reset. The repository's
+clean-over-compatibility rule lives in [`../AGENTS.md`](../AGENTS.md).
+
+## Authority and ownership
+
+- SQLite is the metadata authority and the app-owned `assets/` directory is the
+  byte authority.
+- `project_asset` is an immutable description of one imported source:
+  `id`, `projectId`, `kind`, `sourceMime`, `sourceSizeBytes`, `sourceSha256`,
+  optional image dimensions, and `createdAt`.
+- Ownership is expressed exactly once: `library_item.assetId` owns an image or
+  PDF; `element.portraitAssetId` owns a portrait image. A material and a
+  portrait showing the same picture are two assets with one SHA-256.
+- `library_item.provenanceJson` (migration `0009`) records where a material
+  came from (generated, or a replaced portrait); `null` means the author
+  imported it. Picker paths never enter it. See
+  [`image-generation.md`](image-generation.md).
+- Generated candidates live in the device-local generation inbox, outside this
+  layout and outside sync, until the author keeps one through the ordinary
+  import below.
+- Provider file IDs, revisions, cursors, transfer sessions, and retry state do
+  not belong in `project_asset`. SyncEngine stores them in its own
+  replica/transport tables.
+
+`LibraryItem.kind` is the only payload discriminator:
+
+| kind | required payload | forbidden payload |
+| --- | --- | --- |
+| `image` / `pdf` | `assetId` | external URL and text body |
+| `text` | optional canonical TipTap `bodyJson` | asset and external URL |
+
+The former `url` kind is retired (migration `0011`): stored url rows became
+notes holding their link, guard triggers refuse new ones, and url records from
+older builds or checkpoints are converted the same way. The `external_url` and
+`preview_image_url` columns remain in the published table, always null. See
+[`material-workbench.md`](material-workbench.md).
+
+`notesJson`, when present, is also a canonical TipTap document. Picker paths are
+command input only and are never persisted in a domain row, sync operation, or
+Markdown export.
+
+## On-disk layout
+
+The native platform owns this layout under `$APPLOCALDATA/assets/`:
+
+```text
+assets/<projectId>/<assetId>/source.<ext>
+assets/<projectId>/<assetId>/display.jpg
+assets/<projectId>/<assetId>/thumbnail.jpg
+```
+
+`source` is durable authored data. `display` and `thumbnail` are rebuildable
+projections. The renderer accesses all three through the typed `assetStore`
+platform contract; it does not construct filesystem paths or use HTTP fallback.
+
+Sync carries only the source, and a book file may too, so a library that
+received an asset that way starts without derivatives. When
+`assetStoreService.requireVariant` finds a display or thumbnail missing, it
+rebuilds them from the source with the import's own settings (an image gets
+both, a PDF only its thumbnail) before reporting the variant missing.
+Concurrent reads of one asset share a rebuild, and a rebuild whose source
+disappeared meanwhile (the asset was deleted) writes nothing.
+
+## Import transaction boundary
+
+1. The native picker returns a temporary app-owned import path.
+2. Image/PDF processing validates type and limits, computes SHA-256, and prepares
+   the source plus derivatives.
+3. Every variant write settles before a failed import removes its asset
+   directory, preventing a late sibling write from recreating an orphan.
+4. The use case commits `project_asset` and its owner reference in one SQLite
+   transaction.
+5. Only after commit does it release the picker import. A failed transaction
+   removes the uncommitted asset directory.
+
+Deletion first commits removal of owner/metadata and then deletes the app-owned
+directory. Project deletion captures every live asset ID in its SQLite
+transaction and performs file cleanup after commit.
+
+The remaining commit-to-file-cleanup crash window is current-format durability,
+not compatibility, and is independent of whether a cloud provider is enabled.
+Restart-safe inventory/GC must account for staging files, released picker
+imports, and directories with no live `project_asset` row.
+
+## Network and sync boundary
+
+Normal import, display, replacement, deletion, project boot, and online/offline
+events never call a hosted asset API. Project boot reads the complete local
+replica; no remote graph-hydration path exists. Binary sources enter a provider
+only through the SyncEngine blob lane after the author connects that provider.
+
+SyncEngine publishes in dependency order:
+
+```text
+content-addressed source blob -> immutable asset metadata -> owner operation
+```
+
+A material's asset id is not a wire field: the asset travels as the
+`asset.bind` in the change set that creates the image or PDF. The receiving
+kernel admits that bind for an owner created in the same change set and inserts
+the row with the bound asset, which its payload CHECK requires. An existing row
+is never re-inserted, because SQLite checks the CHECK before `ON CONFLICT DO
+NOTHING`. A material whose bind is not admissible yet stays blocked
+(`library-item.missing-asset`) and lands on a later apply. Builds before this
+rule (through `588efb32`) fail such an apply, and fail every remote apply after
+a restart once the project holds an image or PDF, so syncing devices need a
+current build. `production-domain-kernel.integration.test.ts` covers it across
+two devices ("binary materials across devices").
+
+Hosted and the local folder provider implement the same opaque object/log
+contract. They transport bytes and immutable records; local SQLite still owns
+transactions, merge rules, Yjs application, and domain validation.
+
+The relational Markdown ZIP intentionally omits binary bytes and is not a
+restorable backup. Portable genesis/checkpoint packages must include each
+reachable source blob by SHA-256.
+
+## Machine acceptance
+
+- `src/renderer/services/local-project-asset.service.test.ts` covers successful
+  import, cleanup, and the delayed-sibling write failure.
+- `src/renderer/services/asset-store-derivatives.test.ts` covers rebuilding a
+  missing display or thumbnail from the source, the shared rebuild, and the
+  deleted-meanwhile and undecodable-source cases.
+- `src/renderer/services/local-project-assets.acceptance.test.ts` locks the
+  clean model, local-only platform path, and absence of retired upload/runtime
+  concepts.
+- `src/renderer/sqlite-repo/project-deletion-repo.integration.test.ts` verifies
+  fresh-schema foreign keys and complete project/Yjs/asset metadata deletion.
+
+Manual desktop/iOS/Android picker, import, restart, preview, replacement, and
+project-deletion checks remain in
+[`qa/tauri-native-manual-regression.md`](qa/tauri-native-manual-regression.md).

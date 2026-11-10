@@ -1,0 +1,87 @@
+{
+  "import": {
+    "v1": {
+      "blocked": {
+        "title": "有幾篇正文可能少了最後幾秒打的字",
+        "no_handoff": "這個資料庫還沒在舊版的最後一版裡打開過",
+        "unproven": "有 {{count}} 篇正文無法確認是最新的，列在下面",
+        "stale": "有 {{count}} 章比你寫到的舊",
+        "changed_after_handoff": "有 {{count}} 篇在交接核對後又改過",
+        "sync": "同步還有沒解決的衝突",
+        "get_last_release": "下載舊版的最後一版，打開這個資料庫一次再退出，然後重新匯入"
+      },
+      "action": {
+        "download_last_release": "下載舊版最後一版",
+        "import_anyway": "仍然匯入"
+      },
+      "summary": {
+        "already_imported": "這台裝置以前匯入過，這次沒再匯入",
+        "already_in_library": "新資料庫裡已經有這本書，沒有動",
+        "from_caches": "有 {{count}} 篇照快取匯入，可能少了最後幾秒的字",
+        "account_libraries_left": "資料夾裡還有 {{count}} 個帳號資料庫沒匯入，等帳號功能做好",
+        "carries_on": "沒匯入完，再匯入一次這個資料庫會接著匯入"
+      },
+      "notice": {
+        "unfinished": "《{{name}}》沒匯入完",
+        "carry_on": "接著匯入"
+      }
+    }
+  },
+  "settings": {
+    "editor": {
+      "justify": "兩端對齊"
+    },
+    "sync": {
+      "backup": {
+        "errors": {
+          "legacy": "這是 Drifting 0.1 的備份，這一版不能直接還原。請先在 Drifting 0.1 裡還原它，再在書架上用「匯入 · Drifting 0.1」匯入那個資料庫。"
+        }
+      }
+    },
+    "update": {
+      "restart": "重新啟動以更新",
+      "ready_on_quit": "Drifting {{version}} 已下載並通過簽章驗證，結束時安裝。",
+      "older_offered": "目前已是最新版本。更新服務提供的 {{version}} 比這一版舊，不會安裝。",
+      "refused_signature": "下載的更新未通過簽章驗證，已捨棄。目前版本仍可繼續使用。",
+      "refused_version": "下載的更新不是它標示的版本，可能是舊版本，已拒絕。目前版本仍可繼續使用。",
+      "refused_app": "下載的更新不是 Drifting，已捨棄。目前版本仍可繼續使用。",
+      "interrupted": "更新沒有下載完整，已捨棄。下次檢查時會重新下載。",
+      "server_error": "更新服務暫時出了問題，請稍後重試。目前版本仍可繼續使用。",
+      "local_error": "更新無法存進這台電腦，已停止。目前版本仍可繼續使用。",
+      "install_failed": "上次結束時沒能安裝 Drifting {{version}}，目前版本未變更。下次結束時會再試。",
+      "install_failed_admin": "上次結束時沒能安裝 Drifting {{version}}：Drifting 所在的資料夾無法寫入。目前版本未變更。"
+    }
+  },
+  "findPanel": {
+    "replacePlaceholder": "取代為…",
+    "replace": "取代",
+    "replaceAll": "全部取代"
+  },
+  "positionLink": {
+    "copied": "已複製位置連結"
+  },
+  "projectPicker": {
+    "bookTransfer": {
+      "legacy": "這本書是 Drifting 0.1 匯出的。請在舊版裡匯入它，再把舊版資料庫交接給新版。"
+    }
+  },
+  "importDialog": {
+    "targets": {
+      "idea": {
+        "label": "構想",
+        "desc": "獨立於故事線的浮動構想卡片。"
+      }
+    },
+    "warnings": {
+      "imagesDropped": "{{count}} 張圖片沒有匯入",
+      "notUtf8": "不是 UTF-8 文字，有些字元被替換了"
+    }
+  },
+  "notifications": {
+    "markdownFolder": {
+      "issue": {
+        "owned": "這個資料夾由另一個 Drifting 管理，沒有讀寫"
+      }
+    }
+  }
+}

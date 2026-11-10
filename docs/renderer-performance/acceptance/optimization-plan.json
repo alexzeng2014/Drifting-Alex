@@ -1,0 +1,763 @@
+{
+  "schemaVersion": 1,
+  "kind": "implementation_plan",
+  "maintainedBy": "human",
+  "updatedAt": "2026-09-14",
+  "document": "docs/renderer-performance/optimization-plan.md",
+  "reviewBaselineCommit": "8106f90b5ab898f51d296f6c2fb838e13dd74c2c",
+  "planStatus": "recorded",
+  "optimizationImplementationStatus": "in_progress",
+  "evidenceMeaning": "Empty evidence means planned acceptance only, not a passed check, a measured performance result, or a shipped capability.",
+  "recommendedOrder": [
+    "F0",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8"
+  ],
+  "phases": [
+    {
+      "id": "F0",
+      "title": "可复现基线与验收入口",
+      "dependsOn": [],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F0-01",
+          "requirement": "合成 fixture 可按 seed/hash 重建，操作轨迹不含个人数据",
+          "evidence": [
+            "docs/renderer-performance/acceptance/baseline-editor.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f0-native-startup.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F0-02",
+          "requirement": "结果记录构建 SHA、设备、WebView、重复次数与测量边界",
+          "evidence": [
+            "docs/renderer-performance/acceptance/baseline-editor.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f3-selection-capture.json",
+            "docs/renderer-performance/acceptance/f8-ci-contracts.json",
+            "docs/renderer-performance/acceptance/f0-native-startup.json",
+            "docs/renderer-performance/acceptance/f0-startup-focus.failed.json",
+            "docs/renderer-performance/acceptance/f0-startup-editor-focus.failed.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F0-03",
+          "requirement": "计数可区分输入、订阅、事件、几何、引用的全量与局部工作，预算在优化前固定",
+          "evidence": [
+            "docs/renderer-performance/acceptance/baseline-editor.json",
+            "docs/renderer-performance/acceptance/f3-selection-capture.json",
+            "docs/renderer-performance/acceptance/f8-ci-contracts.json",
+            "docs/renderer-performance/acceptance/f2-shelf-stats.json",
+            "docs/renderer-performance/acceptance/f2-link-target-state-browser.json",
+            "docs/renderer-performance/acceptance/f3-link-matching.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F0-04",
+          "requirement": "计划与报告有可复现校验入口，采集不增加生产默认热路径成本",
+          "evidence": [
+            "docs/renderer-performance/acceptance/baseline-editor.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f8-ci-contracts.json",
+            "docs/renderer-performance/acceptance/f0-native-startup.json",
+            "docs/renderer-performance/acceptance/f0-startup-focus.failed.json",
+            "docs/renderer-performance/acceptance/f0-startup-editor-focus.failed.json"
+          ],
+          "status": "partial"
+        }
+      ]
+    },
+    {
+      "id": "F1",
+      "title": "输入热路径与链接着色",
+      "dependsOn": [
+        "F0"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F1-01",
+          "requirement": "链接外普通输入不逐键全量查询链接，selection-only 不触发着色扫描",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f1-editor.json"
+          ],
+          "status": "passed"
+        },
+        {
+          "id": "F1-02",
+          "requirement": "颜色未改变时无冗余 style 写入，目标查找不逐链接遍历实体数组",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f1-editor.json"
+          ],
+          "status": "passed"
+        },
+        {
+          "id": "F1-03",
+          "requirement": "新链接、归属与颜色变化、粘贴、撤销、远程更新和中文 IME 正确",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f1-editor.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F1-04",
+          "requirement": "同环境长文输入达到 F0 预算，保留持久化与自动链接契约",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f1-editor.json"
+          ],
+          "status": "partial"
+        }
+      ],
+      "implementationStatus": "implemented"
+    },
+    {
+      "id": "F2",
+      "title": "精确订阅与项目派生索引",
+      "dependsOn": [
+        "F0"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F2-01",
+          "requirement": "不相关 comment 更新不通知仅消费章节名称或颜色的订阅者",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f2-subscriptions.json",
+            "docs/renderer-performance/acceptance/f2-semantic-indexes.json",
+            "docs/renderer-performance/acceptance/f2-projection-generation.json"
+          ],
+          "status": "passed"
+        },
+        {
+          "id": "F2-02",
+          "requirement": "指标更新不使名称与外观缓存失效，相关语义变化及时失效",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f2-subscriptions.json",
+            "docs/renderer-performance/acceptance/f2-semantic-indexes.json",
+            "docs/renderer-performance/acceptance/f2-projection-generation.json",
+            "docs/renderer-performance/acceptance/f2-top-tabs.json"
+          ],
+          "status": "passed"
+        },
+        {
+          "id": "F2-03",
+          "requirement": "派生缓存归属项目和 generation，切换恢复无残留或混合快照",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f2-subscriptions.json",
+            "docs/renderer-performance/acceptance/f2-semantic-indexes.json",
+            "docs/renderer-performance/acceptance/f6-workspace-sharing.json",
+            "docs/renderer-performance/acceptance/f2-projection-generation.json",
+            "docs/renderer-performance/acceptance/f2-global-search.json",
+            "docs/renderer-performance/acceptance/f2-top-tabs.json",
+            "docs/renderer-performance/acceptance/f2-top-tabs-native.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F2-04",
+          "requirement": "稳定引用和精确订阅通过通知计数与 React commit 验证，原子发布保留",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f2-subscriptions.json",
+            "docs/renderer-performance/acceptance/f2-semantic-indexes.json",
+            "docs/renderer-performance/acceptance/f6-workspace-sharing.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f2-projection-generation.json",
+            "docs/renderer-performance/acceptance/f2-global-search.json",
+            "docs/renderer-performance/acceptance/f2-top-tabs.json",
+            "docs/renderer-performance/acceptance/f2-top-tabs-native.json",
+            "docs/renderer-performance/acceptance/f2-link-target-state-browser.json"
+          ],
+          "status": "partial"
+        }
+      ],
+      "implementationStatus": "semantic_subscriptions_generation_visible_search_and_top_tab_presentation_verified_native_app_lifecycle_control_passed_full_stress_and_device_budgets_pending"
+    },
+    {
+      "id": "F3",
+      "title": "编辑器会话与显示生命周期",
+      "dependsOn": [
+        "F1",
+        "F2"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F3-01",
+          "requirement": "不相关实体的 Agent 状态不触发编辑器装饰计算",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f3-editor-decorations.json",
+            "docs/renderer-performance/acceptance/f3-editor-link-ownership.json"
+          ],
+          "status": "passed"
+        },
+        {
+          "id": "F3-02",
+          "requirement": "隐藏标签延迟安全的显示计算，仍接收权威更新并完成必要持久化",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f3-editor-decorations.json",
+            "docs/renderer-performance/acceptance/f3-editor-link-ownership.json",
+            "docs/renderer-performance/acceptance/f3-editor-sessions-native.json",
+            "docs/renderer-performance/acceptance/f3-typewriter-native.json",
+            "docs/renderer-performance/acceptance/f3-outline-native.json",
+            "docs/renderer-performance/acceptance/f3-markers-native.json",
+            "docs/renderer-performance/acceptance/f3-selection-native.json",
+            "docs/renderer-performance/acceptance/f3-context-menus.json",
+            "docs/renderer-performance/acceptance/f3-context-menus-native.json",
+            "docs/renderer-performance/acceptance/f3-suggestions.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot.json",
+            "docs/renderer-performance/acceptance/f3-inline-targets.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot-native.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs-native.json",
+            "docs/renderer-performance/acceptance/f3-editor-link-events-browser.json",
+            "docs/renderer-performance/acceptance/f3-link-presentation-browser.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F3-03",
+          "requirement": "标签返回及 split 保留草稿、撤销、选择、滚动和审阅遮罩，无空白或泄露帧",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f3-editor-decorations.json",
+            "docs/renderer-performance/acceptance/f3-editor-link-ownership.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f3-editor-sessions-native.json",
+            "docs/renderer-performance/acceptance/f3-typewriter-native.json",
+            "docs/renderer-performance/acceptance/f3-outline-native.json",
+            "docs/renderer-performance/acceptance/f3-markers-native.json",
+            "docs/renderer-performance/acceptance/f3-selection-native.json",
+            "docs/renderer-performance/acceptance/f3-context-menus.json",
+            "docs/renderer-performance/acceptance/f3-context-menus-native.json",
+            "docs/renderer-performance/acceptance/f3-suggestions.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot.json",
+            "docs/renderer-performance/acceptance/f3-inline-targets.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot-native.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs-native.json",
+            "docs/renderer-performance/acceptance/f3-link-matching-browser.json",
+            "docs/renderer-performance/acceptance/f3-link-presentation-browser.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F3-04",
+          "requirement": "多标签达到 F0 预算，关闭后监听器和文档保留数量不持续增长",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f3-editor-decorations.json",
+            "docs/renderer-performance/acceptance/f3-editor-link-ownership.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f3-editor-sessions-native.json",
+            "docs/renderer-performance/acceptance/f3-typewriter-native.json",
+            "docs/renderer-performance/acceptance/f3-outline-native.json",
+            "docs/renderer-performance/acceptance/f3-markers-native.json",
+            "docs/renderer-performance/acceptance/f3-selection-native.json",
+            "docs/renderer-performance/acceptance/f3-selection-capture.json",
+            "docs/renderer-performance/acceptance/f3-context-menus.json",
+            "docs/renderer-performance/acceptance/f3-context-menus-native.json",
+            "docs/renderer-performance/acceptance/f3-suggestions.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot.json",
+            "docs/renderer-performance/acceptance/f3-inline-targets.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot-native.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs-native.json",
+            "docs/renderer-performance/acceptance/f3-editor-link-events-browser.json",
+            "docs/renderer-performance/acceptance/f3-link-matching.json",
+            "docs/renderer-performance/acceptance/f3-link-matching-browser.json",
+            "docs/renderer-performance/acceptance/f3-link-presentation-browser.json"
+          ],
+          "status": "partial"
+        }
+      ],
+      "implementationStatus": "editor_interactions_and_copilot_lifetimes_native_verified_project_routed_literal_linking_and_visible_presentation_headless_verified_full_review_and_device_budgets_pending"
+    },
+    {
+      "id": "F4",
+      "title": "Agent 事件与界面投影",
+      "dependsOn": [
+        "F0"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F4-01",
+          "requirement": "事件轨迹与参考投影等价，重复、重放、重绑不丢失或重复终态",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f4-events-baseline.json",
+            "docs/renderer-performance/acceptance/f4-event-dedup.json",
+            "docs/renderer-performance/acceptance/f4-chat-display.json",
+            "docs/renderer-performance/acceptance/f4-transcript.json",
+            "docs/renderer-performance/acceptance/f4-transcript-native.json",
+            "docs/renderer-performance/acceptance/f4-recovery-baseline.json",
+            "docs/renderer-performance/acceptance/f4-recovery.json",
+            "docs/renderer-performance/acceptance/f4-recovery-native.json",
+            "docs/renderer-performance/acceptance/f4-journal-owner.json",
+            "docs/renderer-performance/acceptance/f4-journal-owner-native.json",
+            "docs/renderer-performance/acceptance/f4-chat-crash-recovery.json",
+            "docs/renderer-performance/acceptance/f4-send-preparation.json",
+            "docs/renderer-performance/acceptance/f4-send-preparation-browser.json",
+            "docs/renderer-performance/acceptance/f4-conversation-navigation.json",
+            "docs/renderer-performance/acceptance/f4-conversation-removal.json",
+            "docs/renderer-performance/acceptance/f4-control-recovery.json",
+            "docs/renderer-performance/acceptance/f4-control-recovery-browser.json",
+            "docs/renderer-performance/acceptance/f4-checkpoint-retention.json",
+            "docs/renderer-performance/acceptance/f4-checkpoint-retention-browser.json",
+            "docs/renderer-performance/acceptance/f4-tree-display.json",
+            "docs/renderer-performance/acceptance/f4-tree-display-regression.json",
+            "docs/renderer-performance/acceptance/f4-transcript-summary.json",
+            "docs/renderer-performance/acceptance/f4-transcript-summary-regression.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F4-02",
+          "requirement": "去重累计工作近似线性，不逐事件复制历史键，缓存有明确清理与恢复边界",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f4-events-baseline.json",
+            "docs/renderer-performance/acceptance/f4-event-dedup.json",
+            "docs/renderer-performance/acceptance/f4-chat-display.json"
+          ],
+          "status": "passed"
+        },
+        {
+          "id": "F4-03",
+          "requirement": "展示通知合并不丢真实事件，取消、权限、终态和后台 flush 及时有序",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f4-chat-display.json",
+            "docs/renderer-performance/acceptance/f4-desktop-panel-baseline.json",
+            "docs/renderer-performance/acceptance/f4-desktop-panel.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel-baseline.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel-native.json",
+            "docs/renderer-performance/acceptance/f4-transcript.json",
+            "docs/renderer-performance/acceptance/f4-transcript-native.json",
+            "docs/renderer-performance/acceptance/f4-journal-owner.json",
+            "docs/renderer-performance/acceptance/f4-journal-owner-native.json",
+            "docs/renderer-performance/acceptance/f4-background-baseline.json",
+            "docs/renderer-performance/acceptance/f4-background.json",
+            "docs/renderer-performance/acceptance/f4-background-native.json",
+            "docs/renderer-performance/acceptance/f4-send-preparation.json",
+            "docs/renderer-performance/acceptance/f4-send-preparation-browser.json",
+            "docs/renderer-performance/acceptance/f4-conversation-navigation.json",
+            "docs/renderer-performance/acceptance/f4-conversation-removal.json",
+            "docs/renderer-performance/acceptance/f4-control-recovery.json",
+            "docs/renderer-performance/acceptance/f4-control-recovery-browser.json",
+            "docs/renderer-performance/acceptance/f4-tree-display.json",
+            "docs/renderer-performance/acceptance/f4-tree-display-regression.json",
+            "docs/renderer-performance/acceptance/f4-transcript-summary.json",
+            "docs/renderer-performance/acceptance/f4-transcript-summary-regression.json"
+          ],
+          "status": "passed"
+        },
+        {
+          "id": "F4-04",
+          "requirement": "长流与会话恢复达到 F0 预算，桌面移动滚动和历史消息行为正确",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f4-events-baseline.json",
+            "docs/renderer-performance/acceptance/f4-event-dedup.json",
+            "docs/renderer-performance/acceptance/f4-chat-display.json",
+            "docs/renderer-performance/acceptance/f4-desktop-panel-baseline.json",
+            "docs/renderer-performance/acceptance/f4-desktop-panel.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel-baseline.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel-native.json",
+            "docs/renderer-performance/acceptance/f4-history-baseline.json",
+            "docs/renderer-performance/acceptance/f4-history.json",
+            "docs/renderer-performance/acceptance/f4-history-native.json",
+            "docs/renderer-performance/acceptance/f4-transcript.json",
+            "docs/renderer-performance/acceptance/f4-transcript-native.json",
+            "docs/renderer-performance/acceptance/f4-recovery-baseline.json",
+            "docs/renderer-performance/acceptance/f4-recovery.json",
+            "docs/renderer-performance/acceptance/f4-recovery-native.json",
+            "docs/renderer-performance/acceptance/f4-journal-owner.json",
+            "docs/renderer-performance/acceptance/f4-journal-owner-native.json",
+            "docs/renderer-performance/acceptance/f4-chat-crash-recovery.json",
+            "docs/renderer-performance/acceptance/f4-background-baseline.json",
+            "docs/renderer-performance/acceptance/f4-background.json",
+            "docs/renderer-performance/acceptance/f4-background-native.json",
+            "docs/renderer-performance/acceptance/f4-send-preparation.json",
+            "docs/renderer-performance/acceptance/f4-send-preparation-browser.json",
+            "docs/renderer-performance/acceptance/f4-conversation-navigation.json",
+            "docs/renderer-performance/acceptance/f4-conversation-removal.json",
+            "docs/renderer-performance/acceptance/f4-control-recovery.json",
+            "docs/renderer-performance/acceptance/f4-control-recovery-browser.json",
+            "docs/renderer-performance/acceptance/f4-checkpoint-retention.json",
+            "docs/renderer-performance/acceptance/f4-checkpoint-retention-browser.json",
+            "docs/renderer-performance/acceptance/f4-tree-display.json",
+            "docs/renderer-performance/acceptance/f4-tree-display-regression.json",
+            "docs/renderer-performance/acceptance/f4-transcript-summary.json",
+            "docs/renderer-performance/acceptance/f4-transcript-summary-regression.json"
+          ],
+          "status": "partial"
+        }
+      ],
+      "implementationStatus": "app_owned_journal_navigation_hydration_send_and_committed_removal_atomic_recovered_controls_indexed_checkpoint_anchors_and_retained_commit_identity_verified_remaining_tool_resume_context_compaction_and_device_budgets_pending; tree_snapshots_and_shared_leaf_display_blocks_verified_with_explicit_legacy_array_boundary; message_block_usage_and_tool_classification_reused_with_ordered_arithmetic_and_current_entity_resolution"
+    },
+    {
+      "id": "F5",
+      "title": "图谱读模型与几何交互",
+      "dependsOn": [
+        "F2"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F5-01",
+          "requirement": "关系投影使用 ID 索引，几何刷新不重复渲染未变化卡片",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f5-graph-baseline.json",
+            "docs/renderer-performance/acceptance/f5-graph-projection.json",
+            "docs/renderer-performance/acceptance/f5-geometry-baseline.json",
+            "docs/renderer-performance/acceptance/f5-drift-geometry.json",
+            "docs/renderer-performance/acceptance/f5-graph-overlays.json",
+            "docs/renderer-performance/acceptance/f5-timeline-baseline.json",
+            "docs/renderer-performance/acceptance/f5-timeline.json",
+            "docs/renderer-performance/acceptance/f5-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-cards.json",
+            "docs/renderer-performance/acceptance/f5-story-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-story-cards.json",
+            "docs/renderer-performance/acceptance/f5-drift-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-drift-cards.json",
+            "docs/renderer-performance/acceptance/f5-unplaced-baseline.json",
+            "docs/renderer-performance/acceptance/f5-unplaced.json",
+            "docs/renderer-performance/acceptance/f5-drift-slots.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F5-02",
+          "requirement": "每帧同端点至多测量一次，几何无变化不提交，保留平移优化",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f5-geometry-baseline.json",
+            "docs/renderer-performance/acceptance/f5-drift-geometry.json",
+            "docs/renderer-performance/acceptance/f5-graph-overlays.json",
+            "docs/renderer-performance/acceptance/f5-timeline.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F5-03",
+          "requirement": "桌面移动手势、导航、特殊 drift 边和关系创建正确",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f5-geometry-baseline.json",
+            "docs/renderer-performance/acceptance/f5-drift-geometry.json",
+            "docs/renderer-performance/acceptance/f5-graph-overlays.json",
+            "docs/renderer-performance/acceptance/f5-timeline.json",
+            "docs/renderer-performance/acceptance/f5-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-cards.json",
+            "docs/renderer-performance/acceptance/f5-cards-native.json",
+            "docs/renderer-performance/acceptance/f5-story-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-story-cards.json",
+            "docs/renderer-performance/acceptance/f5-story-cards-native.json",
+            "docs/renderer-performance/acceptance/f5-drift-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-drift-cards.json",
+            "docs/renderer-performance/acceptance/f5-drift-cards-native.json",
+            "docs/renderer-performance/acceptance/f5-unplaced-baseline.json",
+            "docs/renderer-performance/acceptance/f5-unplaced.json",
+            "docs/renderer-performance/acceptance/f5-unplaced-native.json",
+            "docs/renderer-performance/acceptance/f5-drift-slots.json",
+            "docs/renderer-performance/acceptance/f5-graph-interactions-native.json",
+            "docs/renderer-performance/acceptance/f5-graph-interactions.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F5-04",
+          "requirement": "大图达到 F0 预算；若实现裁剪，边、选区、焦点与浮层仍完整",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f5-graph-baseline.json",
+            "docs/renderer-performance/acceptance/f5-graph-projection.json",
+            "docs/renderer-performance/acceptance/f5-geometry-baseline.json",
+            "docs/renderer-performance/acceptance/f5-drift-geometry.json",
+            "docs/renderer-performance/acceptance/f5-graph-overlays.json",
+            "docs/renderer-performance/acceptance/f5-timeline-baseline.json",
+            "docs/renderer-performance/acceptance/f5-timeline.json",
+            "docs/renderer-performance/acceptance/f5-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-cards.json",
+            "docs/renderer-performance/acceptance/f5-story-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-story-cards.json",
+            "docs/renderer-performance/acceptance/f5-drift-cards-baseline.json",
+            "docs/renderer-performance/acceptance/f5-drift-cards.json",
+            "docs/renderer-performance/acceptance/f5-unplaced-baseline.json",
+            "docs/renderer-performance/acceptance/f5-unplaced.json",
+            "docs/renderer-performance/acceptance/f5-drift-slots.json"
+          ],
+          "status": "partial"
+        }
+      ],
+      "implementationStatus": "stable_graph_card_trees_and_drift_slot_subscriptions_native_graph_writes_and_restart_verified_physical_gestures_initial_mount_and_device_budgets_pending"
+    },
+    {
+      "id": "F6",
+      "title": "工作区投影与引用索引增量化",
+      "dependsOn": [
+        "F2"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F6-01",
+          "requirement": "引用仅处理受影响正文来源，删除清除引用，无关外观变化不全库解析",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f6-reference-boundary.json",
+            "docs/renderer-performance/acceptance/f6-reference-queue.json",
+            "docs/renderer-performance/acceptance/f6-reference-reads.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F6-02",
+          "requirement": "局部读取保持结构依赖与事务原子性，正文同步既有通道保留",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f6-workspace-baseline.json",
+            "docs/renderer-performance/acceptance/f6-workspace-sharing.json",
+            "docs/renderer-performance/acceptance/f6-reference-queue.json",
+            "docs/renderer-performance/acceptance/f6-reference-reads.json",
+            "docs/renderer-performance/acceptance/f6-workspace-refresh.json",
+            "docs/renderer-performance/acceptance/f6-workspace-reads.json",
+            "docs/renderer-performance/acceptance/f6-element-reads.json",
+            "docs/renderer-performance/acceptance/f2-shelf-stats.json",
+            "docs/renderer-performance/acceptance/f6-library-reads.json",
+            "docs/renderer-performance/acceptance/f6-comment-reads.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F6-03",
+          "requirement": "乱序结果、项目切换、generation 更换不发布陈旧索引或快照",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f6-workspace-baseline.json",
+            "docs/renderer-performance/acceptance/f6-workspace-sharing.json",
+            "docs/renderer-performance/acceptance/f6-reference-boundary.json",
+            "docs/renderer-performance/acceptance/f6-reference-queue.json",
+            "docs/renderer-performance/acceptance/f6-reference-reads.json",
+            "docs/renderer-performance/acceptance/f6-workspace-refresh.json",
+            "docs/renderer-performance/acceptance/f6-workspace-reads.json",
+            "docs/renderer-performance/acceptance/f6-workspace-recovery.json",
+            "docs/renderer-performance/acceptance/f6-element-reads.json",
+            "docs/renderer-performance/acceptance/f6-library-reads.json",
+            "docs/renderer-performance/acceptance/f6-comment-reads.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F6-04",
+          "requirement": "提交、排队和索引写入边界终止后可恢复，与权威内容完整重建一致",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f6-reference-recovery.json",
+            "docs/renderer-performance/acceptance/f6-workspace-recovery.json",
+            "docs/renderer-performance/acceptance/f6-library-recovery.json",
+            "docs/renderer-performance/acceptance/f6-comment-recovery.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F6-05",
+          "requirement": "全量修复路径可用，读取、发布与解析成本分别记录；若有新迁移则通过兼容与快照验收",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f6-workspace-baseline.json",
+            "docs/renderer-performance/acceptance/f6-workspace-sharing.json",
+            "docs/renderer-performance/acceptance/f6-reference-queue.json",
+            "docs/renderer-performance/acceptance/f6-reference-recovery.json",
+            "docs/renderer-performance/acceptance/f6-reference-reads.json",
+            "docs/renderer-performance/acceptance/f6-workspace-refresh.json",
+            "docs/renderer-performance/acceptance/f6-workspace-reads.json",
+            "docs/renderer-performance/acceptance/f6-workspace-recovery.json",
+            "docs/renderer-performance/acceptance/f6-element-reads.json",
+            "docs/renderer-performance/acceptance/f2-shelf-stats.json",
+            "docs/renderer-performance/acceptance/f6-library-reads.json",
+            "docs/renderer-performance/acceptance/f6-comment-reads.json"
+          ],
+          "status": "partial"
+        }
+      ],
+      "implementationStatus": "covered_collection_node_element_library_and_comment_row_reads_renderer_recovery_and_native_migration_safety_implemented_full_app_performance_and_native_renderer_recovery_pending"
+    },
+    {
+      "id": "F7",
+      "title": "功能加载与启动",
+      "dependsOn": [
+        "F0",
+        "F3",
+        "F5"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F7-01",
+          "requirement": "未访问重型功能不加载执行其代码，静态导入没有串回首屏",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f7-libraries-baseline.json",
+            "docs/renderer-performance/acceptance/f7-libraries-deferred.json",
+            "docs/renderer-performance/acceptance/f7-settings-baseline.json",
+            "docs/renderer-performance/acceptance/f7-settings-deferred.json",
+            "docs/renderer-performance/acceptance/f7-graphs-baseline.json",
+            "docs/renderer-performance/acceptance/f7-graphs-deferred.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-graphs.json",
+            "docs/renderer-performance/acceptance/f7-intent-preloading.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-preload.json",
+            "docs/renderer-performance/acceptance/f7-memo-deferred.json",
+            "docs/renderer-performance/acceptance/f7-graphs-after-memo.json",
+            "docs/renderer-performance/acceptance/f7-memo-browser.json",
+            "docs/renderer-performance/acceptance/f7-ai-providers.json",
+            "docs/renderer-performance/acceptance/f7-project-routes.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-routes.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F7-02",
+          "requirement": "首开与再次访问稳定，编辑器 ready 屏障保留，项目运行时不重复创建",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f7-libraries-deferred.json",
+            "docs/renderer-performance/acceptance/f7-settings-deferred.json",
+            "docs/renderer-performance/acceptance/f7-graphs-deferred.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-graphs.json",
+            "docs/renderer-performance/acceptance/f7-intent-preloading.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-preload.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f7-memo-deferred.json",
+            "docs/renderer-performance/acceptance/f7-graphs-after-memo.json",
+            "docs/renderer-performance/acceptance/f7-memo-browser.json",
+            "docs/renderer-performance/acceptance/f7-memo-native.json",
+            "docs/renderer-performance/acceptance/f7-ai-providers.json",
+            "docs/renderer-performance/acceptance/f7-project-routes.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-routes.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F7-03",
+          "requirement": "本地资源、离线和 chunk 失败可恢复，不丢草稿或必要原生事件",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f7-settings-deferred.json",
+            "docs/renderer-performance/acceptance/f7-graphs-deferred.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-graphs.json",
+            "docs/renderer-performance/acceptance/f7-intent-preloading.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-preload.json",
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f7-memo-deferred.json",
+            "docs/renderer-performance/acceptance/f7-graphs-after-memo.json",
+            "docs/renderer-performance/acceptance/f7-memo-browser.json",
+            "docs/renderer-performance/acceptance/f7-memo-native.json",
+            "docs/renderer-performance/acceptance/f7-ai-providers.json",
+            "docs/renderer-performance/acceptance/f7-project-routes.json",
+            "docs/renderer-performance/acceptance/f7-settings-after-routes.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F7-04",
+          "requirement": "首屏与首次功能访问达到 F0 预算，报告实际加载执行而非仅 gzip",
+          "evidence": []
+        }
+      ],
+      "implementationStatus": "planned_loading_boundaries_including_project_and_standalone_settings_routes_implemented_headless_verified_full_app_and_device_budgets_pending"
+    },
+    {
+      "id": "F8",
+      "title": "组合验收与 CI 防回退",
+      "dependsOn": [
+        "F0",
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7"
+      ],
+      "status": "in_progress",
+      "acceptance": [
+        {
+          "id": "F8-01",
+          "requirement": "同一合成组合场景达到固定预算与正确性门槛，报告退化和内存生命周期",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f3-editor-sessions-native.json",
+            "docs/renderer-performance/acceptance/f3-typewriter-native.json",
+            "docs/renderer-performance/acceptance/f3-outline-native.json",
+            "docs/renderer-performance/acceptance/f3-markers-native.json",
+            "docs/renderer-performance/acceptance/f3-selection-native.json",
+            "docs/renderer-performance/acceptance/f3-context-menus-native.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot-native.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs-native.json",
+            "docs/renderer-performance/acceptance/f4-desktop-composition-native.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel-native.json",
+            "docs/renderer-performance/acceptance/f5-graph-interactions-native.json",
+            "docs/renderer-performance/acceptance/code-delivery-regression.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F8-02",
+          "requirement": "确定性性能约束纳入 CI，设备性能结果有固定环境、容差和复跑规则",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f8-ci-contracts.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs.json",
+            "docs/renderer-performance/acceptance/code-delivery-regression.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F8-03",
+          "requirement": "仓库规定检查通过，实际契约和生成证据与精确 SHA 对齐",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f3-editor-sessions-native.json",
+            "docs/renderer-performance/acceptance/f3-typewriter-native.json",
+            "docs/renderer-performance/acceptance/f3-outline-native.json",
+            "docs/renderer-performance/acceptance/f3-markers-native.json",
+            "docs/renderer-performance/acceptance/f3-selection-native.json",
+            "docs/renderer-performance/acceptance/f3-context-menus-native.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot-native.json",
+            "docs/renderer-performance/acceptance/f8-ci-contracts.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs-native.json",
+            "docs/renderer-performance/acceptance/f4-desktop-composition-native.json",
+            "docs/renderer-performance/acceptance/f4-mobile-panel-native.json",
+            "docs/renderer-performance/acceptance/f5-graph-interactions-native.json",
+            "docs/renderer-performance/acceptance/code-delivery-regression.json"
+          ],
+          "status": "partial"
+        },
+        {
+          "id": "F8-04",
+          "requirement": "桌面、模拟器、实机与真实账号验收分列，缺失项为 NOT RUN，不替代既有发布门槛",
+          "evidence": [
+            "docs/renderer-performance/acceptance/f8-native-composition.json",
+            "docs/renderer-performance/acceptance/f3-editor-sessions-native.json",
+            "docs/renderer-performance/acceptance/f3-typewriter-native.json",
+            "docs/renderer-performance/acceptance/f3-outline-native.json",
+            "docs/renderer-performance/acceptance/f3-markers-native.json",
+            "docs/renderer-performance/acceptance/f3-inline-copilot-native.json",
+            "docs/renderer-performance/acceptance/f3-copilot-runs-native.json",
+            "docs/renderer-performance/acceptance/f5-graph-interactions-native.json",
+            "docs/renderer-performance/acceptance/code-delivery-regression.json"
+          ],
+          "status": "partial"
+        }
+      ],
+      "implementationStatus": "native_control_and_editor_interactions_restart_verified_deterministic_ci_gate_locally_validated_hosted_run_budgets_stress_and_device_matrix_pending"
+    }
+  ],
+  "deliveryScope": {
+    "date": "2026-09-14",
+    "status": "code_delivered_pending_manual_acceptance",
+    "instruction": "Complete the determined remaining code changes and basic correctness/headless metrics; simulator, native-window and device acceptance is assigned to the maintainer.",
+    "document": "docs/renderer-performance/code-delivery.md",
+    "phaseAcceptanceUnchanged": true,
+    "manualAcceptance": "not-run",
+    "fixedDeviceBudgets": "not-measured"
+  }
+}

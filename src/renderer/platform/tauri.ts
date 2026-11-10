@@ -1,0 +1,930 @@
+import type { McpServerEvent } from './mcp-server-contract';
+import { Channel, convertFileSrc, invoke, type InvokeOptions } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { APP_CONFIG, canUseHostedService } from '../lib/config';
+import { hasPdfSignature, renderPdfThumbnail } from '../lib/pdf-thumbnail';
+import { consumePendingNativeOAuth, createPendingNativeOAuth } from './native-oauth-state';
+import { LOCATION_OPEN_PREFIX } from '../lib/location-link';
+import type {
+  ContractAvailability,
+  AppUpdateDownloadEvent,
+  CodexImagesGenerateInput,
+  ImageInboxCandidate,
+  ImageVariantResult,
+  LifecycleEventPayload,
+  NativeBytes,
+  NativePlatformCapabilities,
+  OpenAIResponsesCredentialSource,
+  OpenAIResponsesStreamEvent,
+  PlatformCapabilities,
+  PrepareImageResult,
+  TauriCommandArgs,
+  TauriCommandName,
+  TauriCommandResult,
+  TauriEventContract,
+} from './contracts';
+import type {
+  ImageGenerationResult,
+  ImageInboxEntry,
+  PlatformApi,
+  Unsubscribe,
+} from './types';
+
+const DEEP_LINK_EVENT = 'drifting:deep-link' as const;
+const OAUTH_DEEP_LINK_PREFIX = 'drifting://auth/';
+const LIFECYCLE_EVENT = 'drifting:lifecycle' as const;
+
+type TauriGlobal = typeof globalThis & {
+  __TAURI_INTERNALS__?: unknown;
+};
+
+export class PlatformUnavailableError extends Error {
+  readonly feature: string;
+
+  constructor(feature: string, reason?: string) {
+    super(`Tauri capability "${feature}" is unavailable${reason ? `: ${reason}` : ''}`);
+    this.name = 'PlatformUnavailableError';
+    this.feature = feature;
+  }
+}
+
+export class PlatformCommandError extends Error {
+  readonly command: string;
+
+  constructor(command: string, reason: string) {
+    super(`Tauri command "${command}" failed: ${reason}`);
+    this.name = 'PlatformCommandError';
+    this.command = command;
+  }
+}
+
+export function isTauriRuntime(): boolean {
+  return Boolean((globalThis as TauriGlobal).__TAURI_INTERNALS__);
+}
+
+function requireTauriRuntime(feature: string): void {
+  if (!isTauriRuntime()) {
+    throw new PlatformUnavailableError(feature, 'the renderer is not running inside Tauri');
+  }
+}
+
+async function invokeContract<Name extends TauriCommandName>(
+  name: Name,
+  args: TauriCommandArgs<Name>,
+  options?: InvokeOptions,
+): Promise<TauriCommandResult<Name>> {
+  requireTauriRuntime(name);
+  try {
+    return await (options
+      ? invoke<TauriCommandResult<Name>>(name, args ?? undefined, options)
+      : invoke<TauriCommandResult<Name>>(name, args ?? undefined));
+  } catch (error) {
+    if (error instanceof PlatformUnavailableError) throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    if (
+      /command.+(?:not found|not registered|not allowed)|unknown command|acl.+denied/i.test(reason)
+    ) {
+      throw new PlatformUnavailableError(name, reason);
+    }
+    throw new PlatformCommandError(name, reason);
+  }
+}
+
+function listenContract<Name extends keyof TauriEventContract>(
+  eventName: Name,
+  callback: (payload: TauriEventContract[Name]) => void,
+  onReady?: () => void,
+): Unsubscribe {
+  let active = true;
+  let unlisten: UnlistenFn | undefined;
+
+  if (!isTauriRuntime()) {
+    console.error(
+      new PlatformUnavailableError(eventName, 'the renderer is not running inside Tauri'),
+    );
+    return () => {
+      active = false;
+    };
+  }
+
+  void listen<TauriEventContract[Name]>(eventName, (event) => {
+    if (active) callback(event.payload);
+  })
+    .then((stop) => {
+      if (active) {
+        unlisten = stop;
+        onReady?.();
+      } else stop();
+    })
+    .catch((error) => {
+      console.error(new PlatformUnavailableError(eventName, String(error)));
+    });
+
+  return () => {
+    active = false;
+    unlisten?.();
+  };
+}
+
+function toUint8Array(bytes: ArrayBuffer | Uint8Array): Uint8Array {
+  if (bytes instanceof Uint8Array) return bytes;
+  return new Uint8Array(bytes);
+}
+
+function toNumberArray(bytes: ArrayBuffer | Uint8Array): number[] {
+  return Array.from(toUint8Array(bytes));
+}
+
+function toArrayBuffer(bytes: NativeBytes): ArrayBuffer {
+  if (bytes instanceof ArrayBuffer) return bytes.slice(0);
+  const view = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+}
+
+const SYNC_PROTOCOL_IPC_CHUNK_BYTES = 2 * 1024 * 1024;
+const SYNC_PROTOCOL_OBJECT_MAX_BYTES = 512 * 1024 * 1024;
+
+function assertProtocolObjectLimit(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value > SYNC_PROTOCOL_OBJECT_MAX_BYTES) {
+    throw new RangeError(`${label} must be between 0 and 512 MiB`);
+  }
+}
+
+async function stageProtocolBytes(bytes: ArrayBuffer | Uint8Array) {
+  const value = toUint8Array(bytes);
+  assertProtocolObjectLimit(value.byteLength, 'sync protocol object size');
+  const allocated = await invokeContract('sync_object_allocate_protocol', undefined);
+  let finalized = false;
+  try {
+    let offset = 0;
+    while (offset < value.byteLength) {
+      const end = Math.min(offset + SYNC_PROTOCOL_IPC_CHUNK_BYTES, value.byteLength);
+      const nextOffset = await invokeContract('sync_object_append_protocol_chunk', {
+        sourceRef: allocated.sourceRef,
+        offset,
+        bytes: toNumberArray(value.subarray(offset, end)),
+      });
+      if (nextOffset !== end) {
+        throw new Error('native sync protocol stage returned a non-contiguous offset');
+      }
+      offset = end;
+    }
+    const result = await invokeContract('sync_object_finalize_protocol', {
+      sourceRef: allocated.sourceRef,
+      expectedSizeBytes: value.byteLength,
+    });
+    finalized = true;
+    return result;
+  } finally {
+    if (!finalized) {
+      await invokeContract('sync_object_discard_local', {
+        sourceRef: allocated.sourceRef,
+      }).catch(() => undefined);
+    }
+  }
+}
+
+async function readProtocolBytes(sourceRef: string, maxBytes: number): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+    throw new RangeError('sync protocol read limit must be a positive safe integer');
+  }
+  assertProtocolObjectLimit(maxBytes, 'sync protocol read limit');
+
+  let output: Uint8Array | null = null;
+  let offset = 0;
+  do {
+    const result = await invokeContract('sync_object_read_protocol_chunk', {
+      sourceRef,
+      offset,
+      maxBytes: Math.min(SYNC_PROTOCOL_IPC_CHUNK_BYTES, maxBytes - offset),
+    });
+    if (
+      !Number.isSafeInteger(result.offset) ||
+      result.offset !== offset ||
+      !Number.isSafeInteger(result.totalSizeBytes) ||
+      result.totalSizeBytes < 0 ||
+      result.totalSizeBytes > maxBytes
+    ) {
+      throw new Error('native sync protocol chunk metadata is invalid');
+    }
+    if (output === null) output = new Uint8Array(result.totalSizeBytes);
+    if (output.byteLength !== result.totalSizeBytes) {
+      throw new Error('native sync protocol object size changed between chunks');
+    }
+    const chunk = new Uint8Array(toArrayBuffer(result.bytes));
+    if (chunk.byteLength > SYNC_PROTOCOL_IPC_CHUNK_BYTES || offset + chunk.byteLength > output.length) {
+      throw new Error('native sync protocol chunk exceeds its authenticated bounds');
+    }
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+    if (offset < output.length && chunk.byteLength === 0) {
+      throw new Error('native sync protocol chunk made no progress');
+    }
+  } while (output === null || offset < output.length);
+  return output;
+}
+
+function normalizeImageVariant(result: ImageVariantResult) {
+  if (!result.ok) return result;
+  return { ...result, bytes: toArrayBuffer(result.bytes) };
+}
+
+function normalizePreparedImage(result: PrepareImageResult) {
+  if (!result.ok) return result;
+  return {
+    ...result,
+    display: { ...result.display, bytes: toArrayBuffer(result.display.bytes) },
+    thumbnail: { ...result.thumbnail, bytes: toArrayBuffer(result.thumbnail.bytes) },
+  };
+}
+
+async function readNativeFileBytes(filePath: string): Promise<ArrayBuffer | null> {
+  const result = await invokeContract('material_read_bytes', { filePath });
+  return result.ok ? toArrayBuffer(result.bytes) : null;
+}
+
+function normalizeStoredAssetFileUrl<T extends { ok: boolean }>(result: T): T {
+  if (!result.ok || !('filePath' in result) || typeof result.filePath !== 'string') return result;
+  return { ...result, fileUrl: convertFileSrc(result.filePath) };
+}
+
+function inboxEntry(candidate: ImageInboxCandidate): ImageInboxEntry {
+  return { ...candidate, fileUrl: convertFileSrc(candidate.filePath) };
+}
+
+async function generateImages(
+  input: Omit<CodexImagesGenerateInput, 'requestId'>,
+  signal?: AbortSignal,
+): Promise<ImageGenerationResult> {
+  if (signal?.aborted) throw abortException();
+  const requestId = `images-${openAIRequestId()}`;
+  const onAbort = () => {
+    void invokeContract('codex_images_cancel', { requestId }).catch(() => undefined);
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    const result = await invokeContract('codex_images_generate', {
+      input: { ...input, requestId },
+    });
+    return { ...result, candidates: result.candidates.map(inboxEntry) };
+  } catch (error) {
+    if (signal?.aborted) throw abortException();
+    throw error;
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+function openAIRequestId(): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  if (randomId) return `openai-${randomId}`;
+  return `openai-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function abortException(): DOMException {
+  return new DOMException('OpenAI request was cancelled.', 'AbortError');
+}
+
+function nativeOpenAIResponse(
+  body: string,
+  signal: AbortSignal,
+  credentialSource: OpenAIResponsesCredentialSource,
+): Promise<Response> {
+  requireTauriRuntime('openai_responses_stream');
+  if (signal.aborted) return Promise.reject(abortException());
+
+  const requestId = openAIRequestId();
+  let streamController!: ReadableStreamDefaultController<Uint8Array>;
+  let started = false;
+  let finished = false;
+  let settled = false;
+  let resolveStart!: (response: Response) => void;
+  let rejectStart!: (error: unknown) => void;
+
+  const cleanup = () => signal.removeEventListener('abort', onAbort);
+  const fail = (error: unknown) => {
+    if (finished) return;
+    finished = true;
+    cleanup();
+    if (!settled) {
+      settled = true;
+      rejectStart(error);
+    } else {
+      streamController.error(error);
+    }
+  };
+  const cancelNative = () => {
+    void invokeContract('openai_responses_cancel', { requestId }).catch(() => undefined);
+  };
+  const onAbort = () => {
+    cancelNative();
+    fail(abortException());
+  };
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+    },
+    cancel() {
+      finished = true;
+      cancelNative();
+      cleanup();
+    },
+  });
+  const response = new Promise<Response>((resolve, reject) => {
+    resolveStart = resolve;
+    rejectStart = reject;
+  });
+  const onEvent = new Channel<OpenAIResponsesStreamEvent>((event) => {
+    if (finished) return;
+    if (event.type === 'started') {
+      if (started) {
+        fail(new PlatformCommandError('openai_responses_stream', 'duplicate start event'));
+        return;
+      }
+      started = true;
+      const headers = new Headers({ 'content-type': 'text/event-stream' });
+      if (event.requestId) headers.set('x-request-id', event.requestId);
+      if (event.errorCode) headers.set('x-drifting-openai-error-code', event.errorCode);
+      if (event.errorMessage) headers.set('x-drifting-openai-error-message', event.errorMessage);
+      settled = true;
+      resolveStart(new Response(stream, { status: event.status, headers }));
+      return;
+    }
+    if (!started) {
+      fail(new PlatformCommandError('openai_responses_stream', 'stream data preceded start'));
+      return;
+    }
+    if (event.type === 'chunk') {
+      streamController.enqueue(
+        event.bytes instanceof Uint8Array ? event.bytes : Uint8Array.from(event.bytes),
+      );
+      return;
+    }
+    finished = true;
+    cleanup();
+    streamController.close();
+  });
+
+  signal.addEventListener('abort', onAbort, { once: true });
+  void invokeContract('openai_responses_stream', {
+    input: { requestId, body, timeoutMs: 600_000, credentialSource },
+    onEvent,
+  }).catch(fail);
+  return response;
+}
+
+function isMobilePlatform(platform: string): boolean {
+  return platform === 'ios' || platform === 'android';
+}
+
+function advertised(value: boolean | undefined): ContractAvailability {
+  return value === undefined ? 'contract-backed' : value ? 'available' : 'unsupported';
+}
+
+function normalizeCapabilities(
+  native: NativePlatformCapabilities,
+  platform: string,
+): PlatformCapabilities {
+  return {
+    ...native,
+    runtime: 'tauri',
+    target: isMobilePlatform(platform) ? 'mobile' : 'desktop',
+    // General Agent is renderer-local and provider-neutral. It no longer
+    // depends on an Electron main process, Node sidecar, or Anthropic CLI, so
+    // every Tauri target that can run this renderer has the same contract.
+    generalAgent: true,
+    generalAgentUnavailableReason: '',
+    mcpStdio: native.mcpStdio === true,
+    featureStatus: {
+      secureStorage: advertised(native.secureStorage),
+      syncObjectStore: advertised(native.syncObjectStore),
+      materialFiles: advertised(native.materialFiles),
+      assetStore: advertised(native.assetStore),
+      aiLog: advertised(native.aiLog),
+      appUpdater: advertised(native.appUpdater),
+      oauth:
+        native.oauth === undefined && native.deepLinks && native.externalUrlOpener
+          ? 'available'
+          : advertised(native.oauth),
+      mcpStdio: advertised(native.mcpStdio),
+      generalAgent: 'available',
+    },
+  };
+}
+
+interface ParsedOAuthCallback {
+  code: string | null;
+  error: string | null;
+  nativeState: string | null;
+}
+
+function parseOAuthCallback(url: string): ParsedOAuthCallback | null {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== 'drifting:' ||
+      parsed.hostname !== 'auth' ||
+      parsed.pathname !== '/callback'
+    ) {
+      return null;
+    }
+    const codes = parsed.searchParams.getAll('code');
+    const errors = parsed.searchParams.getAll('error');
+    const states = parsed.searchParams.getAll('nativeState');
+    if (codes.length > 1 || errors.length > 1 || states.length !== 1) return null;
+    const code = codes[0] ?? null;
+    const error = errors[0] ?? null;
+    if ((code == null) === (error == null)) return null;
+    if (code != null && !/^[A-Za-z0-9_-]{43}$/.test(code)) return null;
+    if (error != null && !/^[a-z0-9_]{1,64}$/.test(error)) return null;
+    return {
+      code,
+      error,
+      nativeState: states[0],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function exchangeNativeOAuthCode(
+  code: string,
+  codeVerifier: string,
+  redirectUri: string,
+): Promise<string> {
+  if (!canUseHostedService()) {
+    throw new Error('HOSTED_SERVICE_DISABLED: native account OAuth is unavailable.');
+  }
+  const response = await fetch(
+    `${APP_CONFIG.API_BASE_URL.replace(/\/$/, '')}/api/auth/native-exchange`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      credentials: 'omit',
+      cache: 'no-store',
+      body: JSON.stringify({ code, codeVerifier, redirectUri }),
+    },
+  );
+  if (!response.ok) throw new Error(`Native OAuth exchange failed (${response.status})`);
+
+  const payload = (await response.json()) as { token?: unknown };
+  if (
+    typeof payload.token !== 'string' ||
+    payload.token.length === 0 ||
+    payload.token.length > 4096
+  ) {
+    throw new Error('Native OAuth exchange returned no session token');
+  }
+  return payload.token;
+}
+
+export const tauriPlatform: PlatformApi = {
+  library: {
+    state: () => invokeContract('library_state', undefined),
+    claimOwner: (owner) => invokeContract('library_claim_owner', { owner }),
+    activate: (owner) => invokeContract('library_activate', { owner }),
+  },
+  app: {
+    getInstallationIdentity: () => invokeContract('sync_installation_identity', undefined),
+    getInfo: () => invokeContract('app_get_info', undefined),
+    async getVersion() {
+      return (await invokeContract('app_get_info', undefined)).version;
+    },
+    getPath: (name) => invokeContract('app_get_path', { name }),
+    async getCapabilities() {
+      const [native, appInfo] = await Promise.all([
+        invokeContract('platform_capabilities', undefined),
+        invokeContract('app_get_info', undefined),
+      ]);
+      return normalizeCapabilities(native, appInfo.platform);
+    },
+  },
+
+  window: {
+    minimize: () => invokeContract('window_minimize', undefined),
+    toggleMaximize: () => invokeContract('window_toggle_maximize', undefined),
+    close: () => invokeContract('window_close', undefined),
+    isMaximized: () => invokeContract('window_is_maximized', undefined),
+    setTrafficLightPosition: (position) =>
+      invokeContract('window_set_traffic_light_position', { position }),
+    setTrafficLightsHidden: (hidden) =>
+      invokeContract('window_set_traffic_lights_hidden', { hidden }),
+    setCloseReturnsToShelf: (enabled) =>
+      invokeContract('window_set_close_returns_to_shelf', { enabled }),
+    setTheme: (theme) => invokeContract('window_set_theme', { theme }),
+    setTrayLabels: (labels) => invokeContract('tray_set_labels', labels),
+    onCloseToShelf: (callback) => listenContract('drifting:close-to-shelf', () => callback()),
+  },
+
+  lifecycle: {
+    onFlushBeforeQuit(callback) {
+      const seen = new Set<number>();
+      const dispatch = (payload: LifecycleEventPayload) => {
+        if (payload.event !== 'flush-requested' || payload.reason == null) return;
+        if (payload.requestId != null) {
+          if (seen.has(payload.requestId)) return;
+          seen.add(payload.requestId);
+        }
+        callback({
+          requestId: payload.requestId,
+          reason: payload.reason,
+          deadlineMs: payload.deadlineMs,
+          confirmationRequired: payload.confirmationRequired,
+        });
+      };
+
+      const stop = listenContract(LIFECYCLE_EVENT, dispatch);
+      void invokeContract('lifecycle_get_status', undefined)
+        .then((status) => {
+          if (status.pendingFlushRequestId != null) {
+            dispatch({
+              event: 'flush-requested',
+              requestId: status.pendingFlushRequestId,
+              deadlineMs: null,
+              reason: 'shutdown',
+              confirmationRequired: true,
+            });
+          }
+        })
+        .catch((error) => console.error(error));
+      return stop;
+    },
+    onReadyOrResume(callback) {
+      return listenContract(LIFECYCLE_EVENT, (payload) => {
+        if (payload.event === 'ready' || payload.event === 'resumed') {
+          callback(payload.event);
+        }
+      });
+    },
+    confirmFlushBeforeQuit(requestId) {
+      return invokeContract('lifecycle_complete_flush', { requestId });
+    },
+  },
+
+  auth: {
+    async openOAuthBrowser(provider) {
+      if (!canUseHostedService()) {
+        throw new Error('HOSTED_SERVICE_DISABLED: native account OAuth is unavailable.');
+      }
+      const pending = await createPendingNativeOAuth();
+      const url = new URL(
+        `${APP_CONFIG.API_BASE_URL.replace(/\/$/, '')}/api/auth/oauth-redirect/${encodeURIComponent(provider)}`,
+      );
+      url.searchParams.set('nativeState', pending.nativeState);
+      url.searchParams.set('codeChallenge', pending.codeChallenge);
+      url.searchParams.set('codeChallengeMethod', 'S256');
+      url.searchParams.set('redirectUri', pending.redirectUri);
+      await invokeContract('opener_open_external', { url: url.toString() });
+    },
+    onOAuthCallback(callback) {
+      const seen = new Set<string>();
+      let active = true;
+      let drainChain = Promise.resolve();
+      const dispatch = async (urls: string[]) => {
+        if (!active) return;
+        for (const url of urls) {
+          if (seen.has(url)) continue;
+          seen.add(url);
+          const result = parseOAuthCallback(url);
+          if (!result) continue;
+          const pending = consumePendingNativeOAuth(result.nativeState);
+          if (!pending) continue;
+          if (pending.status === 'expired') {
+            callback({ token: null, error: 'expired' });
+            continue;
+          }
+          if (result.error) {
+            callback({ token: null, error: result.error });
+            continue;
+          }
+          try {
+            const token = await exchangeNativeOAuthCode(
+              result.code!,
+              pending.secret.codeVerifier,
+              pending.secret.redirectUri,
+            );
+            if (active) callback({ token, error: null });
+          } catch (error) {
+            console.error(error);
+            if (active) callback({ token: null, error: 'exchange_failed' });
+          }
+        }
+      };
+      const drainPending = () => {
+        drainChain = drainChain
+          .then(() => invokeContract('deep_link_take_pending', { prefix: OAUTH_DEEP_LINK_PREFIX }))
+          .then(dispatch)
+          .catch((error) => console.error(error));
+      };
+
+      // Native keeps every incoming URL until the renderer drains it. Always
+      // dispatch from that queue (instead of the event payload) so a live URL is
+      // consumed and cannot be replayed after logout/LoginPage remount. Waiting
+      // until the listener is installed also closes the startup race: URLs that
+      // arrive before registration remain queued and are handled by this drain.
+      const stop = listenContract(DEEP_LINK_EVENT, drainPending, drainPending);
+      return () => {
+        active = false;
+        stop();
+      };
+    },
+  },
+
+  locationLinks: {
+    onOpen(callback) {
+      let active = true;
+      let drainChain = Promise.resolve();
+      // Same queue discipline as OAuth callbacks: dispatch only what this
+      // consumer drains, so an early or replayed URL is handled exactly once.
+      const drainPending = () => {
+        drainChain = drainChain
+          .then(() => invokeContract('deep_link_take_pending', { prefix: LOCATION_OPEN_PREFIX }))
+          .then((urls) => { if (active) urls.forEach(callback); })
+          .catch((error) => console.error(error));
+      };
+      const stop = listenContract(DEEP_LINK_EVENT, drainPending, drainPending);
+      return () => {
+        active = false;
+        stop();
+      };
+    },
+  },
+
+  keychain: {
+    get: (key) => invokeContract('keychain_get', { key }),
+    has: (key) => invokeContract('keychain_has', { key }),
+    set: (key, value) => invokeContract('keychain_set', { key, value }),
+    delete: (key) => invokeContract('keychain_delete', { key }),
+  },
+
+  hostedSync: {
+    async request({ signal, ...input }) {
+      if (!canUseHostedService()) throw new Error('HOSTED_SERVICE_UNAVAILABLE');
+      signal?.throwIfAborted();
+      const transferId = crypto.randomUUID();
+      const cancel = () => { void invokeContract('hosted_sync_cancel', { transferId }); };
+      signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        const result = await invokeContract('hosted_sync_request', { input: { ...input, transferId } });
+        signal?.throwIfAborted();
+        return result;
+      } finally { signal?.removeEventListener('abort', cancel); }
+    },
+  },
+  syncObjectStore: {
+    stageBytes: stageProtocolBytes,
+    stageAssetSource: (projectId, assetId, ext) =>
+      invokeContract('sync_object_stage_asset_source', { projectId, assetId, ext }),
+    discardLocal: (sourceRef) => invokeContract('sync_object_discard_local', { sourceRef }),
+    gcOrphans: (input) => invokeContract('sync_object_gc_orphans', input),
+    readProtocolBytes,
+  },
+
+  syncAssetStore: {
+    captureSource: (input) => invokeContract('sync_asset_capture_source', input),
+    prepareRestoreSource: (input) =>
+      invokeContract('sync_asset_prepare_restore_source', input),
+    activateRestoreSources: (input) =>
+      invokeContract('sync_asset_activate_restore_sources', input),
+    abandonRestoreAttempt: (attemptId) =>
+      invokeContract('sync_asset_abandon_restore_attempt', { attemptId }),
+    finalizeRestoreAttempt: (attemptId) =>
+      invokeContract('sync_asset_finalize_restore_attempt', { attemptId }),
+    gcRestoreAttempts: (input) => invokeContract('sync_asset_gc_restore_attempts', input),
+  },
+
+  typography: {
+    listSystemFonts: () => invokeContract('typography_list_system_fonts', undefined),
+  },
+
+  material: {
+    toLocalResourceUrl(filePath) {
+      if (!filePath || !isTauriRuntime()) return null;
+      return convertFileSrc(filePath);
+    },
+    openLocal: (filePath) => invokeContract('material_open_local', { filePath }),
+    async openExternal(url) {
+      try {
+        await invokeContract('opener_open_external', { url });
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    pickFile: (kind = 'any') => invokeContract('material_pick_file', { kind }),
+    stageImportBytes: (bytes, name) =>
+      invokeContract('material_stage_import_bytes', { bytes: toNumberArray(bytes), name }),
+    deleteImport: (filePath) => invokeContract('material_delete_import', { filePath }),
+    async thumbnail(filePath, size = 96) {
+      const native = await invokeContract('material_thumbnail', { filePath, size });
+      if (native.ok) return native;
+      try {
+        const bytes = await readNativeFileBytes(filePath);
+        if (!bytes || !hasPdfSignature(bytes)) return native;
+        const thumbnail = await renderPdfThumbnail(bytes, size, 80);
+        return { ok: true, dataUrl: thumbnail.dataUrl };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    async readBytes(filePath) {
+      const result = await invokeContract('material_read_bytes', { filePath });
+      return result.ok ? { ...result, bytes: toArrayBuffer(result.bytes) } : result;
+    },
+    inspectImage: (filePath) => invokeContract('material_inspect_image', { filePath }),
+    async prepareImage(filePath, options = {}) {
+      return normalizePreparedImage(
+        await invokeContract('material_prepare_image', {
+          filePath,
+          displayMaxLongEdge: options.displayMaxLongEdge ?? 1600,
+          displayQuality: options.displayQuality ?? 82,
+          thumbnailMaxLongEdge: options.thumbnailMaxLongEdge ?? 512,
+          thumbnailQuality: options.thumbnailQuality ?? 72,
+        }),
+      );
+    },
+    async createImageVariant(filePath, maxLongEdge, quality) {
+      return normalizeImageVariant(
+        await invokeContract('material_create_image_variant', {
+          filePath,
+          maxLongEdge,
+          quality,
+        }),
+      );
+    },
+    async createThumbnailVariant(filePath, size, quality) {
+      const native = normalizeImageVariant(
+        await invokeContract('material_create_thumbnail_variant', { filePath, size, quality }),
+      );
+      if (native.ok) return native;
+      try {
+        const bytes = await readNativeFileBytes(filePath);
+        if (!bytes || !hasPdfSignature(bytes)) return native;
+        const thumbnail = await renderPdfThumbnail(bytes, size, quality);
+        return {
+          ok: true,
+          bytes: thumbnail.bytes,
+          mime: thumbnail.mime,
+          sizeBytes: thumbnail.sizeBytes,
+          width: thumbnail.width,
+          height: thumbnail.height,
+        };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  },
+
+  assetStore: {
+    beginImport: (projectId, assetId) =>
+      invokeContract('asset_store_begin_import', { projectId, assetId }),
+    commitImport: (projectId, assetId) =>
+      invokeContract('asset_store_commit_import', { projectId, assetId }),
+    gcOrphanImports: (retainedAssets) =>
+      invokeContract('asset_store_gc_orphan_imports', { retainedAssets }),
+    async getPath(projectId, assetId, variant, ext) {
+      return normalizeStoredAssetFileUrl(
+        await invokeContract('asset_store_get_path', { projectId, assetId, variant, ext }),
+      );
+    },
+    async writeBytes(projectId, assetId, variant, ext, bytes) {
+      return normalizeStoredAssetFileUrl(
+        await invokeContract('asset_store_write_bytes', {
+          projectId,
+          assetId,
+          variant,
+          ext,
+          bytes: toNumberArray(bytes),
+        }),
+      );
+    },
+    async copyFile(projectId, assetId, variant, ext, sourcePath) {
+      return normalizeStoredAssetFileUrl(
+        await invokeContract('asset_store_copy_file', {
+          projectId,
+          assetId,
+          variant,
+          ext,
+          sourcePath,
+        }),
+      );
+    },
+    deleteAsset: (projectId, assetId) =>
+      invokeContract('asset_store_delete_asset', { projectId, assetId }),
+  },
+
+  archive: {
+    createTextZip: async (entries) => new Uint8Array(toArrayBuffer(
+      await invokeContract('archive_create_text_zip', { entries }),
+    )),
+    save: (filename, bytes) =>
+      invokeContract('archive_save', { filename, bytes: toNumberArray(bytes) }),
+  },
+
+  bookTransfer: {
+    save: (fileName, bytes) =>
+      invokeContract('book_transfer_save', bytes, {
+        headers: { 'x-drifting-book-file-name': encodeURIComponent(fileName) },
+      }),
+    async open() {
+      const bytes = new Uint8Array(toArrayBuffer(await invokeContract('book_transfer_open', undefined)));
+      return bytes.byteLength === 0 ? null : bytes;
+    },
+  },
+
+  sharing: {
+    saveMarkdown: (filename, markdown) => invokeContract('share_save_markdown', { filename, markdown }),
+    saveManuscript: (format, filename, payload) =>
+      invokeContract('manuscript_export_save', { format, filename, payload }),
+    pickManuscriptCover: () => invokeContract('manuscript_export_pick_cover', undefined),
+  },
+
+  updater: {
+    check: () => invokeContract('update_check', undefined),
+    download: (callback) => {
+      const onEvent = new Channel<AppUpdateDownloadEvent>(callback);
+      return invokeContract('update_download', { onEvent });
+    },
+    install: () => invokeContract('update_install', undefined),
+    dismiss: () => invokeContract('update_dismiss', undefined),
+  },
+
+  diagnostics: {
+    takeNativeCrashReports: () => invokeContract('diagnostics_take_native_reports', undefined),
+  },
+
+  aiLog: {
+    write: (filename, content) => invokeContract('ai_log_write', { filename, content }),
+    openDir: () => invokeContract('ai_log_open_dir', undefined),
+    getDir: () => invokeContract('ai_log_get_dir', undefined),
+  },
+
+  markdownProjection: {
+    pickOutputRoot: (title) => invokeContract('markdown_projection_pick_output_root', { title }),
+    setOutputRoot: (projectId, customRoot) => invokeContract('markdown_projection_set_output_root', { projectId, customRoot }),
+    nameFolder: (projectId, title) => invokeContract('markdown_projection_name_folder', { projectId, title }),
+    folder: () => invokeContract('markdown_projection_folder', undefined),
+    setDefaultRoot: (location) => invokeContract('markdown_projection_set_default_root', { location }),
+    setEnabled: (enabled) => invokeContract('markdown_projection_set_enabled', { enabled }),
+    open: (projectId) => invokeContract('markdown_projection_open', { projectId }),
+    remove: (projectId) => invokeContract('markdown_projection_remove', { projectId }),
+    info: (projectId) => invokeContract('markdown_projection_info', { projectId }),
+    write: (projectId, generatedAt, entries, assets, documents) => invokeContract('markdown_projection_write', { projectId, generatedAt, entries, assets, documents }),
+    read: (projectId, requests) => invokeContract('markdown_projection_read', { projectId, requests }),
+  },
+
+  mcpServer: {
+    list: () => invokeContract('mcp_server_list', undefined),
+    create: (input) => invokeContract('mcp_server_create', { input }),
+    connect: (input, client) => invokeContract('mcp_server_connect', { input, client }),
+    revoke: (id) => invokeContract('mcp_server_revoke', { id }),
+    attach: (projectId, callback) => invokeContract('mcp_server_attach', {
+      projectId, onEvent: new Channel<McpServerEvent>(callback),
+    }),
+    detach: (epoch) => invokeContract('mcp_server_detach', { epoch }),
+    complete: (epoch, requestId, response) => invokeContract('mcp_server_complete', { epoch, requestId, response }),
+  },
+
+  mcpStdio: {
+    start: (input) => invokeContract('mcp_stdio_start', { input }),
+    request: (input) => invokeContract('mcp_stdio_request', { input }),
+    notify: (input) => invokeContract('mcp_stdio_notify', { input }),
+    stop: (processId) => invokeContract('mcp_stdio_stop', { processId }),
+    status: (processId) => invokeContract('mcp_stdio_status', { processId }),
+  },
+
+  mcpHttp: {
+    request: (input) => invokeContract('mcp_http_request', { input }),
+    cancel: (requestId) => invokeContract('mcp_http_cancel', { requestId }),
+  },
+
+  openAIResponses: {
+    request: (body, signal) => nativeOpenAIResponse(body, signal, 'api_key'),
+  },
+
+  codexSubscription: {
+    request: (body, signal) => nativeOpenAIResponse(body, signal, 'chatgpt_subscription'),
+    status: () => invokeContract('codex_oauth_status', undefined),
+    listModels: () => invokeContract('codex_models_list', undefined),
+    startLogin: () => invokeContract('codex_oauth_start', undefined),
+    cancelLogin: () => invokeContract('codex_oauth_cancel', undefined),
+    logout: () => invokeContract('codex_oauth_logout', undefined),
+  },
+
+  byokModels: {
+    list: (provider) => invokeContract('byok_models_list', { provider }),
+  },
+
+  imageGeneration: {
+    generate: generateImages,
+    listInbox: async (projectId) =>
+      (await invokeContract('image_inbox_list', { projectId })).map(inboxEntry),
+    discard: (projectId, candidateId) =>
+      invokeContract('image_inbox_delete', { projectId, candidateId }),
+    stageImport: (projectId, candidateId) =>
+      invokeContract('image_inbox_stage_import', { projectId, candidateId }),
+  },
+};

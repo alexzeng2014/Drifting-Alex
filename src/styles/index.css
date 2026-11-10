@@ -1,0 +1,1387 @@
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+@import 'tailwindcss' source(none);
+@config "../../tailwind.config.js";
+
+/* ============================================================
+   Drifting Design System — tokens
+   Aesthetic: flat editorial workspace · sharp surfaces · focused prose
+   Type:      Inter Tight (UI) · Newsreader / Noto Serif SC (optional prose)
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* ─── shadcn-compatible tokens (HSL triplets, no hsl() wrapper) ─── */
+    --background: 0 0% 100%;
+    --foreground: 30 6% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 30 6% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 6% 12%;
+
+    --primary: 30 6% 12%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 30 6% 92%;
+    --secondary-foreground: 30 4% 26%;
+
+    --muted: 30 6% 94%;
+    --muted-foreground: 30 3% 48%;
+
+    --accent: 218 22% 52%;
+    --accent-foreground: 0 0% 100%;
+    --comment: 18 55% 57%;
+
+    --destructive: 14 55% 38%;
+    --destructive-foreground: 40 22% 93%;
+
+    --border: 30 6% 92%;
+    --input: 30 6% 92%;
+    --ring: 218 22% 52%;
+
+    /* Palette-specific quiet border used around accent surfaces. */
+    --accent-border: 30 6% 88%;
+
+    --radius: 2px;
+    --radius-xs: 1px;
+    --radius-sm: 2px;
+    --radius-md: 2px;
+    --radius-lg: 3px;
+    --control-height-sm: 24px;
+    --control-height-md: 28px;
+    --shadow-control: none;
+    --z-popover: 1000;
+    --z-context-menu: 10000;
+    --z-modal: 12000;
+    --z-toast: 100000;
+
+    /* Shared menu chrome. Cursor context menus and button-anchored dropdowns
+       keep separate positioning/interaction owners, but resolve their visual
+       shell and rows through this one token family. Menus and hover cards
+       are a piece of the desk lifted out: the sidebar's own opaque colour
+       and the floating shadow. Dialogs and search are square with a
+       half-pixel hairline edge; dropdown menus (.menu-surface) and hover
+       cards are 16px rounded rectangles whose rim is the resting glass line,
+       and a menu's rows stand in from the edge. */
+    --menu-surface-bg: var(--workspace-ui-bg);
+    --menu-surface-border: transparent;
+    --menu-surface-radius: 0;
+    --menu-surface-shadow:
+      0 0 0 0.5px hsl(var(--ink-1) / 0.16),
+      0 16px 30px -16px hsl(var(--shadow-ink) / 0.38);
+    --menu-radius: 16px;
+    --menu-shadow: 0 16px 30px -16px hsl(var(--shadow-ink) / 0.38);
+    --menu-row-inset: 6px;
+    --menu-separator: hsl(var(--ink-1) / 0.14);
+    --menu-item-hover-bg: hsl(var(--ink-1) / 0.05);
+    --menu-item-danger: hsl(var(--destructive));
+    --menu-item-danger-hover-bg: hsl(var(--destructive) / 0.1);
+    /* Two widths: a menu of rows, and a menu that carries more (an image,
+       a list of things, a form). Compact and panel are the older names. */
+    --menu-width-compact: 240px;
+    --menu-width-standard: 240px;
+    --menu-width-wide: 320px;
+    --menu-width-panel: 320px;
+    --menu-width-settings: 420px;
+
+    /* ─── Drifting-only tokens (full ink scale, paper scale, accents) ─── */
+    --paper: 42 14% 97%;
+    --paper-deep: 40 9% 94.5%;
+    --surface: 0 0% 100%;
+    --page: 45 30% 99.5%;
+    --page-elevation: 0 1px 0 rgba(28, 24, 19, 0.05), 0 5px 30px -15px rgba(28, 24, 19, 0.13);
+    /* Colour of every lifted surface's shadow. It is the ink on the light
+       paper but black in the dark, where the ink is near white and a shadow
+       drawn in it reads as a glow under the surface. Hairline edges stay
+       ink. */
+    --shadow-ink: 30 6% 12%;
+
+    --ink-1: 30 6% 12%;
+    --ink-2: 30 4% 26%;
+    --ink-3: 30 3% 48%;
+    --ink-4: 30 3% 64%;
+    --ink-5: 30 4% 84%;
+    --ink-6: 30 5% 89%;
+    --rule: 30 6% 92%;
+    --rule-strong: 30 6% 84%;
+
+    /* Storyline track palette — curated, museum-quality */
+    --story-1: 252 62% 72%;
+    --story-2: 208 70% 66%;
+    --story-3: 148 38% 60%;
+    --story-4: 45 82% 66%;
+    --story-5: 282 50% 72%;
+    --story-6: 182 42% 58%;
+
+    /* Element category semantic aliases (you can rebind these freely) */
+    --el-person: var(--story-1);
+    --el-place: var(--story-3);
+    --el-item: var(--story-4);
+    --el-period: var(--story-2);
+    --el-lex: var(--story-5);
+
+    /* Authored content owns an independent font preference. Desktop UI font
+       roles are supplied by interface-fonts.css; mobile keeps its fallback. */
+    /* Drifting-Alex sets Sarasa Gothic SC (更纱黑体) as both the manuscript
+       and the interface family; the separate serif/sans roles stay available
+       from the appearance settings. */
+    --font-prose-system-serif:
+      'Sarasa Gothic SC', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei',
+      system-ui, sans-serif;
+    --font-prose-system-sans:
+      'Sarasa Gothic SC', 'PingFang SC', 'Hiragino Sans GB', 'Segoe UI',
+      'Microsoft YaHei', system-ui, sans-serif;
+    --font-prose-mono:
+      ui-monospace, 'Sarasa Mono SC', 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas,
+      'PingFang SC', monospace;
+    --font-ui:
+      'Sarasa Gothic SC', 'PingFang SC', 'Hiragino Sans GB', -apple-system,
+      system-ui, sans-serif;
+    --font-structure: var(--font-ui);
+    /* Mobile fallbacks; desktop assigns separate sans and monospace roles. */
+    --font-sans: var(--font-ui);
+    --font-mono: var(--font-ui);
+    --editor-font-family: var(--font-prose-system-serif);
+    /* One semantic font axis for manuscript prose and authored entity content.
+       --editor-font-family remains the preference bridge updated at runtime. */
+    --font-content: var(--editor-font-family);
+
+    /* The editor surround is the one desktop-UI background. Sidebars,
+       titlebar, timeline and footer all resolve through the same role. */
+    --workspace-ui-bg: hsl(var(--paper-deep));
+    --chrome-bg: var(--workspace-ui-bg);
+    --chrome-divider: 1px solid var(--workspace-border);
+
+    /* Super Views stop above the full-width BottomStatusBar. */
+    --super-view-bottom-inset: 20px;
+
+    /* Workspace geometry. Palette values stay owned by the existing paper,
+       surface and ink tokens; these only define role and shape. */
+    --workspace-corner-radius: 2px;
+    --workspace-border: hsl(var(--ink-1) / 0.14);
+    --workspace-local-border: hsl(var(--ink-1) / 0.12);
+    --workspace-subtle-border: hsl(var(--ink-1) / 0.07);
+    --workspace-cell-hover-bg: color-mix(
+      in srgb,
+      hsl(var(--page)) 70%,
+      var(--workspace-ui-bg)
+    );
+
+    /* Mobile V2 semantic color roles. Components consume roles rather than
+       fixed light colors so phone and compact-tablet surfaces can switch
+       continuously between explicit light/dark and the system preference. */
+    --mobile-v2-desk: hsl(var(--paper-deep));
+    --mobile-v2-page: hsl(var(--page));
+    --mobile-v2-panel: hsl(var(--surface));
+    --mobile-v2-panel-deep: hsl(var(--paper));
+    --mobile-v2-bar: hsl(var(--paper-deep) / 0.94);
+    --mobile-v2-rail-active: hsl(var(--accent) / 0.14);
+    --mobile-v2-layer-wash: hsl(var(--accent) / 0.08);
+    --mobile-v2-search-match: hsl(var(--story-4) / 0.28);
+    --mobile-v2-search-current: hsl(var(--story-4) / 0.52);
+    --mobile-v2-agent-message: hsl(var(--secondary));
+    --mobile-v2-drag-ghost: hsl(var(--surface) / 0.92);
+    --mobile-v2-canvas-grid: hsl(var(--ink-1) / 0.07);
+    --mobile-v2-sheet: hsl(var(--surface));
+    --mobile-v2-backdrop: hsl(30 6% 12% / 0.28);
+
+    /* Native window chrome geometry. Every renderer-owned titlebar surface
+       consumes the same height so its content center stays aligned with the
+       14px macOS traffic lights. */
+    --window-titlebar-height: 42px;
+    --window-header-leading-inset: 94px;
+    --window-surface-inline-inset: 0px;
+  }
+
+  /* ─── Coplanar workspace + manuscript elevation ───────────────────────
+     The titlebar, editor surround, timeline and status controls share one
+     paper-deep plane and the exact same background role. The manuscript page
+     is the only raised surface.
+     -------------------------------------------------------------------- */
+  .app-root {
+    padding: 0;
+    gap: 0;
+    background: var(--workspace-ui-bg);
+  }
+  .app-row {
+    min-height: 0;
+    background: var(--workspace-ui-bg);
+  }
+  .app-mid {
+    gap: 0;
+    background: var(--workspace-ui-bg);
+  }
+  /* Sidebars are coplanar edge panels. Their full seams are ordinary
+     hairlines; neither panel casts a shadow over the editor. */
+  .sidebar-shell--left {
+    border-right: 1px solid var(--workspace-border);
+    box-shadow: none;
+  }
+  .sidebar-shell--right {
+    border-left: 1px solid var(--workspace-border);
+    box-shadow: none;
+  }
+  .sidebar-shell.is-fully-hidden {
+    border-left: 0;
+    border-right: 0;
+  }
+  .app-plane,
+  .workspace-stage,
+  .workspace-dock {
+    background: var(--workspace-ui-bg);
+  }
+  .workspace-stage {
+    min-height: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .workspace-dock {
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .app-panel-plane {
+    border-radius: 0;
+    background: var(--workspace-ui-bg);
+    box-shadow: none;
+  }
+
+  /* ─── Static document and panel tabs ─────────────────────────────────
+     The active tab paints its own rectangular state. There is no travelling
+     pill or layout-measuring selection layer.
+     -------------------------------------------------------------------- */
+  .app-tab {
+    position: relative;
+    z-index: 1;
+    box-sizing: border-box;
+    border-radius: 0;
+    border-right: 1px solid hsl(var(--rule));
+  }
+  .app-tab.is-active {
+    background: hsl(var(--surface));
+  }
+
+  /* Container-level drag-and-drop uses animated slot transforms. */
+
+  .app-tab__close {
+    border-radius: 1px !important;
+  }
+
+  /* Split tabs retain a static frame. */
+  .app-tab--split {
+    border-radius: 0 !important;
+  }
+
+  /* Smooth light/dark transitions on the stable shell surfaces. */
+  body,
+  .app-plane,
+  .app-panel-plane {
+    transition:
+      background-color 240ms ease,
+      background 240ms ease,
+      color 240ms ease,
+      border-color 240ms ease;
+  }
+
+  /* Sidebar slide is the one structural workspace motion retained. The
+     outer shell animates `width` between 0 and the
+     last expanded width; inner content is absolute-positioned at fixed
+     width anchored to the outside edge so it actually slides off-screen
+     instead of just narrowing in place. It is the structural movement
+     (STRUCTURAL_MS in lib/motion.ts, which components/Sidebar.tsx waits out). */
+  .sidebar-shell {
+    transition: width var(--motion-structural) var(--motion-structural-ease);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar-shell {
+      transition: none;
+    }
+  }
+
+  /* Soft accent ring on form controls only. The
+     editor body is contenteditable but ringing the whole prosemirror area
+     when the user clicks in is awful, so contenteditable is intentionally
+     excluded. */
+  html input:focus-visible,
+  html textarea:focus-visible,
+  html select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsl(var(--accent) / 0.22);
+    border-color: hsl(var(--accent) / 0.55);
+  }
+
+  /* Desktop: a field the author writes in shows only its caret, with no ring
+     and no box in its place. Every text field on an editor's page (titles,
+     summaries, field names and values, aliases, patch titles, material
+     descriptions) is words on the paper, and a glass field's glass is already
+     its focus (the still selected glass). Boxed controls such as selects,
+     checkboxes and ranges keep the ring. */
+  html[data-shell-mode]
+    :is(.editor-shell, .glass--field)
+    :is(textarea, input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'])):focus-visible {
+    box-shadow: none;
+  }
+
+  .dark {
+    --background: 220 6% 11%;
+    --foreground: 220 8% 93%;
+
+    --card: 220 6% 14%;
+    --card-foreground: 220 8% 93%;
+
+    --popover: 220 6% 16%;
+    --popover-foreground: 220 8% 93%;
+
+    --primary: 220 8% 93%;
+    --primary-foreground: 220 6% 11%;
+
+    --secondary: 220 6% 18%;
+    --secondary-foreground: 220 6% 82%;
+
+    --muted: 220 5% 20%;
+    --muted-foreground: 220 5% 62%;
+
+    --accent: 218 35% 65%;
+    --accent-foreground: 220 6% 11%;
+    --comment: 20 58% 66%;
+
+    --destructive: 14 45% 50%;
+    --destructive-foreground: 220 8% 93%;
+
+    --border: 220 6% 22%;
+    --input: 220 6% 22%;
+    --ring: 218 35% 65%;
+
+    --accent-border: 220 6% 26%;
+
+    --paper: 220 6% 12.5%;
+    --paper-deep: 220 6% 11.5%;
+    --surface: 220 6% 14%;
+    --page: 220 6% 14%;
+    --page-elevation: 0 1px 0 rgba(0, 0, 0, 0.28), 0 5px 30px -15px rgba(0, 0, 0, 0.55);
+    --shadow-ink: 0 0% 0%;
+    --menu-surface-shadow:
+      0 0 0 0.5px hsl(var(--ink-1) / 0.16),
+      0 16px 30px -16px hsl(var(--shadow-ink) / 0.62);
+    --menu-shadow: 0 16px 30px -16px hsl(var(--shadow-ink) / 0.62);
+
+    --ink-1: 220 8% 93%;
+    --ink-2: 220 6% 82%;
+    --ink-3: 220 5% 62%;
+    --ink-4: 220 4% 48%;
+    --ink-5: 220 5% 28%;
+    --ink-6: 220 5% 22%;
+    --rule: 220 6% 22%;
+    --rule-strong: 220 6% 30%;
+
+    --story-1: 252 50% 74%;
+    --story-2: 208 58% 68%;
+    --story-3: 148 34% 62%;
+    --story-4: 45 68% 68%;
+    --story-5: 282 44% 74%;
+    --story-6: 182 38% 60%;
+
+    --mobile-v2-backdrop: hsl(220 10% 3% / 0.58);
+
+    --chrome-bg: hsl(var(--paper) / 0.65);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01', 'kern', 'liga';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  .font-sans {
+    font-family: var(--font-sans);
+  }
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Mono micro-label, used everywhere for section heads / kickers */
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: hsl(var(--ink-3));
+  }
+}
+
+/* ============================================================
+   Scrollbars — quiet
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--rule));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--ink-4));
+}
+
+/* 静默滚动条：保留滚动能力但完全隐藏滚动条视觉 */
+.scroll-no-bar {
+  scrollbar-width: none;
+}
+.scroll-no-bar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* ============================================================
+   Selection / utilities
+   The previous rule used `0.15` alpha which was effectively invisible
+   on the cream background of the editor, and forced the text color to
+   --accent which clashed with --el-color spans (entity-link marks).
+   Use a solid tinted background and keep text color as inherited so
+   foreground stays legible.
+   ============================================================ */
+::selection {
+  background: hsl(var(--accent) / 0.32);
+  color: inherit;
+}
+
+button,
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.editor,
+[contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ============================================================
+   Element Link — was hardcoded #3b82f6 etc, now reads from tokens
+   The category color is exposed via a CSS var on the link itself.
+   ============================================================ */
+.element-link {
+  color: hsl(var(--el-color, var(--accent)));
+  text-decoration: none;
+  background-image: linear-gradient(
+    to top,
+    hsl(var(--el-color, var(--accent)) / 0.1) 0,
+    hsl(var(--el-color, var(--accent)) / 0.1) 28%,
+    transparent 28%
+  );
+  border-radius: 1px;
+  padding: 0 1px;
+  cursor: pointer;
+  transition: background-image 0.15s;
+}
+.element-link:hover {
+  background-image: linear-gradient(
+    to top,
+    hsl(var(--el-color, var(--accent)) / 0.22) 0,
+    hsl(var(--el-color, var(--accent)) / 0.22) 100%,
+    transparent 100%
+  );
+}
+
+/* Category-specific colors — semantic, all rebindable */
+.element-link-character {
+  --el-color: var(--el-person);
+}
+.element-link-location {
+  --el-color: var(--el-place);
+}
+.element-link-item {
+  --el-color: var(--el-item);
+}
+.element-link-period {
+  --el-color: var(--el-period);
+}
+.element-link-lex {
+  --el-color: var(--el-lex);
+}
+
+/* ============================================================
+   Entity Link — the unified inline reference mark (entityLink).
+   Reuses the .element-link visual language, split by
+   data-target-kind: element / node / patch / category / storyline.
+   ============================================================ */
+.entity-link {
+  --entity-link-band-color: var(--entity-link-color, hsl(var(--el-color, var(--accent))));
+  color: var(--entity-link-color, hsl(var(--el-color, var(--accent))));
+  text-decoration: none;
+  background-image: linear-gradient(
+    to top,
+    color-mix(
+        in srgb,
+        var(--entity-link-band-color) 10%,
+        transparent
+      )
+      0,
+    color-mix(
+        in srgb,
+        var(--entity-link-band-color) 10%,
+        transparent
+      )
+      28%,
+    transparent 28%
+  );
+  border-radius: 1px;
+  /* Highlighting must preserve the surrounding prose's spacing and weight. */
+  padding: 0;
+  font-weight: inherit;
+  cursor: pointer;
+  transition:
+    background-image 0.15s,
+    border-color 0.15s;
+}
+.entity-link:hover {
+  background-image: linear-gradient(
+    to top,
+    color-mix(
+        in srgb,
+        var(--entity-link-band-color) 22%,
+        transparent
+      )
+      0,
+    color-mix(
+        in srgb,
+        var(--entity-link-band-color) 22%,
+        transparent
+      )
+      100%,
+    transparent 100%
+  );
+}
+
+/* Dangling link — the target entity was hard-deleted (gone for good). Strip
+   every entity-link treatment (colour, gradient, underline, deep-link glyph,
+   pointer) so the span reads as ordinary prose. The mark itself stays in the
+   doc (inert); clicks are already swallowed by the plugin's state guard.
+   Applied as a ProseMirror decoration class, which may MERGE onto the mark span
+   or WRAP inside it. The colour/gradient live on the .entity-link span, so the
+   wrap case needs :has() to reach back up to it — the original merge-only
+   selectors missed it and left the highlight showing. */
+.entity-link--dangling,
+.entity-link--dangling.entity-link,
+.entity-link--dangling .entity-link,
+.entity-link:has(.entity-link--dangling) {
+  color: inherit !important;
+  background-image: none !important;
+  border-bottom: none !important;
+  cursor: text !important;
+}
+.entity-link--dangling.entity-link--deep::after,
+.entity-link--dangling .entity-link--deep::after,
+.entity-link:has(.entity-link--dangling) .entity-link--deep::after {
+  content: none !important;
+}
+
+/* Trashed link — the target sits in the trash (soft-deleted, recoverable).
+   Keep the link shape but desaturate the colour so it reads as muted/inactive,
+   and drop the pointer. Same merge-or-wrap decoration nesting as dangling, so
+   cover the outer .entity-link via :has(). */
+.entity-link--trashed.entity-link,
+.entity-link:has(.entity-link--trashed) {
+  filter: saturate(0.3);
+  opacity: 0.65;
+  cursor: default !important;
+}
+
+/* Target-kind fallback palette. Contextual and custom modes bind
+   --entity-link-color from live state/settings; missing owners fall back here. */
+.entity-link--element {
+  --el-color: var(--el-person);
+}
+.entity-link--node {
+  --el-color: var(--story-2);
+}
+.entity-link--patch {
+  --el-color: var(--el-period);
+}
+.entity-link--category {
+  --el-color: var(--story-3);
+}
+.entity-link--storyline {
+  --el-color: var(--story-6);
+}
+
+.entity-link--node {
+  text-underline-offset: 0.16em;
+}
+
+/* Hover-only mode is visually indistinguishable from ordinary prose at rest.
+   Hover reveals the contextual owner color without changing document layout. */
+html[data-entity-link-style='hover'] .entity-link {
+  color: inherit;
+  background-image: none;
+  border-bottom: none;
+  font-weight: inherit;
+}
+html[data-entity-link-style='hover'] .entity-link:hover {
+  color: var(--entity-link-color, hsl(var(--el-color, var(--accent))));
+  background-image: linear-gradient(
+    to top,
+    color-mix(
+        in srgb,
+        var(--entity-link-band-color) 22%,
+        transparent
+      )
+      0,
+    color-mix(
+        in srgb,
+        var(--entity-link-band-color) 22%,
+        transparent
+      )
+      100%,
+    transparent 100%
+  );
+}
+html[data-entity-link-style='hover'] .entity-link--deep::after {
+  content: none;
+}
+
+/* Dots remain a single fine row even on hover. Excluding hover-only links at
+   rest preserves their plain-prose state. Later text-only rules suppress the
+   image, and inert links retain their !important overrides. */
+html[data-entity-link-band-style='dots']:where(:not([data-entity-link-style='hover'])) .entity-link,
+html[data-entity-link-band-style='dots'] .entity-link:hover {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--entity-link-band-color) 65%, transparent) 0.75px,
+    transparent 1px
+  );
+  background-size: 4px 2px;
+  background-position: left bottom;
+  background-repeat: repeat-x;
+}
+
+/* Highlight treatment is independent of the color source and hover timing.
+   Both is the default; prose mode and inert links keep their own treatment. */
+html[data-entity-link-highlight='band'] .entity-link,
+html[data-entity-link-highlight='band'] .entity-link:hover {
+  color: inherit;
+}
+html[data-entity-link-highlight='text']:where(:not([data-entity-link-style='prose'])) .entity-link,
+html[data-entity-link-highlight='text']:where(:not([data-entity-link-style='prose'])) .entity-link:hover {
+  background-image: none;
+}
+
+/* Prose mode always shows the selected band style in the prose color, while
+   retaining the saved highlight treatment for other color modes. */
+html[data-entity-link-style='prose'] .entity-link,
+html[data-entity-link-style='prose'] .entity-link:hover {
+  --entity-link-band-color: currentColor;
+  color: inherit;
+  font-weight: inherit;
+}
+html[data-entity-link-style='prose'] .entity-link--deep::after {
+  content: none;
+}
+
+/* Deep-link indicator (mention points at a specific block of the target). */
+.entity-link--deep::after {
+  content: '';
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 1px;
+  background: currentColor;
+  -webkit-mask: url('../assets/design/icons/hook.png') center / 100% 100% no-repeat;
+  mask: url('../assets/design/icons/hook.png') center / 100% 100% no-repeat;
+  opacity: 0.6;
+}
+
+/* Desktop: the band is one dry underline in the link's colour, drawn again on
+   each line the link runs over (materials.css, "Sand in prose"): the stroke at
+   its own proportions (7px tall, 194px natural width), cut from its start on a
+   short link and stretched on a long one. It deepens under the pointer and
+   fades in with the link; hover-only links bring it in under the pointer; the
+   dotted style keeps only its grains; text-only links have none. */
+:root[data-shell-mode] .entity-link {
+  --prose-sand-a: 0.7;
+  --prose-sand-band: color-mix(in srgb, var(--entity-link-band-color)
+    calc(var(--prose-sand-a) * var(--prose-sand-strength) * 100%), transparent);
+  /* Paints below the words without moving the line. */
+  padding-bottom: 3px;
+  border-radius: 0;
+  background-image:
+    linear-gradient(to left, hsl(var(--page)), transparent 12px),
+    linear-gradient(hsl(var(--page)), hsl(var(--page))),
+    var(--prose-sand-ul),
+    linear-gradient(var(--prose-sand-band), var(--prose-sand-band));
+  background-size: 100% 7px, 100% 7px, max(100%, 194px) 7px, 100% 5px;
+  background-position: left bottom, left bottom, left bottom, left bottom 1px;
+  background-repeat: no-repeat;
+  background-blend-mode: normal, var(--prose-sand-cover-blend), normal, normal;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  mix-blend-mode: var(--prose-sand-blend);
+  transition: --prose-sand-a var(--motion-sand-shift) ease-out;
+  animation: prose-sand-arrive var(--motion-sand-fade) ease-out backwards;
+}
+:root[data-shell-mode] .entity-link:hover {
+  --prose-sand-a: 0.95;
+}
+:root[data-shell-mode][data-entity-link-band-style='dots'] .entity-link {
+  --prose-sand-a: 0.85;
+  background-image:
+    linear-gradient(hsl(var(--page)), hsl(var(--page))),
+    var(--prose-sand-ul-loose),
+    linear-gradient(var(--prose-sand-band), var(--prose-sand-band));
+  background-size: 100% 7px, auto 7px, 100% 5px;
+  background-position: left bottom, left bottom, left bottom 1px;
+  background-repeat: no-repeat, repeat-x, no-repeat;
+  background-blend-mode: var(--prose-sand-cover-blend), normal, normal;
+}
+:root[data-shell-mode][data-entity-link-style='hover'] .entity-link {
+  --prose-sand-a: 0;
+}
+:root[data-shell-mode][data-entity-link-style='hover'] .entity-link:hover {
+  --prose-sand-a: 0.95;
+}
+:root[data-shell-mode][data-entity-link-band-style='dots'] .entity-link:hover {
+  --prose-sand-a: 1;
+}
+:root[data-shell-mode][data-entity-link-highlight='text']:not([data-entity-link-style='prose']) .entity-link {
+  padding-bottom: 0;
+  background-image: none;
+  mix-blend-mode: normal;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-shell-mode] .entity-link {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ============================================================
+   Text selection — diagnostic high-contrast rule, overrides every
+   other ::selection in the cascade. If this doesn't render the
+   highlight is being suppressed by something outside CSS (e.g. a
+   ProseMirror decoration drawn above the selection layer, or an
+   `-webkit-user-select` ancestor).
+   ============================================================ */
+::selection,
+*::selection,
+.ProseMirror ::selection,
+.ProseMirror::selection,
+.ProseMirror *::selection {
+  background-color: rgba(56, 132, 255, 0.45) !important;
+  color: inherit !important;
+}
+
+/* Editor find-in-document highlights live in styles/search.css. */
+
+/* ============================================================
+   Tiptap placeholder
+   ============================================================ */
+.ProseMirror {
+  caret-color: var(--editor-caret-color, #6b7fa6);
+}
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--ink-4));
+  font-style: normal;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Hover preview scrollbar (kept) */
+.hover-preview-content::-webkit-scrollbar {
+  width: 6px;
+}
+.hover-preview-content::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+.hover-preview-content::-webkit-scrollbar-thumb {
+  background: hsl(var(--rule));
+  border-radius: 3px;
+}
+.hover-preview-content::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--ink-4));
+}
+
+/* ============================================================
+   Native shell viewport
+   ============================================================ */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+}
+
+/* iOS/Android use dynamic viewport units and keep application controls out of
+   display cutouts and the home-indicator area. The data attribute is populated
+   from Tauri's native platform contract before React mounts. */
+html[data-platform-target='mobile'] .app-root {
+  box-sizing: border-box;
+  width: 100% !important;
+  height: 100dvh !important;
+  min-width: 0;
+  padding-top: var(--safe-area-top);
+  padding-right: var(--safe-area-right);
+  padding-bottom: var(--safe-area-bottom);
+  padding-left: var(--safe-area-left);
+  overscroll-behavior: none;
+}
+
+html[data-shell-mode='mobile'] .app-row,
+html[data-shell-mode='mobile'] .app-mid {
+  min-width: 0;
+}
+
+/* On a phone, sidebars become temporary overlay drawers instead of consuming
+   the editor's already narrow layout width. Their existing open/close store and
+   product controls remain unchanged. */
+html[data-shell-mode='mobile'] .app-row {
+  position: relative;
+}
+
+html[data-shell-mode='mobile'] .sidebar-shell {
+  position: absolute !important;
+  top: 0;
+  bottom: 0;
+  z-index: 120;
+  max-width: min(84vw, 320px);
+}
+
+html[data-shell-mode='mobile'] .sidebar-shell--left {
+  left: 0;
+}
+
+html[data-shell-mode='mobile'] .sidebar-shell--right {
+  right: 0;
+}
+
+html[data-shell-mode='mobile'] .app-mid {
+  width: 100%;
+}
+
+/* ============================================================
+   Editor — manuscript page layout (Phase 4 redesign)
+   Centered book page + folio margin; actions in the corner stack
+   ============================================================ */
+.editor-shell {
+  position: relative; /* anchors the document's corner action stack */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0; /* let .editor-scroll's flex:1 actually constrain */
+}
+
+/* Flex row holding the manuscript scroll. The semantic
+   TOC rail is pinned to this editor area's left edge; an open application left
+   sidebar therefore sits immediately before it. */
+.editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  justify-content: center;
+  gap: 24px;
+}
+
+.editor-corner {
+  /* The paper's lower-right corner, outside the flow so prose starts at the
+     top: the Bottom Timeline toggle, then the document's own controls. */
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 15; /* above the semantic TOC rail and margin notes */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.editor-bar {
+  /* The document's own controls: one horizontal glass pill, its round glass
+     buttons padded evenly (materials.css sizes). */
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  padding: var(--glass-tray-padding);
+  border-radius: calc(var(--glass-round-size) / 2 + var(--glass-tray-padding));
+  --glass-rim: 12px;
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(1.6px);
+  backdrop-filter: blur(1.6px);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+.editor-bar__toggle-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+}
+.editor-bar__icon {
+  display: grid;
+  place-items: center;
+  width: var(--glass-round-size);
+  height: var(--glass-round-size);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.12s ease-out;
+}
+.editor-bar__icon > .brush-icon {
+  width: var(--glass-round-icon);
+  height: var(--glass-round-icon);
+}
+.editor-bar__icon:hover,
+.editor-bar__icon--active {
+  color: hsl(var(--ink-1));
+}
+.editor-bar__icon:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+.editor-bar__icon:disabled:hover {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+/* Element image entry: a thumbnail of the image when there is one, a small
+   spinner while the Agent generates candidates. */
+.editor-bar__icon--thumb {
+  padding: 0;
+}
+.editor-bar__thumb {
+  width: 18px;
+  height: 22px;
+  border-radius: 2px;
+  object-fit: cover;
+  object-position: center 25%;
+  box-shadow: 0 0 0 1px hsl(var(--rule));
+}
+.editor-bar__spinner {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: hsl(var(--page));
+  color: hsl(var(--accent));
+}
+.editor-bar__spinner svg {
+  animation: drift-spin 0.9s linear infinite;
+}
+.editor-bar__badge {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  display: grid;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: hsl(var(--ink-3));
+  color: hsl(var(--page));
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  place-items: center;
+}
+
+/* Three-dot actions menu. */
+.editor-bar__menu {
+  z-index: var(--z-popover);
+}
+.patch-card__anchor-pop-item:focus-visible {
+  outline: 2px solid hsl(var(--accent) / 0.55);
+  outline-offset: -2px;
+}
+
+.page {
+  position: relative;
+  /* The configurable dial is the PAPER width (this surface), not the text
+     column. The body text fills this minus the fixed 48px side padding below,
+     so widening the page widens the paper and lets the prose breathe to its
+     original margins — it doesn't just stretch a centered text ribbon. */
+  max-width: var(--editor-max-width, 720px);
+  margin: 0 auto;
+  padding: 48px 48px 80px;
+  background: hsl(var(--page));
+  border-radius: var(--workspace-corner-radius);
+  /* 方案 B · Elevation —— 极淡投影把纸从 surround 上「立」起来。
+     盒阴影不计入可滚动溢出，居中布局两侧留白足够容纳，不会触发横向滚动条。 */
+  box-shadow: var(--page-elevation);
+  min-height: calc(100vh - 220px);
+  overflow: visible;
+}
+/* Folio — inline top-strip header on the manuscript page (was absolute side label) */
+.page__folio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: hsl(var(--ink-4));
+  line-height: 1.4;
+  padding-bottom: 14px;
+  margin-bottom: 28px;
+  border-bottom: 1px dotted hsl(var(--rule));
+}
+.page__folio-line {
+  display: inline;
+}
+.page__folio-line + .page__folio-line::before {
+  content: '·';
+  margin-right: 8px;
+  color: hsl(var(--ink-5));
+}
+.page__folio-line--accent {
+  color: hsl(var(--accent));
+  font-weight: 500;
+}
+.page__folio-line--muted {
+  color: hsl(var(--ink-3));
+}
+/* The storyline in the folio: its sand dash, then its name in ink. */
+.page__folio-storyline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--ink-3));
+}
+.page__folio-line.page__folio-storyline::before {
+  margin-right: 3px;
+}
+.page__title {
+  font-family: var(--font-content);
+  font-weight: 400;
+  font-size: 42px;
+  /* Keep enough line height for CJK glyph bounds on wrapped title lines. */
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: hsl(var(--ink-1));
+  margin: 0 0 10px;
+  background: transparent;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+textarea.page__title {
+  display: block;
+  resize: none;
+  overflow: hidden;
+}
+.page__title::placeholder {
+  color: hsl(var(--ink-4));
+  font-weight: 300;
+}
+
+.page__sub {
+  font-family: var(--font-content);
+  font-style: normal;
+  font-size: calc(var(--editor-font-size, 17.5px) - 2px);
+  color: hsl(var(--ink-3));
+  margin: 0 0 28px;
+  background: transparent;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.5;
+}
+.page__sub::placeholder {
+  color: hsl(var(--ink-4));
+  font-style: normal;
+}
+.page__rule {
+  border: 0;
+  height: 1px;
+  background: hsl(var(--rule));
+  margin: 0 0 28px;
+}
+
+.page__body .ProseMirror {
+  font-family: var(--font-content);
+  font-size: var(--editor-font-size, 17.5px);
+  line-height: var(--editor-line-height, 1.75);
+  color: hsl(var(--ink-1));
+  text-wrap: var(--editor-text-wrap, stable);
+  /* Pin the wrapping behaviour prosemirror-view would otherwise inject only on
+     first EditorView construction — the all-chapters read-through renders prose
+     statically (no view) and must wrap pixel-identically to the live editor, or
+     focusing a chapter would reflow every other row. */
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  word-wrap: break-word;
+  font-feature-settings: 'liga', 'kern', 'onum';
+  /* No own width cap: the prose fills the .page content box (paper width minus
+     the .page side padding). Paper width is the dial now (--editor-max-width on
+     .page above). */
+}
+.page__body .ProseMirror :is(p, h1, h2, h3) {
+  margin: 0 0 var(--editor-paragraph-spacing, calc(var(--editor-font-size, 17.5px) * 1.1));
+}
+.page__body .ProseMirror p {
+  text-indent: var(--editor-indent, 0);
+}
+
+/* Reference-link rendering master toggle. When off, every entity-link mark
+   (manual / auto / ai) renders as plain inline text — no color, background,
+   underline, deep-link arrow, or pointer affordance. Click navigation is
+   blocked separately in the entity-link plugin via entityLinkConfig. */
+html[data-entity-link-interactive='off'] .entity-link {
+  color: inherit !important;
+  background-image: none !important;
+  border-bottom: none !important;
+  font-weight: inherit !important;
+  cursor: text !important;
+  padding: 0 !important;
+}
+html[data-entity-link-interactive='off'] .entity-link--deep::after {
+  content: none !important;
+}
+.page__body .ProseMirror em {
+  font-style: italic;
+  color: hsl(var(--ink-2));
+}
+.page__body .ProseMirror h1,
+.set-preview h1 {
+  font-family: var(--font-content);
+  font-weight: 500;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+}
+.page__body .ProseMirror h2,
+.set-preview h2 {
+  font-family: var(--font-content);
+  font-weight: 500;
+  font-size: 22px;
+}
+.page__body .ProseMirror h3,
+.set-preview h3 {
+  font-family: var(--font-content);
+  font-weight: 500;
+  font-size: 18px;
+}
+
+/* 通览全书 read-through. Every chapter renders its real prose — statically
+   unless it's the one being edited — so there's no estimated placeholder height
+   to be wrong about and snap the scroll. content-visibility keeps the offscreen
+   rows from costing layout/paint on big books; the row seeds an intrinsic-size
+   guess via --all-chap-row-h and the browser remembers each row's true height
+   after it first displays. */
+.all-chap-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--all-chap-row-h, 600px);
+}
+
+/* A TOC destination must have real layout/paint before its final scroll offset
+   is measured. Keep that one row visible until the next jump; offscreen rows
+   retain content-visibility's normal savings. The live editor uses this too.
+   Rows within a screen of the reader are laid out as well: WebKit does not
+   scroll-anchor `auto`'s own switch from the estimate to the real height, so a
+   cold row above the reader jumped the page while scrolling up. This
+   attribute-driven change is anchored, and the remembered size keeps the row
+   still when it returns to `auto`. */
+.all-chap-row[data-navigation-target="true"],
+.all-chap-row[data-near-reader="true"] {
+  content-visibility: visible;
+}
+
+.page__ornament {
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: 20px;
+  color: hsl(var(--ink-4));
+  margin: 36px 0 12px;
+  letter-spacing: 1em;
+  text-indent: 1em;
+  user-select: none;
+}
+
+/* ============================================================
+   Act break — 「部扉页」frontispiece divider between acts in
+   the all-chapters read-through. No full-width rules: whitespace
+   and typography carry the ceremony, so it reads as a part-title
+   page rising out of the prose rather than a plain separator bar.
+   ============================================================ */
+.act-break {
+  text-align: center;
+  padding: 132px 0 124px;
+  scroll-margin-top: 24px;
+}
+.act-break__num {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-style: normal; /* upright Roman, not italic */
+  font-size: 132px;
+  line-height: 0.82;
+  color: hsl(var(--ink-6)); /* very faint — decoration, never steals focus */
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+.act-break__label {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 31px;
+  color: hsl(var(--ink-1));
+  letter-spacing: 0.14em;
+  padding-left: 0.14em; /* optical: offset the left drift from tracking */
+  margin-top: 14px;
+}
+.act-break__meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: hsl(var(--ink-4));
+  margin-top: 20px;
+}
+.act-break__meta .d {
+  color: hsl(var(--ink-5));
+  margin: 0 8px;
+}
+
+/* ============================================================
+   Editor spread layout — TOC | manuscript | margin comments
+   ============================================================ */
+.editor-scroll {
+  /* 全宽填充 .editor-body，正文由内部 .editor__spread 居中。右侧普通
+     滚动条只在内容溢出时出现；左侧 semantic TOC rail 只负责结构导航。 */
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  /* A vertical trackpad fling often carries a small deltaX. Keep the
+     manuscript on a strict vertical axis so hitting the bottom cannot expose
+     WebKit's horizontal rubber-band as a left/right page shake. */
+  overflow-x: hidden;
+  /* The editor is the sole scroll owner. Consume momentum at both document
+     boundaries instead of chaining it to .workspace-stage / the WKWebView. */
+  overscroll-behavior: none;
+  background: hsl(var(--paper-deep));
+  position: relative;
+  min-height: 0;
+  align-self: stretch;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--rule)) transparent;
+}
+/* Typewriter scrolling needs virtual room below the real document so the last
+   prose line can reach the configured viewport anchor. This spacer is visual
+   only: it never becomes a ProseMirror node or Yjs content. It also works for
+   通览全书, whose live ChapterEditor does not sit inside .editor__spread. */
+.editor-scroll[data-typewriter-scroll='on']::after {
+  content: '';
+  display: block;
+  height: var(--editor-typewriter-tail-space, 50vh);
+  pointer-events: none;
+}
+/* WebKit may retain the old native contenteditable caret after script-driven
+   overflow scrolling. Hide it for that paint only; the hook removes this
+   attribute on the next animation frame, forcing a clean caret redraw. */
+.ProseMirror[data-typewriter-caret-repaint='on'] {
+  caret-color: transparent;
+}
+.editor-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.editor-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.editor-scroll::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: hsl(var(--rule));
+}
+.editor-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--ink-4));
+}
+/* `.editor__spread` centres the page inside the full-width `.editor-scroll`. */
+.editor__spread {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 24px;
+  padding: 16px 0 96px;
+  margin: 0 auto;
+  position: relative;
+}
+.editor__spread .page {
+  margin: 0;
+  flex: 0 1 var(--editor-max-width, 720px);
+  min-width: 0;
+  max-width: var(--editor-max-width, 720px);
+}
+
+/* Temporary visual experiment: treat the editor as one continuous page-white
+   plane instead of a raised sheet on a gray surround. Scoped to editor shells
+   so Dashboard, Super Views, sidebars, Timeline and the footer stay unchanged. */
+.editor-shell,
+.editor-shell .editor-body,
+.editor-shell .editor-scroll {
+  background: hsl(var(--page));
+}
+
+.editor-shell .page {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+html.chapter-lane-pointer-dragging,
+html.chapter-lane-pointer-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.chapter-lane-pointer-ghost {
+  position: fixed !important;
+  inset: 0 auto auto 0 !important;
+  margin: 0 !important;
+  z-index: 2147483000 !important;
+  pointer-events: none !important;
+  transition: none !important;
+  will-change: transform;
+  cursor: grabbing !important;
+}

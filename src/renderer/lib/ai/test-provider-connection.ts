@@ -1,0 +1,121 @@
+/**
+ * Explicit Models & API connectivity check.
+ *
+ * This path is author-triggered and talks straight to the selected provider.
+ * It never calls a Drifting account, hosted-AI, or proxy endpoint. OpenAI uses
+ * the fixed-origin native Responses transport so its credential never enters
+ * renderer JavaScript; the other provider adapters read their key only after
+ * the author presses Test connection.
+ */
+import type { BYOKProvider } from '../byok-keychain';
+import { byokKeychain } from '../byok-keychain';
+import { readEnvApiKey } from './credentials/env';
+import { canUseByokProvider } from '../config';
+import { platform } from '../../platform';
+import { buildDirectBYOKClient } from './client/build-default-client';
+import type { LLMClient } from './client/llm-client';
+import {
+  agentProviderOption,
+  resolveAgentProviderReasoningProfile,
+} from '../agent/runtime/agent-provider-contract';
+import { AIError } from './types';
+
+export interface TestProviderConnectionOptions {
+  model?: string;
+  signal?: AbortSignal;
+}
+
+type CompletionClient = Pick<LLMClient, 'complete'>;
+
+export interface TestProviderConnectionDependencies {
+  hasKey(provider: BYOKProvider): Promise<boolean>;
+  getKey(provider: BYOKProvider): Promise<string | null>;
+  buildClient(provider: BYOKProvider, apiKey: string, model: string): CompletionClient;
+  requestOpenAI(body: string, signal: AbortSignal): Promise<Response>;
+}
+
+const DEFAULT_DEPENDENCIES: TestProviderConnectionDependencies = {
+  // The same order as the Agent: a development key first.
+  hasKey: async (provider) => Boolean(readEnvApiKey(provider)) || byokKeychain.has(provider),
+  getKey: async (provider) => readEnvApiKey(provider) ?? byokKeychain.get(provider),
+  buildClient: (provider, apiKey, model) =>
+    buildDirectBYOKClient(provider, apiKey, {
+      logTag: 'settings-provider-test',
+      model,
+    }),
+  requestOpenAI: (body, signal) => platform.openAIResponses.request(body, signal),
+};
+
+export async function testByokProviderConnection(
+  provider: BYOKProvider,
+  options: TestProviderConnectionOptions = {},
+  dependencies: TestProviderConnectionDependencies = DEFAULT_DEPENDENCIES,
+): Promise<void> {
+  if (!canUseByokProvider()) {
+    throw new AIError('network', 'The selected BYOK provider is unavailable while offline.');
+  }
+
+  const model =
+    options.model?.trim() || agentProviderOption(provider).models[0]!.value;
+  const signal = options.signal ?? new AbortController().signal;
+  if (!(await dependencies.hasKey(provider))) {
+    throw new AIError('auth', `No ${provider} key is configured.`);
+  }
+
+  if (provider === 'openai') {
+    await testOpenAIConnection(model, signal, dependencies.requestOpenAI);
+    return;
+  }
+
+  const apiKey = await dependencies.getKey(provider);
+  if (!apiKey) throw new AIError('auth', `No ${provider} key is configured.`);
+  const client = dependencies.buildClient(provider, apiKey, model);
+  const response = await client.complete({
+    model,
+    messages: [{ role: 'user', content: 'Return exactly OK.' }],
+    // Current Anthropic models think by default and reject sampling parameters.
+    ...(provider === 'anthropic' ? { maxOutputTokens: 1_024 } : { maxOutputTokens: 32, temperature: 0 }),
+    signal,
+    metadata: { feature: 'settings-provider-test' },
+  });
+  if (!response.text?.trim()) {
+    throw new AIError('parse', `${provider} returned an empty connectivity-check response.`);
+  }
+}
+
+async function testOpenAIConnection(
+  model: string,
+  signal: AbortSignal,
+  request: TestProviderConnectionDependencies['requestOpenAI'],
+): Promise<void> {
+  // Models that cannot turn reasoning off spend part of the output on it.
+  const reasoning = resolveAgentProviderReasoningProfile('openai', model);
+  const reasoningOff = reasoning.thinkingModes.includes('off');
+  const response = await request(
+    JSON.stringify({
+      model,
+      instructions: 'Return exactly OK.',
+      input: 'Drifting native connectivity check.',
+      max_output_tokens: reasoningOff ? 32 : 1_024,
+      stream: true,
+      store: false,
+      reasoning: { effort: reasoningOff ? 'none' : reasoning.efforts[0] ?? 'low' },
+    }),
+    signal,
+  );
+  if (!response.ok) {
+    const message =
+      response.headers.get('x-drifting-openai-error-message') ??
+      `OpenAI connectivity check failed (HTTP ${response.status}).`;
+    if (response.status === 401 || response.status === 403) {
+      throw new AIError('auth', message);
+    }
+    if (response.status === 429) throw new AIError('rate-limit', message);
+    throw new AIError('network', message);
+  }
+
+  const stream = await response.text();
+  if (!/"type"\s*:\s*"response\.completed"/.test(stream)) {
+    throw new AIError('parse', 'OpenAI connectivity check ended without response.completed.');
+  }
+}

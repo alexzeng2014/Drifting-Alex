@@ -1,0 +1,1396 @@
+/*
+ * Agent panel composer — the textarea + control bar read as one input box:
+ * a single bordered, sharp container
+ * with a hairline divider between the text and the footer controls. The footer
+ * collapses model / thinking / effort into one config button that opens an
+ * upward menu where each item is adjusted in place. Mirrors the app's control
+ * vocabulary from settings.css (surface fills, rule borders, mono micro-labels,
+ * accent for the active/on state).
+ */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+/* ---- unified composer box ------------------------------------------------ */
+
+.agt-composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: 2px;
+  background: hsl(var(--surface));
+  transition: border-color 0.15s;
+  /* NOTE: no `overflow: hidden` — it would clip the upward config menu. */
+}
+.agt-composer:focus-within {
+  border-color: hsl(var(--accent) / 0.55);
+}
+.agt-composer__text {
+  border: 0;
+  outline: none;
+  background: transparent;
+  resize: none;
+  /* Auto-grows from one line up to max-height (JS sets the exact height from
+     scrollHeight); past the cap it scrolls internally. box-sizing:border-box so
+     the scrollHeight math includes the padding. */
+  box-sizing: border-box;
+  min-height: 39px;
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: var(--agent-font-body, var(--ui-font-body, 12.5px));
+  line-height: var(--agent-line-body, 1.5);
+  color: hsl(var(--ink-1));
+}
+.agt-composer__text::placeholder {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+/* The composer signals focus via its own :focus-within border. Suppress the
+   global form focus ring (index.css adds a 3px box-shadow to
+    textarea:focus-visible) so it doesn't draw a second rectangle inside the
+    composer. Selector is specific enough (class·class·pseudo) to win. */
+.agt-composer .agt-composer__text:focus,
+.agt-composer .agt-composer__text:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+/* The hairline that separates the text from the controls. */
+.agt-composer__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid hsl(var(--rule));
+}
+.agt-composer__spacer {
+  flex: 1;
+}
+
+/* ---- config button (collapses model / thinking / effort) ----------------- */
+
+.agt-pop {
+  position: relative;
+}
+/* A plain icon button — no model/effort text, just opens the menu. */
+.agt-cfg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+}
+.agt-cfg:hover {
+  background: hsl(var(--ink-1) / 0.06);
+  color: hsl(var(--ink-1));
+}
+.agt-cfg--open {
+  background: hsl(var(--ink-1) / 0.08);
+  color: hsl(var(--ink-1));
+}
+.agt-cfg .brush-icon {
+  display: block;
+}
+
+/* ---- composer mic (voice dictation) -------------------------------------- */
+
+.agt-mic[data-state='recording'] {
+  color: hsl(4 72% 46%);
+  background: hsl(4 72% 46% / 0.1);
+  animation: agt-mic-pulse 1.6s ease-in-out infinite;
+}
+.agt-mic[data-state='error'] {
+  color: hsl(4 60% 44%);
+}
+.agt-mic:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.agt-mic__spin {
+  animation: agt-mic-spin 0.9s linear infinite;
+}
+/* Spelled-out capture state beside the mic; shrinks before the send button. */
+.agt-mic__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-size: var(--ui-font-secondary, 11px);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+.agt-mic__status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agt-mic__status[data-state='recording'] {
+  color: hsl(4 72% 46%);
+}
+.agt-mic__status[data-state='error'] {
+  color: hsl(4 60% 44%);
+}
+.agt-mic__link {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+@keyframes agt-mic-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes agt-mic-pulse {
+  50% {
+    background: hsl(4 72% 46% / 0.22);
+  }
+}
+
+/* ---- send button --------------------------------------------------------- */
+
+.agt-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 2px;
+  background: hsl(var(--accent));
+  color: hsl(var(--paper));
+  font-size: var(--ui-font-secondary, 12px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agt-send:hover {
+  background: hsl(var(--accent) / 0.88);
+}
+.agt-send--stop {
+  background: hsl(var(--ink-3));
+}
+.agt-send--stop:hover {
+  background: hsl(var(--ink-2));
+}
+
+/* ---- upward config menu -------------------------------------------------- */
+
+.agt-menu {
+  max-height: 360px;
+  overflow-y: auto;
+  z-index: var(--z-popover);
+  background: var(--menu-surface-bg);
+  border-color: var(--menu-surface-border);
+  border-radius: var(--menu-surface-radius);
+  box-shadow: var(--menu-surface-shadow);
+  padding: 4px;
+  /* AnchoredPopover portals this surface to body, so it cannot rely on the
+     companion panel's typography context. Keep every interactive option on
+     one explicit type scale and let only section/meta labels opt out below. */
+}
+.agt-menu__sec {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9.5px);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  padding: 7px 8px 3px;
+}
+.agt-menu__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 7px 8px;
+  border-radius: var(--radius-xs);
+  font: inherit;
+  color: hsl(var(--ink-1));
+}
+.agt-menu__row--btn {
+  cursor: pointer;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+.agt-menu__row--btn:hover {
+  background: var(--menu-item-hover-bg);
+}
+.agt-menu__val {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: inherit;
+  min-width: 0;
+}
+.agt-menu__select {
+  max-width: 112px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 1px;
+  background: hsl(var(--paper-1));
+  color: hsl(var(--ink-2));
+  font: inherit;
+  padding: 3px 22px 3px 6px;
+}
+.agt-menu__select:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+.agt-menu__caret {
+  margin-inline-start: 4px;
+  color: hsl(var(--ink-4));
+}
+.agt-menu__divider {
+  height: 1px;
+  background: hsl(var(--rule));
+  margin: 4px 2px;
+}
+.agt-menu__back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 7px 8px;
+  border-radius: var(--radius-xs);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+.agt-menu__back:hover {
+  background: var(--menu-item-hover-bg);
+  color: hsl(var(--ink-1));
+}
+.agt-menu__opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 7px 8px;
+  border-radius: var(--radius-xs);
+  color: hsl(var(--ink-1));
+  cursor: pointer;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+.agt-menu__opt:hover {
+  background: var(--menu-item-hover-bg);
+}
+.agt-menu__opt--active {
+  color: hsl(var(--ink-1));
+  font-weight: 500;
+}
+.agt-menu__opt:disabled {
+  color: hsl(var(--ink-4));
+  cursor: default;
+  opacity: 0.55;
+}
+.agt-menu__opt:disabled:hover {
+  background: transparent;
+}
+.agt-menu__check {
+  flex-shrink: 0;
+}
+
+/* ---- manage-memory submenu rows ----------------------------------------- */
+.agt-menu__row--empty {
+  justify-content: center;
+}
+.agt-mem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+}
+.agt-mem:hover {
+  background: var(--menu-item-hover-bg);
+}
+.agt-mem__main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.agt-mem__kind {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9px);
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 1px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  background: hsl(var(--ink-1) / 0.07);
+}
+.agt-mem__kind--veto {
+  color: hsl(var(--accent));
+  background: hsl(var(--accent) / 0.1);
+}
+.agt-mem__kind--directive {
+  background: hsl(var(--ink-1) / 0.1);
+}
+.agt-mem__body {
+  min-width: 0;
+  font-size: var(--ui-font-secondary, 12px);
+  color: hsl(var(--ink-2));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agt-mem__acts {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.agt-mem__btn {
+  font-size: var(--ui-font-secondary, 11px);
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 1px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.agt-mem__btn:hover {
+  background: hsl(var(--ink-1) / 0.1);
+  color: hsl(var(--ink-1));
+}
+.agt-mem__btn--del:hover {
+  color: hsl(0 70% 55%);
+}
+
+/* ---- runtime permission / elicitation ----------------------------------- */
+.agt-control-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 8px 2px;
+  padding: 10px 11px;
+  border: 1px solid hsl(var(--accent) / 0.24);
+  border-radius: 2px;
+  background: hsl(var(--accent) / 0.075);
+  color: hsl(var(--ink-2));
+  font-size: var(--ui-font-secondary, 12px);
+  line-height: 1.5;
+}
+.agt-control-card strong {
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-body, 12.5px);
+}
+.agt-control-card code {
+  color: hsl(var(--accent));
+}
+.agt-control-card__description {
+  display: grid;
+  gap: 3px;
+}
+.agt-control-card__description > span {
+  color: hsl(var(--ink-1));
+  font-weight: 560;
+}
+.agt-control-card__description > small {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agt-control-card details summary {
+  cursor: pointer;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+.agt-control-card pre {
+  max-height: 160px;
+  margin: 6px 0 0;
+  padding: 7px 8px;
+  overflow: auto;
+  border-radius: 1px;
+  background: hsl(var(--paper) / 0.72);
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10.5px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agt-control-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}
+.agt-control-card__actions button {
+  border: 1px solid hsl(var(--rule));
+  border-radius: 1px;
+  padding: 4px 8px;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-2));
+  font: inherit;
+  cursor: pointer;
+}
+.agt-control-card__actions button:hover {
+  background: hsl(var(--ink-1) / 0.06);
+}
+.agt-control-card__actions .agt-control-card__allow {
+  border-color: hsl(var(--accent) / 0.35);
+  color: hsl(var(--accent));
+}
+
+/* ---- inline controls inside the menu ------------------------------------- */
+
+/* effort: a 5-dot strength meter (low→max) */
+.agt-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.agt-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid hsl(var(--rule-strong));
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.agt-dot--on {
+  background: hsl(var(--accent));
+  border-color: hsl(var(--accent));
+}
+
+/* ---- provider context usage --------------------------------------------- */
+
+.agt-context-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+  color: hsl(var(--accent));
+  cursor: pointer;
+}
+.agt-context-indicator:hover,
+.agt-context-indicator:focus-visible,
+.agt-context-indicator[aria-expanded='true'] {
+  background: hsl(var(--ink-1) / 0.06);
+}
+.agt-context-indicator:focus-visible {
+  outline: 2px solid hsl(var(--accent) / 0.55);
+  outline-offset: 1px;
+}
+.agt-context-indicator[data-pressure='medium'] {
+  color: hsl(38 82% 46%);
+}
+.agt-context-indicator[data-pressure='high'] {
+  color: hsl(var(--danger, 2 68% 52%));
+}
+.agt-context-indicator__progress,
+.agt-context-indicator svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+.agt-context-indicator svg {
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+.agt-context-indicator circle {
+  fill: none;
+  stroke-width: 2.25;
+}
+.agt-context-indicator__track {
+  stroke: hsl(var(--rule-strong));
+}
+.agt-context-indicator__value {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 180ms ease,
+    stroke 180ms ease;
+}
+
+.agt-context-modal-root .modal-root__dialog {
+  max-width: calc(100vw - 28px);
+}
+.agt-context-modal {
+  max-width: 100%;
+  max-height: min(720px, calc(100vh - 48px));
+}
+.agt-context-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+.agt-context-section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.agt-context-section__heading {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+.agt-context-allocation {
+  display: flex;
+  width: 100%;
+  height: 9px;
+  overflow: hidden;
+  border-radius: 0;
+  background: hsl(var(--ink-1) / 0.05);
+}
+.agt-context-allocation__part {
+  min-width: 0;
+  height: 100%;
+}
+.agt-context-allocation__part--input,
+.agt-context-legend-row__swatch--input {
+  background: hsl(var(--accent));
+}
+.agt-context-allocation__part--output,
+.agt-context-legend-row__swatch--output {
+  background: hsl(205 70% 54%);
+}
+.agt-context-allocation__part--safety,
+.agt-context-legend-row__swatch--safety {
+  background: hsl(38 78% 55%);
+}
+.agt-context-allocation__part--free,
+.agt-context-legend-row__swatch--free {
+  background: hsl(var(--ink-1) / 0.12);
+}
+.agt-context-allocation__legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 18px;
+}
+.agt-context-legend-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: var(--ui-font-secondary, 11.5px);
+}
+.agt-context-legend-row__swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.agt-context-legend-row__label {
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agt-context-legend-row__value,
+.agt-context-category__tokens {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10.5px);
+  color: hsl(var(--ink-2));
+  white-space: nowrap;
+}
+.agt-context-category-list {
+  overflow: hidden;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 1px;
+}
+.agt-context-category {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 10px;
+  font-size: var(--ui-font-secondary, 12px);
+}
+.agt-context-category + .agt-context-category {
+  border-top: 1px solid hsl(var(--rule));
+}
+.agt-context-category__copy {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  color: hsl(var(--ink-2));
+}
+.agt-context-category__count {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-caption, 10.5px);
+  white-space: nowrap;
+}
+.agt-context-details {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 0;
+  border-radius: 1px;
+  background: hsl(var(--ink-1) / 0.035);
+}
+.agt-context-details > div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 10px;
+}
+.agt-context-details > div + div {
+  border-top: 1px solid hsl(var(--rule));
+}
+.agt-context-details dt,
+.agt-context-details dd {
+  margin: 0;
+}
+.agt-context-details dt {
+  color: hsl(var(--ink-2));
+  font-size: var(--ui-font-secondary, 11.5px);
+  font-weight: 600;
+}
+.agt-context-details dd {
+  min-width: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 11.5px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.agt-context-details__note {
+  margin: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-caption, 10.5px);
+  line-height: 1.5;
+}
+
+@media (max-width: 520px) {
+  .agt-context-allocation__legend {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agt-context-details > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+}
+.agt-panel-toolbar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-width: 0;
+  background: var(--workspace-ui-bg);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9.5px);
+  line-height: 1;
+}
+
+.agt-panel-toolbar__right {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.agt-panel-toolbar .agt-context-indicator {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+}
+
+.agt-panel-toolbar .agt-context-indicator__progress,
+.agt-panel-toolbar .agt-context-indicator svg {
+  width: 16px;
+  height: 16px;
+}
+
+.agt-toolbar-title,
+.agt-toolbar-view-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: 500 var(--ui-font-secondary, 10px)/var(--ui-line-caption, 1) var(--font-mono);
+  letter-spacing: 0.04em;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agt-toolbar-title {
+  cursor: pointer;
+}
+
+.agt-toolbar-title:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.agt-toolbar-title-input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 2px 4px;
+  border: 1px solid hsl(var(--ink-2) / 0.35);
+  border-radius: var(--radius-xs);
+  outline: 0;
+  background: hsl(var(--paper));
+  color: hsl(var(--ink-1));
+  font: 500 var(--ui-font-secondary, 10px)/var(--ui-line-caption, 1) var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.agt-toolbar-title-input:focus {
+  border-color: hsl(var(--ink-2) / 0.65);
+}
+
+.agt-toolbar-action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: var(--ui-font-secondary, 9.5px)/var(--ui-line-caption, 1) var(--font-mono);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.agt-toolbar-action:hover,
+.agt-toolbar-action:focus-visible,
+.agt-toolbar-action[aria-expanded='true'] {
+  color: hsl(var(--ink-1));
+}
+
+.agt-toolbar-action:focus-visible {
+  outline: 1px solid hsl(var(--ink-2) / 0.45);
+  outline-offset: 1px;
+}
+
+.agt-panel-empty {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: var(--ui-font-secondary, 11.5px)/var(--ui-line-caption, 1.5) var(--font-sans);
+}
+
+/* First run (AgentOnboarding): the empty conversation holds the provider rows,
+   then three requests. Rows are sidebar cells — a sand seal, a name, the
+   source in index type, the drifting ring under the pointer — and a row opens
+   in place under its name. */
+.agt-onboard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -4px;
+}
+
+.agt-onboard__sec {
+  padding: 12px 8px 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: var(--agent-font-caption, 10.5px)/1 var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.agt-onboard__sec:first-child {
+  padding-top: 2px;
+}
+
+.agt-onboard__cell,
+.agt-onboard__connected {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: var(--radius-xs, 2px);
+  color: hsl(var(--ink-1));
+  font: var(--agent-font-body, 12px)/1.45 var(--font-sans);
+  text-align: left;
+}
+
+.agt-onboard__cell {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Opening a row is not choosing it: its ring leaves with the pointer. */
+.agt-onboard__cell.glass[aria-expanded='true']:not(:hover, :focus-visible)::before {
+  opacity: 0;
+}
+
+.agt-onboard__name {
+  font-weight: 500;
+}
+
+.agt-onboard__src {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--agent-font-caption, 10.5px)/1.3 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agt-onboard__connected {
+  color: hsl(var(--ink-2));
+}
+
+.agt-onboard__prompt {
+  min-width: 0;
+}
+
+/* Under the name: the seal's 14px and the 9px gap. */
+.agt-onboard__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 8px 10px 31px;
+}
+
+.agt-onboard__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.agt-onboard__key {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.agt-onboard__code {
+  color: hsl(var(--ink-1));
+  font: 500 17px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+}
+
+.agt-onboard__failure {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--destructive));
+  font: var(--agent-font-secondary, 11.5px)/1.4 var(--font-sans);
+}
+
+/* The first change waits for the author: the accent's drifting glass until
+   one link is opened (DesktopAgentTranscript). */
+.agt-entity-chip--waiting {
+  --glass-cc: hsl(var(--accent));
+}
+
+.agt-wm {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.agt-wm:not(.agt-wm--glass) button {
+  border: 1px solid hsl(var(--rule));
+  border-radius: 2px;
+  background: hsl(var(--paper));
+  color: inherit;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: var(--ui-font-secondary, 11.5px);
+  cursor: pointer;
+}
+
+.agt-wm:not(.agt-wm--glass) button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.agt-wm__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--ui-font-caption, 10.5px);
+  opacity: 0.58;
+}
+
+.agt-wm__editor {
+  flex: 1;
+  min-height: 180px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid hsl(var(--rule));
+  background: hsl(var(--paper));
+  color: inherit;
+  font-size: var(--ui-font-secondary, 12px);
+  line-height: 1.6;
+}
+
+.agt-wm__editor {
+  resize: none;
+  outline: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.agt-wm__editor:focus {
+  border-color: hsl(var(--accent) / 0.7);
+}
+
+.agt-wm__state {
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  text-align: center;
+  font-size: var(--ui-font-secondary, 12px);
+  opacity: 0.72;
+}
+
+.agt-wm__footer {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--ui-font-secondary, 11px);
+}
+
+.agt-wm__footer > span {
+  color: hsl(var(--ink-2));
+}
+
+/* ---- sand and glass (the desktop panel) ---------------------------------
+ * The desktop composer, transcript, working memory, history and config menu
+ * wear the design system's materials (docs/design-system/components.md); the
+ * paused mobile shell keeps the fallback look above. Small glass reads the
+ * dense texture patch through glass--small (materials.css). */
+
+/* The composer: a rounded slip of paper with the resting glass line (glass
+   glass--rest glass--field). No line between the text and its controls;
+   space groups them. */
+.agt-composer.agt-composer--glass {
+  border: 0;
+  border-radius: 16px;
+  background: hsl(var(--page));
+}
+.agt-composer.agt-composer--glass.glass { --glass-gx: -168px; --glass-gy: -18px; }
+.agt-composer--glass .agt-composer__text { padding: 11px 15px 4px; }
+.agt-composer--glass .agt-composer__bar {
+  gap: 4px;
+  padding: 4px 7px 7px;
+  border-top: 0;
+}
+
+/* Its menus: round glass buttons in one glass pill, like the manuscript's
+   toolbar (.editor-bar): the same round size, the same even padding. */
+.agt-composer__tray {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--glass-tray-padding);
+  border-radius: calc(var(--glass-round-size) / 2 + var(--glass-tray-padding));
+  background: var(--glass-fill);
+  --glass-rim: 12px;
+}
+.agt-composer__tray .agt-cfg {
+  width: var(--glass-round-size);
+  height: var(--glass-round-size);
+  border-radius: 50%;
+}
+.agt-composer__tray .agt-cfg:hover,
+.agt-composer__tray .agt-cfg--open {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+/* Recording is the mic's selected glass (aria-pressed) and its red stop
+   seal, not a pulsing red wash. */
+.agt-composer__tray .agt-mic[data-state='recording'] {
+  background: transparent;
+  animation: none;
+}
+
+/* Stop, steer and send: single round glass buttons of the shared size. Stop
+   is the resting line of a secondary button; steer and send are the accent's
+   primary glass. */
+.agt-round {
+  display: grid;
+  place-items: center;
+  width: var(--glass-round-size);
+  height: var(--glass-round-size);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  cursor: pointer;
+}
+.agt-round:hover:not(:disabled) { color: hsl(var(--ink-1)); }
+/* Every round glass icon here is the shared icon size (materials.css). */
+:is(.agt-composer__tray .agt-cfg, .agt-round) > .brush-icon {
+  width: var(--glass-round-icon);
+  height: var(--glass-round-icon);
+}
+.agt-round:disabled { cursor: default; }
+
+/* A text button made of glass (a card's actions, the setup hint). */
+.agt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: inherit;
+  font-size: var(--ui-font-secondary, 12px);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.agt-btn.glass--rest:hover { color: hsl(var(--ink-1)); }
+
+/* The primary glass keeps the accent's ink over these buttons' own ink. */
+:is(.agt-btn, .agt-round).glass--primary,
+:is(.agt-btn, .agt-round).glass--primary:hover:not(:disabled) { color: hsl(var(--accent)); }
+:is(.agt-btn, .agt-round).glass--primary:disabled { color: var(--ui-text-muted, hsl(var(--ink-4))); }
+
+/* The transcript. Steps, task lists and the author's sent words carry the
+   resting glass line; what is only read keeps it under the pointer. */
+.agt-log--glass > .glass:nth-of-type(2n + 1) { --glass-gx: var(--glass-dense-gx); --glass-gy: var(--glass-dense-gy); }
+.agt-log--glass > .glass:nth-of-type(2n) { --glass-gx: -168px; --glass-gy: -18px; }
+
+.agt-user-bubble {
+  max-width: 100%;
+  padding: 8px 13px;
+  border-radius: 16px;
+  background: hsl(var(--page));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agt-user-bubble.glass { --glass-gx: -168px; --glass-gy: -18px; }
+
+.agt-tool {
+  border-radius: 2px;
+  font-size: var(--agent-font-secondary, 12px);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+.agt-tool code { color: hsl(var(--ink-2)); }
+
+.agt-todos {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 2px;
+  font-size: var(--agent-font-secondary, 12px);
+}
+
+/* An error is said in the danger ink with its brush icon, no red slab. */
+.agt-error {
+  color: hsl(var(--destructive));
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* A card that waits on the author (leave to act, a question, a stopped task
+   to continue): no fill, the accent's glass drifting on its own until the
+   author decides (glass--waiting); its primary action drifts with it. */
+.agt-control-card.agt-control-card--glass {
+  --glass-cc: hsl(var(--accent));
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+.agt-control-card.agt-control-card--glass.glass { --glass-gx: -58px; --glass-gy: -186px; }
+.agt-control-card__actions .agt-btn,
+.agt-control-card__actions .agt-btn:hover {
+  border: 0;
+  padding: 0 12px;
+  background: transparent;
+}
+
+/* Working memory: Project Memory's language. The document is one read-only
+   card (the resting glass line, still under the pointer), its size against
+   the tidy-up thresholds a dry sand reading, its actions text buttons with
+   brush icons; editing writes on the composer's rounded slip with one
+   primary button. */
+.agt-wm.agt-wm--glass {
+  gap: 12px;
+  padding: 14px 12px;
+}
+.agt-wm__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agt-wm__title {
+  color: hsl(var(--ink-1));
+  font: 500 var(--ui-font-secondary, 12px)/1.3 var(--font-mono);
+}
+.agt-wm__desc {
+  margin: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 12px);
+  line-height: 1.55;
+}
+.agt-wm__reading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.agt-wm--glass .agt-wm__meta {
+  opacity: 1;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+}
+.agt-wm__card {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 2px;
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-secondary, 12.5px);
+  line-height: 1.65;
+}
+.agt-wm__slip {
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+  border-radius: 16px;
+  background: hsl(var(--page));
+}
+.agt-wm__card.glass,
+.agt-wm__slip.glass { --glass-gx: -168px; --glass-gy: -18px; }
+.agt-wm--glass .agt-wm__editor {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 15px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-1));
+  font: var(--ui-font-secondary, 12px)/1.6 var(--font-mono);
+}
+.agt-wm--glass .agt-wm__footer {
+  justify-content: flex-start;
+  gap: 14px;
+}
+.agt-wm--glass [role='status'] {
+  flex: 1;
+  min-width: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-caption, 11px);
+}
+.agt-wm__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: inherit;
+  font-size: var(--ui-font-secondary, 12px);
+  cursor: pointer;
+  transition: color 0.12s ease-out;
+}
+.agt-wm__text:hover:not(:disabled) { color: hsl(var(--ink-1)); }
+.agt-wm__text--danger,
+.agt-wm__text--danger:hover:not(:disabled) { color: hsl(var(--destructive)); }
+.agt-wm__text:disabled {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: default;
+}
+.agt-wm__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 12px;
+  text-align: center;
+}
+.agt-wm__empty [role='status'] { flex: none; }
+
+/* History and the config menu: the shared menu surface's rows (no fill; the
+   row under the pointer flows out in glass). The current conversation or
+   model is medium weight with a still ring, groups are separated by space,
+   and a row's own actions are flat brush icons that show under the pointer.
+   A running conversation keeps its accent dot. */
+.agt-history__row {
+  gap: 8px;
+  padding-right: 10px;
+}
+.agt-history__load {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agt-history__load:focus-visible { outline: none; }
+html[data-shell-mode] .agt-history__row:has(:focus-visible)::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+.agt-history__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agt-history__time {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: 400 var(--ui-font-caption, 10.5px)/1 var(--font-mono);
+}
+.agt-history__act,
+.agt-mem.agt-mem--glass .agt-mem__btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  cursor: pointer;
+  transition: color 0.12s ease-out;
+}
+.agt-history__act:hover,
+.agt-mem.agt-mem--glass .agt-mem__btn:hover {
+  background: transparent;
+  color: hsl(var(--ink-1));
+}
+.agt-mem.agt-mem--glass .agt-mem__btn--del:hover { color: hsl(var(--destructive)); }
+.agt-history__act,
+.agt-mem--glass .agt-mem__acts {
+  opacity: 0;
+  transition: opacity 0.12s ease-out, color 0.12s ease-out;
+}
+:is(.agt-history__row, .agt-mem--glass):is(:hover, :focus-within) :is(.agt-history__act, .agt-mem__acts),
+.agt-mem--pending .agt-mem__acts {
+  opacity: 1;
+}
+.agt-history__rename { padding: 3px 4px; }
+.agt-history__empty {
+  padding: 12px 14px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-body, 12px);
+}
+
+.agt-menu__item {
+  justify-content: space-between;
+  gap: 10px;
+}
+.agt-menu__item.agt-menu__item--back {
+  justify-content: flex-start;
+  gap: 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+/* The glass config menu stands its rows in from the edge like every menu:
+   the shared rows 6px in, a settings row's words 16px in, as far as the icons. */
+.agt-menu.agt-menu--glass {
+  padding: 6px 0;
+}
+.agt-menu--glass .agt-menu__row {
+  padding: 6px 16px;
+  border-radius: 0;
+}
+/* The effort: a dropdown field of glass round a native select, whose list is
+   the system's and so never closes this menu as a click outside it. */
+.agt-menu__effort.ui-select {
+  flex: none;
+  width: 88px;
+  min-height: 26px;
+  font-size: var(--ui-font-secondary, 12px);
+}
+.agt-menu__effort-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0 26px 0 10px;
+  border: 0;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.agt-menu__effort > .brush-icon {
+  margin-left: auto;
+  color: hsl(var(--ink-3));
+  pointer-events: none;
+}
+.agt-menu__effort:has(select:disabled) {
+  --glass-g: 0.5;
+  background: color-mix(in srgb, hsl(var(--page)) 45%, transparent);
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+.agt-menu__effort-select:disabled { cursor: default; }
+.agt-mem.agt-mem--glass {
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 0;
+  cursor: default;
+}
+.agt-mem.agt-mem--glass:hover { background: transparent; }
+.agt-mem--glass .agt-mem__acts { gap: 6px; }
+/* Not yet in force: said in small mono type before the entry, no chip. */
+.agt-mem__pending {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 10.5px)/1 var(--font-mono);
+}

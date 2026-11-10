@@ -1,0 +1,236 @@
+{
+  "suite": "milestone-e-durable-long-task-execution",
+  "schemaVersion": 1,
+  "nodeVersion": "v22.23.1",
+  "platform": "darwin",
+  "gitHead": "aafecab3abc717df8eecf31cca3daaf7562a5e4d",
+  "sourceSetSha256": "sha256:9430e08010c5308e9b3a289fb7d55228728787be62fa50171a8a47a2da625169",
+  "execution": {
+    "defaultTaskBudgets": "unlimited",
+    "safeStop": "after-current-tool",
+    "steering": "next-model-iteration-exactly-once",
+    "continuationAuthorization": "renderer-lifetime-author-action",
+    "restart": "durable-plan-manual-reauthorization",
+    "stagnantAutomaticSliceWatchdog": 2
+  },
+  "storageReplay": {
+    "sqlite": "real file-backed product SQLite from the current baseline, with CAS command receipts, injected receipt rollback, manifest reconciliation, close and reopen",
+    "prose": "product composition exercises live Yjs prose coordination while long-task state stays pinned in the same runtime context planner",
+    "transcript": "canonical journal recovery preserves model continuation history without manufacturing author messages",
+    "networkRequired": false
+  },
+  "vitest": {
+    "files": {
+      "required": 18,
+      "discovered": 18
+    },
+    "tests": {
+      "total": 260,
+      "passed": 260,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    },
+    "groups": {
+      "durablePlanAndManifest": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 28,
+          "passed": 28,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "continuationAndAuthorControl": {
+        "requiredFiles": 6,
+        "discoveredFiles": 6,
+        "tests": {
+          "total": 82,
+          "passed": 82,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "turnLifecycleResilience": {
+        "requiredFiles": 5,
+        "discoveredFiles": 5,
+        "tests": {
+          "total": 76,
+          "passed": 76,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "restartAndInvisibleContinuation": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 17,
+          "passed": 17,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "productYjsContextAndTruth": {
+        "requiredFiles": 3,
+        "discoveredFiles": 3,
+        "tests": {
+          "total": 57,
+          "passed": 57,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      }
+    },
+    "requiredAssertions": {
+      "manifestCompletionGate": {
+        "requiredName": "revalidates exact frozen-manifest coverage before whole-book completion",
+        "matches": 1,
+        "passed": true
+      },
+      "manifestReconcileRestart": {
+        "requiredName": "reconciles added, removed, renamed, reordered, and restored chapters atomically across restart",
+        "matches": 1,
+        "passed": true
+      },
+      "productPlanPinned": {
+        "requiredName": "persists a whole-book plan, resolves named targets, and pins it into the next turn",
+        "matches": 1,
+        "passed": true
+      },
+      "mixedReceiptProgress": {
+        "requiredName": "schedules runnable work and pauses when only unsettled steps remain",
+        "matches": 1,
+        "passed": true
+      },
+      "metadataCannotDefeatWatchdog": {
+        "requiredName": "does not mistake a metadata-only revision bump for task progress",
+        "matches": 1,
+        "passed": true
+      },
+      "manifestAutoContinuation": {
+        "requiredName": "schedules explicit manifest reconciliation and treats retired audit steps as terminal",
+        "matches": 1,
+        "passed": true
+      },
+      "unlimitedDefaultWork": {
+        "requiredName": "fails closed on terminal failure and unavailable plans without imposing work quotas",
+        "matches": 1,
+        "passed": true
+      },
+      "safeStop": {
+        "requiredName": "stops scheduling later writes immediately after the current tool settles",
+        "matches": 1,
+        "passed": true
+      },
+      "exactSteering": {
+        "requiredName": "applies author steering exactly once at the next model boundary",
+        "matches": 1,
+        "passed": true
+      },
+      "iterationBoundaryWithoutToolOutage": {
+        "requiredName": "checkpoints at the iteration limit without disabling tools or asking the model for a failure explanation",
+        "matches": 1,
+        "passed": true
+      },
+      "authoritativeContinuationStatus": {
+        "requiredName": "shows saved progress only while the scheduler is preparing or continuing that boundary",
+        "matches": 1,
+        "passed": true
+      },
+      "committedWritesAreProgress": {
+        "requiredName": "counts committed project writes as progress when the checklist is not ticked",
+        "matches": 1,
+        "passed": true
+      },
+      "committedWriteEvidence": {
+        "requiredName": "counts committed project writes for the continuation watchdog and restates an in-progress item",
+        "matches": 1,
+        "passed": true
+      },
+      "workspaceCrashKeepsTools": {
+        "requiredName": "catches workspace render failures below the project runtime that owns the Agent tools",
+        "matches": 1,
+        "passed": true
+      },
+      "unmountedToolsNamed": {
+        "requiredName": "names the cause when the workspace unmounts under a running turn",
+        "matches": 1,
+        "passed": true
+      },
+      "releasedTurnRebuilt": {
+        "requiredName": "rebuilds a started turn the transport already released instead of keeping a stuck timer",
+        "matches": 1,
+        "passed": true
+      },
+      "startingTurnKept": {
+        "requiredName": "keeps a turn that has not reached the transport yet when Stop finds nothing to stop",
+        "matches": 1,
+        "passed": true
+      },
+      "terminalEffectsIsolated": {
+        "requiredName": "owns journal routing, accepted effects, retries and disposal across 100 lifetimes",
+        "matches": 1,
+        "passed": true
+      },
+      "rejectedRequestLocated": {
+        "requiredName": "locates a rejected request by the native identifier projection",
+        "matches": 1,
+        "passed": true
+      },
+      "manualResumeAfterTerminal": {
+        "requiredName": "offers manual continuation after any terminal turn with an authoritative same-session open plan",
+        "matches": 1,
+        "passed": true
+      },
+      "invisibleContinuation": {
+        "requiredName": "keeps runtime continuation prompts in model history but out of the visible transcript",
+        "matches": 1,
+        "passed": true
+      },
+      "productMigrationReopen": {
+        "requiredName": "creates the exact current baseline and reopens idempotently",
+        "matches": 1,
+        "passed": true
+      },
+      "executableCapabilityTruth": {
+        "requiredName": "keeps the long-task execution contract tied to executable runtime defaults",
+        "matches": 1,
+        "passed": true
+      }
+    },
+    "process": {
+      "exitCode": 0,
+      "signal": null
+    },
+    "passed": true
+  },
+  "typecheck": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "lint": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "capabilities": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "boundaries": {
+    "literaryContextQuality": "long-task continuity is closed; literary compaction and retrieval quality remain milestone F",
+    "checkpointRewind": "durable task history is session-local runtime recovery; Agent checkpoint/fork is intentionally removed and entity snapshot history owns manuscript recovery",
+    "nativeDevices": "renderer and file-process restart are covered headlessly; desktop/iOS/Android lifecycle remains milestone J",
+    "providerNetwork": "provider-independent scheduling semantics are covered; live provider conformance remains milestone I"
+  },
+  "passed": true
+}

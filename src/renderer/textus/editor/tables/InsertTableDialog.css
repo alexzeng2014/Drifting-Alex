@@ -1,0 +1,55 @@
+/* The dialog box is the app's (.close-prompt); only its layer and size are
+   its own. */
+.insert-table-overlay {
+  z-index: var(--z-modal);
+}
+
+.insert-table-dialog {
+  box-sizing: border-box;
+  min-width: 260px;
+  max-width: calc(100vw - 32px);
+}
+
+.insert-table-title {
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+.insert-table-fields {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.insert-table-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-footnote);
+  color: var(--ui-muted);
+}
+
+.insert-table-fields input {
+  width: 70px;
+  padding: 4px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--shape-pill);
+  corner-shape: round;
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+}
+
+.insert-table-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.insert-table-spacer {
+  flex: 1;
+}
+
+.insert-table-buttons button {
+  color: var(--ui-text);
+}

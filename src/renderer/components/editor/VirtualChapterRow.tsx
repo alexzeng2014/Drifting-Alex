@@ -1,0 +1,454 @@
+import { useEffect, useMemo, useRef, useState, useCallback, memo, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import loglevel from 'loglevel';
+
+import { canonicalWordCount, type BookNode } from '../../domain/book-node';
+import type { NodeContent } from '../../domain/node-content';
+import { entityLinkConfig } from '../../lib/extensions/entity-link';
+import type {
+  EntityKind,
+  EntityLinkRef,
+  EntityLinkTargetColorResolver,
+} from '../../lib/extensions/entity-link';
+import type { OutlineItem } from '../../lib/outline';
+import { editorTabSelectionKey } from '../../lib/editor-selection-memory';
+import { isMobileAllChaptersTap } from '../../shells/mobile/workspace/mobile-all-chapters';
+import { ChapterEditor } from './ChapterEditor';
+import { chapterJsonToHtml } from './chapter-static-html';
+import { EditorDocumentLoadError } from './EditorDocumentLoadError';
+import { ChapterEndOrnament } from './ChapterEndOrnament';
+import { KindMark } from '../ui/KindMark';
+
+const log = loglevel.getLogger('VirtualChapterRow');
+log.setLevel(loglevel.levels.WARN);
+
+// Chrome (folio + chapter-mark + title + summary + rule + ornament) around the
+// prose body — used to size the body spacer shown before content has loaded.
+const CHROME_HEIGHT = 220;
+
+// Rough characters → estimated body height, used ONLY as the
+// `contain-intrinsic-size` seed (so content-visibility has a sane offscreen
+// guess) and the pre-load body spacer. Once a row's real prose renders, the
+// browser remembers its true height and the estimate stops mattering.
+function estimateChapterHeight(wordCount: number): number {
+  const lines = Math.max(6, Math.ceil(wordCount / 22));
+  const body = lines * 32;
+  return body + CHROME_HEIGHT;
+}
+
+interface VirtualChapterRowProps {
+  node: BookNode;
+  projectId: string;
+  index: number;
+
+  // Returns persisted content for this chapter, or null if none yet. Rows load
+  // within a screen of the enclosing `.editor-scroll`; until then their
+  // measured body reserve keeps the read-through geometry stable.
+  fetchContent: (nodeId: string) => Promise<NodeContent | null>;
+  // Lets the desktop surface stage wait for canonical prose instead of
+  // revealing a row-height placeholder on first activation.
+  onContentReady?: (nodeId: string) => void;
+  // TOC navigation explicitly loads and lays out its destination even when it
+  // is far outside the IntersectionObserver margin.
+  isNavigationTarget?: boolean;
+
+  // True for the one chapter the user is actively editing. Only that row mounts
+  // the heavy ChapterEditor (TipTap + per-chapter Yjs sync); everyone
+  // else renders cheap static prose.
+  isFocused: boolean;
+  // Click on a static row → ask the parent to make this the focused editor,
+  // carrying the click coords so the caret can land where the user clicked.
+  onActivate: (nodeId: string, coords: { clientX: number; clientY: number }) => void;
+  // Click coords for caret placement, set by the parent for the focused row.
+  activateCaret?: { clientX: number; clientY: number } | null;
+
+  onContentUpdate: (nodeId: string, pmJson: string, outlineJson: string, wordCount: number) => void;
+  onTitleUpdate?: (nodeId: string, title: string) => void;
+  onSummaryUpdate?: (nodeId: string, summary: string) => void;
+  onEntityClick?: (ref: EntityLinkRef) => void;
+  // Published whenever the focused chapter's heading outline changes, so the
+  // all-chapters view can show its TOC. Static rows publish nothing — their TOC
+  // comes from the parent's prefetched outlines.
+  onOutlineChange?: (nodeId: string, outline: OutlineItem[]) => void;
+  // What ends the page: the host's ⁂ chapter-end menu, or (omitted, e.g. on
+  // the touch shell) the decorative ⁂.
+  renderEnd?: (node: BookNode) => ReactNode;
+
+  // Color / name of the chapter's main storyline (for the page chapter mark).
+  storylineColor?: string;
+  storylineName?: string;
+  // Static rows do not mount an EditorView, so the serializer receives the
+  // same store/settings-backed color resolver as live editors explicitly.
+  resolveEntityLinkColor: EntityLinkTargetColorResolver;
+}
+
+// One chapter slot in the all-chapters editor. Renders the chapter's real prose
+// statically by default and only upgrades to a live ChapterEditor when focused.
+//
+// Why not virtualize with estimated placeholders: a wordCount-based height
+// estimate never matches the real rendered height, so fast-scrolling onto a
+// not-yet-measured row snapped the viewport (the old "jump to the bottom"). By
+// always rendering the real prose — the same HTML the editor produces, in the
+// same `.page__body .ProseMirror` container, so heights are identical — there's
+// no estimate to be wrong about. `content-visibility:auto` keeps the offscreen
+// rows cheap to paint, so even a 100+ chapter book stays responsive, and only
+// the focused chapter pays for a full editor instance.
+function VirtualChapterRowImpl({
+  node,
+  projectId,
+  index,
+  fetchContent,
+  onContentReady,
+  isNavigationTarget = false,
+  isFocused,
+  onActivate,
+  activateCaret,
+  onContentUpdate,
+  onTitleUpdate,
+  onSummaryUpdate,
+  onEntityClick,
+  onOutlineChange,
+  renderEnd,
+  storylineColor,
+  storylineName,
+  resolveEntityLinkColor,
+}: VirtualChapterRowProps) {
+  const { t, i18n } = useTranslation();
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [content, setContent] = useState<NodeContent | null | undefined>(undefined);
+  const [contentLoadError, setContentLoadError] = useState(false);
+  // Sticky: the row has come near the reader once, so its prose is loaded.
+  const [nearViewport, setNearViewport] = useState(false);
+  // Live: the row is within a screen of the reader now, so it keeps real layout.
+  const [nearReader, setNearReader] = useState(false);
+  const [liveReady, setLiveReady] = useState(false);
+
+  const intrinsicHeight = estimateChapterHeight(node.wordCount || 0);
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row || isFocused) {
+      const frame = requestAnimationFrame(() => setNearViewport(true));
+      return () => cancelAnimationFrame(frame);
+    }
+    if (typeof IntersectionObserver === 'undefined') {
+      const frame = requestAnimationFrame(() => setNearViewport(true));
+      return () => cancelAnimationFrame(frame);
+    }
+    // rootMargin only widens the root, never the clip of the scroller in
+    // between. Against the window viewport a row above would load only once it
+    // scrolled into view; the browser's scroll anchor then sits in that row and
+    // vanishes with the body spacer, so the prose arriving above the reader
+    // jumped the page while scrolling up. Rooting at the scroller loads and lays
+    // out rows a screen ahead, where scroll anchoring absorbs their real height.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const near = entries[entries.length - 1]?.isIntersecting ?? false;
+        setNearReader(near);
+        if (near) setNearViewport(true);
+      },
+      { root: row.closest('.editor-scroll'), rootMargin: '120% 0px' },
+    );
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [isFocused]);
+
+  // Load (and, on un-focus, refresh) this row's content. While focused the live
+  // editor owns the document, so we don't touch it; when focus leaves we re-read
+  // the cache so the static prose reflects edits made while it was the editor.
+  useEffect(() => {
+    if ((!nearViewport && !isNavigationTarget) || (isFocused && content !== undefined)) return;
+    let cancelled = false;
+    void fetchContent(node.id)
+      .then((c) => {
+        if (!cancelled) {
+          setContentLoadError(false);
+          setContent(c);
+          onContentReady?.(node.id);
+        }
+      })
+      .catch((error) => {
+        log.error(`[VirtualChapterRow] fetch content failed for ${node.id}`, error);
+        if (!cancelled) {
+          setContentLoadError(true);
+          setContent((prev) => (prev === undefined ? null : prev));
+          onContentReady?.(node.id);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [content, isFocused, fetchContent, nearViewport, isNavigationTarget, node.id, onContentReady]);
+
+  const staticHtml = useMemo(
+    () =>
+      content == null
+        ? ''
+        : chapterJsonToHtml(content.contentJson, resolveEntityLinkColor),
+    [content, resolveEntityLinkColor],
+  );
+
+  const handleContentUpdate = useCallback(
+    (nodeId: string, pmJson: string, outlineJson: string, wordCount: number) => {
+      // Keep our static-prose source in step with the live editor. The editor
+      // flushes this synchronously on blur, so by the time the row reverts to
+      // static (on un-focus) the prose already reflects the latest edits —
+      // without waiting on the async persist + cache round-trip.
+      setContent((prev) => (prev ? { ...prev, contentJson: pmJson, outlineJson } : prev));
+      onContentUpdate(nodeId, pmJson, outlineJson, wordCount);
+    },
+    [onContentUpdate],
+  );
+
+  const handleOutlineChange = useCallback(
+    (outline: OutlineItem[]) => {
+      onOutlineChange?.(node.id, outline);
+    },
+    [onOutlineChange, node.id],
+  );
+
+  const wordCount = canonicalWordCount(node);
+  const wordsLabel =
+    wordCount == null
+      ? t('common.counting')
+      : t('common.wordsCount', { count: wordCount.toLocaleString(i18n.language) });
+
+  return (
+    <div
+      ref={rowRef}
+      data-chapter-id={node.id}
+      data-chapter-index={index}
+      data-content-ready={content !== undefined}
+      data-navigation-target={isNavigationTarget || isFocused}
+      data-near-reader={nearReader}
+      className="all-chap-row"
+      style={{ '--all-chap-row-h': `${Math.round(intrinsicHeight)}px` } as React.CSSProperties}
+    >
+      <div className="editor__spread">
+        <article className="page">
+          <div className="page__folio" aria-hidden="true">
+            <span className="page__folio-line">
+              {t('virtualChapterRow.chapterNumber', { n: index + 1 })}
+            </span>
+            {storylineName && (
+              <span className="page__folio-line page__folio-storyline">
+                <KindMark kind="storyline" color={storylineColor} />
+                {storylineName}
+              </span>
+            )}
+            <span className="page__folio-line">{wordsLabel}</span>
+          </div>
+
+          {isFocused && content !== undefined && !contentLoadError ? (
+            <div style={{ display: 'grid' }}>
+              <div
+                aria-hidden={liveReady}
+                style={{
+                  gridArea: '1 / 1',
+                  visibility: liveReady ? 'hidden' : 'visible',
+                  pointerEvents: liveReady ? 'none' : 'auto',
+                }}
+              >
+                <StaticChapterBody
+                  title={node.title}
+                  summary={node.summary || ''}
+                  html={staticHtml}
+                  ready={content !== undefined}
+                  loadError={contentLoadError}
+                  bodyEstimate={Math.max(240, intrinsicHeight - CHROME_HEIGHT)}
+                  onActivate={(coords) => onActivate(node.id, coords)}
+                  onEntityClick={onEntityClick}
+                />
+              </div>
+              <div
+                aria-hidden={!liveReady}
+                style={{
+                  gridArea: '1 / 1',
+                  visibility: liveReady ? 'visible' : 'hidden',
+                  pointerEvents: liveReady ? 'auto' : 'none',
+                }}
+              >
+                <ChapterEditor
+                  nodeId={node.id}
+                  projectId={projectId}
+                  content={content?.contentJson ?? null}
+                  title={node.title}
+                  summary={node.summary || ''}
+                  onContentUpdate={handleContentUpdate}
+                  onTitleUpdate={onTitleUpdate}
+                  onSummaryUpdate={onSummaryUpdate}
+                  onEntityClick={onEntityClick}
+                  onOutlineChange={handleOutlineChange}
+                  showTitle={true}
+                  showSummary={true}
+                  editableTitle={true}
+                  editableSummary={true}
+                  autoFocus={false}
+                  activateCaret={activateCaret ?? null}
+                  minHeight="240px"
+                  onReadyChange={setLiveReady}
+                  selectionKey={editorTabSelectionKey(projectId, {
+                    entityType: 'node',
+                    id: node.id,
+                  })}
+                />
+              </div>
+            </div>
+          ) : (
+            <StaticChapterBody
+              title={node.title}
+              summary={node.summary || ''}
+              html={staticHtml}
+              ready={content !== undefined}
+              loadError={contentLoadError}
+              bodyEstimate={Math.max(240, intrinsicHeight - CHROME_HEIGHT)}
+              onActivate={(coords) => onActivate(node.id, coords)}
+              onEntityClick={onEntityClick}
+            />
+          )}
+
+          {renderEnd ? renderEnd(node) : <ChapterEndOrnament />}
+        </article>
+      </div>
+    </div>
+  );
+}
+
+// Read-only mirror of ChapterEditor's literary layout. Title/summary come from
+// the node (available without a content fetch), so they render immediately; the
+// prose body is the serialized contentJson, dropped into the SAME
+// `.page__body .ProseMirror` container the editor uses so its height matches the
+// live editor exactly. Mousedown anywhere promotes the row to the live editor,
+// carrying the click point so the caret lands where the user pressed.
+function StaticChapterBody({
+  title,
+  summary,
+  html,
+  ready,
+  loadError,
+  bodyEstimate,
+  onActivate,
+  onEntityClick,
+}: {
+  title: string;
+  summary: string;
+  html: string;
+  ready: boolean;
+  loadError: boolean;
+  bodyEstimate: number;
+  onActivate: (coords: { clientX: number; clientY: number }) => void;
+  onEntityClick?: (ref: EntityLinkRef) => void;
+}) {
+  const { t } = useTranslation();
+  const touchStartRef = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    time: number;
+    target: EventTarget | null;
+  } | null>(null);
+  const activateFromPointer = useCallback(
+    (event: React.PointerEvent, target: EventTarget | null = event.target) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+      // A click on an entity-link navigates to its target, mirroring the live
+      // editor's entity-link handleClick. We act on mousedown (not click)
+      // because promoting the row to a live editor swaps the static span out
+      // before a `click` could ever land on it. Falls through to normal row
+      // activation when interaction is off, the target isn't a link, or it
+      // carries no id.
+      if (entityLinkConfig.interactionEnabled) {
+        const linkEl = (target as HTMLElement | null)?.closest(
+          '.entity-link',
+        ) as HTMLElement | null;
+        const targetId = linkEl?.getAttribute('data-target-id');
+        if (linkEl && targetId) {
+          event.preventDefault();
+          const targetKind =
+            (linkEl.getAttribute('data-target-kind') as EntityKind) ?? 'element';
+          // Non-alive target (trashed/gone): swallow — don't navigate to a
+          // phantom, don't place a caret mid-word. Matches the plugin's guard.
+          if (entityLinkConfig.resolveTargetState(targetKind, targetId) === 'alive') {
+            onEntityClick?.({
+              targetKind,
+              targetId,
+              targetBlockId: linkEl.getAttribute('data-target-block-id'),
+              targetEndBlockId: linkEl.getAttribute('data-target-end-block-id'),
+            });
+          }
+          return;
+        }
+      }
+
+      onActivate({ clientX: event.clientX, clientY: event.clientY });
+    },
+    [onActivate, onEntityClick],
+  );
+
+  return (
+    <div
+      onPointerDown={(event) => {
+        if (event.pointerType === 'mouse') {
+          activateFromPointer(event);
+          return;
+        }
+        touchStartRef.current = {
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          time: event.timeStamp,
+          target: event.target,
+        };
+      }}
+      onPointerUp={(event) => {
+        const start = touchStartRef.current;
+        touchStartRef.current = null;
+        if (!start || start.pointerId !== event.pointerId) return;
+        if (
+          !isMobileAllChaptersTap({
+            startX: start.clientX,
+            startY: start.clientY,
+            startTime: start.time,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            time: event.timeStamp,
+          })
+        ) {
+          return;
+        }
+        activateFromPointer(event, start.target);
+      }}
+      onPointerCancel={() => {
+        touchStartRef.current = null;
+      }}
+      style={{ cursor: 'text' }}
+    >
+      <h1 className="page__title" style={{ margin: '0 0 10px' }}>
+        {title || t('chapterEditor.untitledChapter')}
+      </h1>
+      {summary ? (
+        <p className="page__sub" style={{ marginBottom: 28 }}>
+          {summary}
+        </p>
+      ) : null}
+      <hr className="page__rule" />
+      <div className="page__body">
+        {loadError ? (
+          <EditorDocumentLoadError />
+        ) : ready ? (
+          <div
+            className="tiptap ProseMirror prose max-w-none all-chap-static"
+            style={{ minHeight: 240 }}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        ) : (
+          // Content not loaded yet — reserve a body-sized spacer so the row
+          // doesn't pop when prose arrives.
+          <div style={{ minHeight: bodyEstimate }} aria-hidden="true" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+export const VirtualChapterRow = memo(VirtualChapterRowImpl);

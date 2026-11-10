@@ -1,0 +1,800 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type FormEvent,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { finishHostedSignIn } from '../../sync/hosted/sign-in';
+import { describeSyncConnectError } from '../../sync/hosted/connect-error-text';
+import { authClient } from '../../lib/auth-client';
+import { setSessionToken } from '../../lib/session-token';
+import { platform } from '../../platform';
+import { events } from '../../lib/events';
+import { OAUTH_PROVIDER_CONFIG, useOAuthProviders, type SupportedOAuthProvider } from '../../lib/oauth-providers';
+import { isAppClosedForPublic } from '../../utils/appAccess';
+import { APP_CONFIG } from '../../lib/config';
+import { Button } from '../../components/ui/Button';
+import { GhostIconButton } from '../../components/ui/GhostIconButton';
+import { LoadingStatus } from '../../components/ui/LoadingStatus';
+import type { AuthEntryMode } from './auth-dialog-store';
+import { authErrorMessage } from './auth-errors';
+import {
+  cancelNativeOAuth,
+  nativeOAuthErrorKey,
+  startNativeOAuth,
+  useNativeOAuthOutcome,
+  useNativeOAuthStore,
+} from './native-oauth';
+import '../../../styles/auth.css';
+import { BrushIcon } from '../../components/ui/BrushIcon';
+
+/** The sync error shown when the library already belongs to another account. */
+const ACCOUNT_MISMATCH = 'HOSTED_ACCOUNT_MISMATCH';
+
+type Step = AuthEntryMode | 'otp' | 'forgot' | 'verify' | 'syncing';
+
+// The desktop dialog is built from the shared controls (single-line fields,
+// glass buttons, text buttons); the paused mobile page keeps its own look.
+const GlassControls = createContext(false);
+
+interface AuthFlowProps {
+  initialMode?: AuthEntryMode;
+  /**
+   * Called when sign-in and the initial library connection finish, or when the
+   * author leaves a failed connection to retry later from Account settings.
+   */
+  onComplete(): void;
+  /** Leaves the flow from its entry step, e.g. back to the first-run choice. */
+  onBack?: () => void;
+  onClose?: () => void;
+  /** True while the library connection runs and the flow must stay open. */
+  onLockedChange?: (locked: boolean) => void;
+  presentation?: 'dialog' | 'page';
+}
+
+export function AuthFlow({
+  initialMode = 'signin',
+  onComplete,
+  onBack,
+  onClose,
+  onLockedChange,
+  presentation = 'dialog',
+}: AuthFlowProps) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [step, setStep] = useState<Step>(initialMode);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  // Social sign-in runs in the system browser; the service declares the providers.
+  const providers = useOAuthProviders();
+  const oauthWaiting = useNativeOAuthStore((state) => state.waiting);
+  const operation = useRef<AbortController | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  useLayoutEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+  useEffect(() => () => operation.current?.abort(), []);
+
+  const locked = step === 'syncing' && !syncError;
+  useEffect(() => {
+    onLockedChange?.(locked);
+  }, [locked, onLockedChange]);
+
+  const go = (next: Step) => {
+    setStep(next);
+    setError(null);
+  };
+
+  // The account is verified at this point; connecting the library downloads
+  // its cloud projects and uploads this library. Failures stay retryable.
+  const connect = useCallback(async () => {
+    // Signing in any other way abandons a browser sign-in still in progress.
+    cancelNativeOAuth();
+    operation.current?.abort();
+    const controller = new AbortController();
+    operation.current = controller;
+    setStep('syncing');
+    setSyncError(null);
+    try {
+      await finishHostedSignIn(controller.signal);
+      if (!controller.signal.aborted) onCompleteRef.current();
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      const described = await describeSyncConnectError(err, t);
+      if (controller.signal.aborted) return;
+      if (described) {
+        setSyncError(described);
+        return;
+      }
+      const message = err instanceof Error ? err.message : '';
+      // The library already belongs to another account (store/auth.ts):
+      // retrying cannot help, only disconnecting it from that account.
+      setSyncError(
+        message.startsWith('HOSTED_ACCOUNT_MISMATCH')
+          ? ACCOUNT_MISMATCH
+          : message || t('auth.errors.sessionFailed'),
+      );
+    }
+  }, [t]);
+
+  useNativeOAuthOutcome((outcome) => {
+    if ('token' in outcome) {
+      setSessionToken(outcome.token);
+      void connect();
+      return;
+    }
+    setStep((current) => (current === 'signup' ? 'signup' : 'signin'));
+    setError(t(nativeOAuthErrorKey(outcome.error)));
+  });
+
+  const handleOAuth = async (provider: SupportedOAuthProvider) => {
+    setError(null);
+    try {
+      await startNativeOAuth(provider);
+    } catch {
+      setError(t('auth.errors.browserFailed'));
+    }
+  };
+
+  const submitCredentials = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    if (step === 'signup' && isAppClosedForPublic) {
+      setError(t('auth.errors.signupClosed'));
+      return;
+    }
+    setBusy(true);
+    try {
+      if (step === 'signin') {
+        const result = await authClient.signIn.email({ email, password });
+        if (result.error) {
+          // requireEmailVerification rejects unverified accounts; drive them
+          // through the code step instead of just reporting a failure.
+          const { code, status } = result.error as { code?: string; status?: number };
+          if (code === 'EMAIL_NOT_VERIFIED' || status === 403) {
+            go('verify');
+            return;
+          }
+          throw new Error(result.error.message || t('auth.errors.signInFailed'));
+        }
+        void connect();
+      } else {
+        // The server creates the account without a session until the email is
+        // verified; the verify step then signs in with these credentials.
+        const result = await authClient.signUp.email({ email, password, name });
+        if (result.error) throw new Error(authErrorMessage(result.error, t, 'auth.errors.signUpFailed'));
+        go('verify');
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(step === 'signin' ? 'auth.errors.signInCheck' : 'auth.errors.signUpRetry'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const glass = presentation === 'dialog';
+  const titles: Record<Step, string> = {
+    signin: t('auth.titles.signin'),
+    signup: t('auth.titles.signup'),
+    otp: t('auth.titles.otp'),
+    forgot: t('auth.titles.forgot'),
+    verify: t('auth.titles.verify'),
+    syncing: t(
+      syncError === ACCOUNT_MISMATCH
+        ? 'auth.sync.accountMismatchTitle'
+        : syncError
+          ? 'auth.sync.failedTitle'
+          : 'auth.sync.title',
+    ),
+  };
+  const back =
+    step === 'otp' || step === 'forgot' || step === 'verify'
+      ? () => go('signin')
+      : step === 'syncing'
+        ? undefined
+        : onBack;
+
+  let body: ReactNode;
+  if (step === 'syncing') {
+    body = syncError === ACCOUNT_MISMATCH ? (
+      <div className="auth-flow__body" role="alert">
+        <p className="auth-flow__lead">{t('auth.sync.accountMismatch')}</p>
+        <div className="auth-flow__actions">
+          <FlowButton kind={glass ? 'text' : 'secondary'} onClick={() => onCompleteRef.current()}>
+            {t('auth.sync.accountMismatchOk')}
+          </FlowButton>
+          <FlowButton
+            kind="primary"
+            onClick={() => {
+              onCompleteRef.current();
+              // Inside a project the desktop shell opens Settings over it; the
+              // shelf has no shell, so it goes to the Settings page instead.
+              if (events.all.get('settings:open')?.length) {
+                events.emit('settings:open', { railId: 'account' });
+              } else {
+                navigate('/settings?section=account');
+              }
+            }}
+          >
+            {t('auth.sync.accountMismatchOpenAccount')}
+          </FlowButton>
+        </div>
+      </div>
+    ) : syncError ? (
+      <div className="auth-flow__body" role="alert">
+        <FlowError announce={false}>{syncError}</FlowError>
+        <p className="auth-flow__lead">{t('auth.sync.failedDetail')}</p>
+        <div className="auth-flow__actions">
+          <FlowButton kind={glass ? 'text' : 'secondary'} onClick={() => onCompleteRef.current()}>
+            {t('auth.sync.later')}
+          </FlowButton>
+          <FlowButton kind="primary" onClick={() => void connect()}>
+            {t('auth.sync.retry')}
+          </FlowButton>
+        </div>
+      </div>
+    ) : glass ? (
+      <div className="auth-flow__body auth-flow__progress">
+        <LoadingStatus label={t('auth.sync.detail')} />
+      </div>
+    ) : (
+      <div className="auth-flow__body auth-flow__progress" role="status" aria-live="polite">
+        <BrushIcon name="loader" size={13} className="control-spinner" />
+        <p className="auth-flow__lead">{t('auth.sync.detail')}</p>
+      </div>
+    );
+  } else if (step === 'otp') {
+    body = <OtpForm initialEmail={email} onSignedIn={connect} />;
+  } else if (step === 'forgot') {
+    body = <ForgotForm initialEmail={email} onDone={() => go('signin')} />;
+  } else if (step === 'verify') {
+    body = <VerifyForm email={email} password={password} onSignedIn={connect} />;
+  } else {
+    const signin = step === 'signin';
+    // Social sign-in also creates accounts, so it is hidden while sign-up is closed.
+    const social = isAppClosedForPublic ? [] : providers;
+    body = (
+      <form className="auth-flow__body" onSubmit={submitCredentials}>
+        {signin && <p className="auth-flow__lead">{t('settings.hosted.sign_in_sync_description')}</p>}
+        {error && <FlowError>{error}</FlowError>}
+        {social.length > 0 && (
+          <div className="auth-flow__social">
+            {social.map((provider) => {
+              const { name: providerName, Icon } = OAUTH_PROVIDER_CONFIG[provider];
+              return (
+                <FlowButton
+                  key={provider}
+                  kind="secondary"
+                  block
+                  className="auth-flow__provider"
+                  onClick={() => void handleOAuth(provider)}
+                  disabled={busy || oauthWaiting !== null}
+                >
+                  <Icon width={14} height={14} aria-hidden />
+                  {oauthWaiting === provider
+                    ? t('auth.social.waiting')
+                    : t('auth.social.continueWith', { provider: providerName })}
+                </FlowButton>
+              );
+            })}
+            {oauthWaiting && (
+              <FlowButton kind="text" onClick={cancelNativeOAuth}>
+                {t('common.cancel')}
+              </FlowButton>
+            )}
+            <div className="auth-flow__divider" role="separator">
+              <span>{t('auth.social.or')}</span>
+            </div>
+          </div>
+        )}
+        {!signin && (
+          <AuthField
+            label={t('auth.fields.penName')}
+            placeholder={t('auth.fields.penNamePlaceholder')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={busy}
+            required
+            autoComplete="name"
+            autoFocus
+          />
+        )}
+        <AuthField
+          label={t('auth.fields.email')}
+          type="email"
+          placeholder={t('auth.fields.emailPlaceholder')}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={busy}
+          required
+          autoComplete="email"
+          autoFocus={signin}
+        />
+        <AuthField
+          label={t('auth.fields.password')}
+          below={
+            signin && (
+              <FlowButton kind="link" onClick={() => go('forgot')}>
+                {t('auth.forgotPassword')}
+              </FlowButton>
+            )
+          }
+          type="password"
+          placeholder={signin ? undefined : t('auth.fields.passwordSignupPlaceholder')}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={busy}
+          required
+          autoComplete={signin ? 'current-password' : 'new-password'}
+          minLength={signin ? undefined : 10}
+        />
+        <FlowButton kind="primary" block type="submit" disabled={busy}>
+          {busy
+            ? t(signin ? 'auth.signingIn' : 'auth.creating')
+            : t(signin ? 'auth.signIn' : 'auth.createAccount')}
+        </FlowButton>
+        {signin && (
+          <FlowButton kind="text" onClick={() => go('otp')}>
+            {t('auth.useOtp')}
+          </FlowButton>
+        )}
+        {!signin && (
+          <p className="auth-flow__legal">
+            {t('auth.legal.agree')}{' '}
+            <a
+              onClick={() =>
+                APP_CONFIG.TERMS_URL ? void platform.material.openExternal(APP_CONFIG.TERMS_URL) : undefined
+              }
+              aria-disabled={!APP_CONFIG.TERMS_URL}
+              title={APP_CONFIG.TERMS_URL ? undefined : t('auth.legal.termsUnavailable')}
+            >
+              {t('auth.legal.terms')}
+            </a>{' '}
+            {t('auth.legal.and')}{' '}
+            <a onClick={() => void platform.material.openExternal(APP_CONFIG.PRIVACY_URL)}>
+              {t('auth.legal.privacy')}
+            </a>
+          </p>
+        )}
+      </form>
+    );
+  }
+
+  return (
+    <GlassControls.Provider value={glass}>
+      <div className={`auth-flow auth-flow--${presentation}`}>
+        <header className="auth-flow__head">
+          {back && (
+            <GhostIconButton
+              className="auth-flow__back"
+              icon={<BrushIcon name="arrow-back" size={16} />}
+              onClick={back}
+              title={t('auth.back')}
+              aria-label={t('auth.back')}
+            />
+          )}
+          <h2 className="auth-flow__title">{titles[step]}</h2>
+          {onClose && !locked && (
+            <GhostIconButton
+              className="auth-flow__close"
+              icon={<BrushIcon name="close" size={16} />}
+              onClick={onClose}
+              title={t('common.close')}
+              aria-label={t('common.close')}
+            />
+          )}
+        </header>
+        {body}
+        {(step === 'signin' || step === 'signup') && (
+          <footer className="auth-flow__foot">
+            <span>{t(step === 'signin' ? 'auth.noAccount' : 'auth.hasAccount')}</span>
+            <FlowButton kind="foot" onClick={() => go(step === 'signin' ? 'signup' : 'signin')}>
+              {t(step === 'signin' ? 'auth.signUp' : 'auth.signIn')}
+            </FlowButton>
+          </footer>
+        )}
+      </div>
+    </GlassControls.Provider>
+  );
+}
+
+type FlowButtonKind = 'primary' | 'secondary' | 'text' | 'link' | 'foot';
+
+/** One of the flow's buttons: a shared glass `Button` in the desktop dialog
+ * (primary, secondary, or a text button), the flow's own button on mobile. */
+function FlowButton({
+  kind,
+  block = false,
+  className = '',
+  type = 'button',
+  ...props
+}: { kind: FlowButtonKind; block?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  const glass = useContext(GlassControls);
+  if (glass) {
+    const variant = kind === 'primary' ? 'primary' : kind === 'secondary' ? 'default' : 'ghost';
+    return (
+      <Button
+        type={type}
+        variant={variant}
+        size={kind === 'link' || kind === 'foot' ? 'sm' : 'md'}
+        className={[
+          `auth-flow__glass-button auth-flow__glass-button--${kind}`,
+          block ? 'auth-flow__glass-button--block' : '',
+          className,
+        ].filter(Boolean).join(' ')}
+        {...props}
+      />
+    );
+  }
+  const legacy = {
+    primary: 'auth-flow__button auth-flow__button--primary',
+    secondary: 'auth-flow__button',
+    text: 'auth-flow__link auth-flow__link--center',
+    link: 'auth-flow__link',
+    foot: 'auth-flow__link',
+  }[kind];
+  return (
+    <button
+      type={type}
+      className={[legacy, block ? 'auth-flow__button--block' : '', className].filter(Boolean).join(' ')}
+      {...props}
+    />
+  );
+}
+
+/** An error: the danger ink, and on the desktop its brush icon, never a red wash. */
+function FlowError({ children, announce = true }: { children: ReactNode; announce?: boolean }) {
+  const glass = useContext(GlassControls);
+  return (
+    <p className="auth-flow__error" role={announce ? 'alert' : undefined}>
+      {glass && <BrushIcon name="status-warning" size={13} />}
+      {children}
+    </p>
+  );
+}
+
+/** A labelled input; `below` sits under it, so Tab goes from one input
+ * straight to the next. */
+function AuthField({
+  label,
+  below,
+  className = '',
+  ...input
+}: { label: string; below?: ReactNode } & InputHTMLAttributes<HTMLInputElement>) {
+  const id = useId();
+  const glass = useContext(GlassControls);
+  const field = <input id={id} className={`auth-flow__input ${className}`.trim()} {...input} />;
+  return (
+    <div className="auth-flow__field">
+      <div className="auth-flow__label-row">
+        <label className="auth-flow__label" htmlFor={id}>
+          {label}
+        </label>
+      </div>
+      {glass ? <label className="ui-field glass glass--rest glass--field">{field}</label> : field}
+      {below && <div className="auth-flow__field-foot">{below}</div>}
+    </div>
+  );
+}
+
+function CodeField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange(value: string): void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <AuthField
+      label={t('auth.fields.code')}
+      className="auth-flow__input--code"
+      inputMode="numeric"
+      autoComplete="one-time-code"
+      pattern="[0-9]{6}"
+      maxLength={6}
+      placeholder={t('auth.fields.codePlaceholder')}
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
+      disabled={disabled}
+      autoFocus
+      required
+    />
+  );
+}
+
+function OtpForm({
+  initialEmail,
+  onSignedIn,
+}: {
+  initialEmail: string;
+  onSignedIn: () => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [stage, setStage] = useState<'email' | 'code'>('email');
+  const [email, setEmail] = useState(initialEmail);
+  const [otp, setOtp] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      if (stage === 'email') {
+        const res = await authClient.emailOtp.sendVerificationOtp({ email, type: 'sign-in' });
+        if (res.error) throw new Error(authErrorMessage(res.error, t, 'auth.errors.sendFailed'));
+        setStage('code');
+      } else {
+        const res = await authClient.signIn.emailOtp({ email, otp });
+        if (res.error) throw new Error(res.error.message || t('auth.errors.verifyFailed'));
+        void onSignedIn();
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(stage === 'email' ? 'auth.errors.sendRetry' : 'auth.errors.verifyFailed'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="auth-flow__body" onSubmit={submit}>
+      <p className="auth-flow__lead">
+        {stage === 'email' ? t('auth.otp.emailSub') : t('auth.otp.codeSub', { email })}
+      </p>
+      {error && <FlowError>{error}</FlowError>}
+      {stage === 'email' ? (
+        <AuthField
+          label={t('auth.fields.email')}
+          type="email"
+          placeholder={t('auth.fields.emailPlaceholder')}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={busy}
+          autoComplete="email"
+          autoFocus
+          required
+        />
+      ) : (
+        <CodeField value={otp} onChange={setOtp} disabled={busy} />
+      )}
+      <FlowButton
+        kind="primary"
+        block
+        type="submit"
+        disabled={busy || (stage === 'code' && otp.length !== 6)}
+      >
+        {busy ? t('common.processing') : t(stage === 'email' ? 'auth.sendCode' : 'auth.signIn')}
+      </FlowButton>
+      {stage === 'code' && (
+        <FlowButton kind="text" onClick={() => setStage('email')}>
+          {t('auth.changeEmail')}
+        </FlowButton>
+      )}
+    </form>
+  );
+}
+
+function ForgotForm({ initialEmail, onDone }: { initialEmail: string; onDone(): void }) {
+  const { t } = useTranslation();
+  const [phase, setPhase] = useState<'email' | 'reset' | 'done'>('email');
+  const [email, setEmail] = useState(initialEmail);
+  const [otp, setOtp] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sendCode = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await authClient.emailOtp.requestPasswordReset({ email });
+      if (result.error) throw new Error(authErrorMessage(result.error, t, 'auth.errors.sendCodeFailed'));
+      setPhase('reset');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('auth.errors.sendCodeFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (phase === 'done') {
+      onDone();
+      return;
+    }
+    if (phase === 'email') {
+      await sendCode();
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError(t('auth.forgot.passwordMismatch'));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await authClient.emailOtp.resetPassword({ email, otp: otp.trim(), password });
+      if (result.error) throw new Error(result.error.message || t('auth.forgot.resetFailed'));
+      setPhase('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('auth.forgot.resetFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="auth-flow__body" onSubmit={submit}>
+      <p className="auth-flow__lead">
+        {phase === 'email'
+          ? t('auth.forgot.sub')
+          : phase === 'reset'
+            ? t('auth.forgot.codeSub', { email })
+            : t('auth.forgot.done')}
+      </p>
+      {error && <FlowError>{error}</FlowError>}
+      {phase === 'email' && (
+        <AuthField
+          label={t('auth.fields.email')}
+          type="email"
+          placeholder={t('auth.fields.emailPlaceholder')}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={busy}
+          autoComplete="email"
+          autoFocus
+          required
+        />
+      )}
+      {phase === 'reset' && (
+        <>
+          <CodeField value={otp} onChange={setOtp} disabled={busy} />
+          <AuthField
+            label={t('auth.forgot.newPassword')}
+            type="password"
+            placeholder={t('auth.fields.passwordSignupPlaceholder')}
+            minLength={10}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={busy}
+            autoComplete="new-password"
+            required
+          />
+          <AuthField
+            label={t('auth.forgot.confirmPassword')}
+            type="password"
+            minLength={10}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            disabled={busy}
+            autoComplete="new-password"
+            required
+          />
+        </>
+      )}
+      <FlowButton
+        kind="primary"
+        block
+        type="submit"
+        disabled={busy || (phase === 'reset' && (otp.length !== 6 || password.length < 10))}
+      >
+        {busy
+          ? t('common.processing')
+          : phase === 'email'
+            ? t('auth.sendCode')
+            : phase === 'reset'
+              ? t('auth.forgot.resetSubmit')
+              : t('auth.backToSignIn')}
+      </FlowButton>
+      {phase === 'reset' && (
+        <FlowButton kind="text" onClick={() => void sendCode()} disabled={busy}>
+          {t('auth.resend')}
+        </FlowButton>
+      )}
+    </form>
+  );
+}
+
+// Post-signup (or sign-in blocked as unverified) gate. Sends an
+// email-verification code on mount, verifies it, then signs in with the
+// password the author just typed.
+function VerifyForm({
+  email,
+  password,
+  onSignedIn,
+}: {
+  email: string;
+  password: string;
+  onSignedIn: () => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [otp, setOtp] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sentOnce, setSentOnce] = useState(false);
+
+  const sendOtp = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await authClient.emailOtp.sendVerificationOtp({ email, type: 'email-verification' });
+      if (res.error) throw new Error(authErrorMessage(res.error, t, 'auth.errors.sendFailed'));
+      setSentOnce(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('auth.errors.sendCodeFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Send once per email. The ref survives StrictMode's dev-only double mount
+  // so the author gets one code, not two; "Resend" covers recovery.
+  const sentForEmailRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!email || sentForEmailRef.current === email) return;
+    sentForEmailRef.current = email;
+    void sendOtp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const verify = await authClient.emailOtp.verifyEmail({ email, otp });
+      if (verify.error) throw new Error(verify.error.message || t('auth.errors.verifyFailed'));
+      const signIn = await authClient.signIn.email({ email, password });
+      if (signIn.error) throw new Error(signIn.error.message || t('auth.errors.signInFailed'));
+      void onSignedIn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('auth.errors.verifyFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="auth-flow__body" onSubmit={submit}>
+      <p className="auth-flow__lead">
+        {sentOnce ? t('auth.verify.sent', { email }) : t('auth.verify.sending', { email })}
+      </p>
+      {error && <FlowError>{error}</FlowError>}
+      <CodeField value={otp} onChange={setOtp} disabled={busy} />
+      <FlowButton kind="primary" block type="submit" disabled={busy || otp.length !== 6}>
+        {busy ? t('auth.verify.verifying') : t('auth.verify.submit')}
+      </FlowButton>
+      <FlowButton kind="text" onClick={() => void sendOtp()} disabled={busy}>
+        {t('auth.resend')}
+      </FlowButton>
+    </form>
+  );
+}

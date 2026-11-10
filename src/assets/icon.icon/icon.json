@@ -1,0 +1,132 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "display-p3:0.94942,0.94675,0.94061,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "display-p3:0.10894,0.11255,0.12102,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Glass",
+      "hidden": false,
+      "layers": [
+        {
+          "name": "Glass line",
+          "image-name": "glass-line.png",
+          "hidden": false,
+          "glass": false,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "display-p3:0.28157,0.42515,0.66602,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.49238,0.61161,0.80276,1.00000"
+              }
+            }
+          ],
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "name": "Glass bleed",
+          "image-name": "glass-bleed.png",
+          "hidden": false,
+          "glass": false,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "display-p3:0.28157,0.42515,0.66602,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.71925,0.78614,0.89046,1.00000"
+              }
+            }
+          ],
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting": "combined",
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "blur-material": null
+    },
+    {
+      "name": "Sand",
+      "hidden": false,
+      "layers": [
+        {
+          "name": "Sand",
+          "image-name": "sand.png",
+          "hidden": false,
+          "glass": false,
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "display-p3:0.28157,0.42515,0.66602,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.49238,0.61161,0.80276,1.00000"
+              }
+            }
+          ],
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting": "combined",
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "blur-material": null
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

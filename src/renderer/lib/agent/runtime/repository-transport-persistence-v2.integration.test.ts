@@ -1,0 +1,1504 @@
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { afterEach, describe, expect, it } from 'vitest';
+import type {
+  DatabaseCheckpointResult,
+  DatabaseExecuteResult,
+  DatabaseOpenResult,
+  DatabasePlatformApi,
+  DatabaseQueryResult,
+  DatabaseTransaction,
+  TransactionBehavior,
+} from '../../../platform/database';
+import { createDatabaseClient } from '../../../lib/db';
+import {
+  createAgentRuntimePersistenceRepository,
+  type AgentRuntimePersistenceRepository,
+} from '../../../sqlite-repo/agent-runtime-persistence-repo';
+import { planAgentModelContext } from './context-message-adapter';
+import { AgentRuntimeControlChannel } from './control-plane';
+import { AgentRuntime } from './runtime';
+import {
+  AgentRuntimeRecoveryCorruptionError,
+  hashAgentRuntimeCheckpointContext,
+  hashAgentRuntimeCheckpointPayload,
+  recoverAgentRuntimeSnapshot,
+  type AgentRuntimeCheckpointContextV2,
+} from './recovery';
+import {
+  createRepositoryAgentTransportPersistence,
+  MAX_INLINE_AGENT_RUNTIME_V2_CHECKPOINT_BYTES,
+} from './repository-transport-persistence';
+import {
+  agentRuntimeUnknownToolResultContent,
+  type AgentModelMessage,
+  type AgentModelRequest,
+  type AgentRuntimeEvent,
+  type AgentRuntimeUsage,
+  type AgentToolDefinition,
+} from './types';
+
+const migrationDirectory = new URL('../../../../../drizzle/', import.meta.url);
+const baselineSql = (JSON.parse(readFileSync(new URL('meta/_journal.json', migrationDirectory), 'utf8')) as { entries: Array<{ tag: string }> }).entries.map((entry) => readFileSync(new URL(`${entry.tag}.sql`, migrationDirectory), 'utf8').replaceAll('--> statement-breakpoint', '')).join('\n');
+
+const NOW = '2026-07-30T10:00:00.000Z';
+const ENDED = '2026-07-30T10:00:01.000Z';
+const ROUTE = {
+  kind: 'chat' as const,
+  projectId: 'project-v2',
+  conversationId: 'conversation-v2',
+};
+const HISTORY: AgentModelMessage[] = [
+  { role: 'user', content: 'Persist the final answer.' },
+  {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Final answer is durable.' }],
+  },
+];
+const DENIED_HISTORY: AgentModelMessage[] = [
+  { role: 'user', content: 'Use the missing tool, then recover.' },
+  {
+    role: 'assistant',
+    content: [
+      {
+        type: 'tool_call',
+        callId: 'denied-call',
+        name: 'missing_tool',
+        arguments: {},
+        rawArguments: '{}',
+      },
+    ],
+  },
+  {
+    role: 'tool',
+    content: [
+      {
+        callId: 'denied-call',
+        name: 'missing_tool',
+        ok: false,
+        content: agentRuntimeUnknownToolResultContent('missing_tool'),
+        source: 'runtime',
+        errorCode: 'UNKNOWN_TOOL',
+      },
+    ],
+  },
+  {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Recovered after denial.' }],
+  },
+];
+const NON_LEXICAL_TOOL_ARGUMENTS = {
+  b: 1,
+  a: {
+    z: 3,
+    m: [{ y: 2, x: 1 }],
+  },
+};
+const NON_LEXICAL_TOOL_RAW_ARGUMENTS =
+  '{"b":1,"a":{"z":3,"m":[{"y":2,"x":1}]}}';
+const NON_LEXICAL_TOOL_HISTORY: AgentModelMessage[] = [
+  { role: 'user', content: 'Read with nested arguments.' },
+  {
+    role: 'assistant',
+    content: [
+      {
+        type: 'tool_call',
+        callId: 'nested-call',
+        name: 'read_complex',
+        arguments: NON_LEXICAL_TOOL_ARGUMENTS,
+        rawArguments: NON_LEXICAL_TOOL_RAW_ARGUMENTS,
+      },
+    ],
+  },
+  {
+    role: 'tool',
+    content: [
+      {
+        name: 'read_complex',
+        callId: 'nested-call',
+        content: '{"ok":true}',
+        ok: true,
+      },
+    ],
+  },
+  {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Nested arguments survived.' }],
+  },
+];
+const USAGE: AgentRuntimeUsage = {
+  inputTokens: 8,
+  outputTokens: 5,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  costUsd: 0,
+};
+
+class FileSqliteGateway implements DatabasePlatformApi {
+  readonly database: DatabaseSync;
+  private activeTransaction: string | null = null;
+  private nextTransactionId = 1;
+
+  constructor(path: string, initialize: boolean) {
+    this.database = new DatabaseSync(path);
+    this.database.exec('PRAGMA foreign_keys = ON');
+    if (!initialize) return;
+    this.database.exec('PRAGMA foreign_keys = OFF');
+    this.database.exec(baselineSql);
+    this.database.exec('PRAGMA foreign_keys = ON');
+    this.database.exec(`
+      INSERT INTO project (id, name, user_id, created_at, updated_at)
+      VALUES ('project-v2', 'Novel', 'user-v2', '${NOW}', '${NOW}');
+      INSERT INTO agent_conversation
+        (id, project_id, title, created_at, updated_at)
+      VALUES (
+        'conversation-v2',
+        'project-v2',
+        'V2 Recovery',
+        '${NOW}',
+        '${NOW}'
+      );
+    `);
+  }
+
+  async open(_databaseName: string): Promise<DatabaseOpenResult> {
+    return { path: 'file-backed', journalMode: 'delete', migrationsApplied: 1 };
+  }
+
+  async execute(
+    sql: string,
+    parameters: readonly unknown[] = [],
+    transactionId?: string,
+  ): Promise<DatabaseExecuteResult> {
+    this.assertTransaction(transactionId);
+    const result = this.database
+      .prepare(sql)
+      .run(...(parameters as SQLInputValue[]));
+    return {
+      changes: Number(result.changes),
+      lastInsertRowid: result.lastInsertRowid,
+    };
+  }
+
+  async query(
+    sql: string,
+    parameters: readonly unknown[] = [],
+    transactionId?: string,
+  ): Promise<DatabaseQueryResult> {
+    this.assertTransaction(transactionId);
+    const statement = this.database.prepare(sql);
+    statement.setReturnArrays(true);
+    const columns = statement.columns().map((column) => column.name);
+    const rows = statement.all(
+      ...(parameters as SQLInputValue[]),
+    ) as unknown as DatabaseQueryResult['rows'];
+    return { columns, rows };
+  }
+
+  async begin(
+    behavior: TransactionBehavior = 'deferred',
+  ): Promise<DatabaseTransaction> {
+    if (this.activeTransaction) throw new Error('nested transaction');
+    const id = String(this.nextTransactionId++);
+    this.database.exec(`BEGIN ${behavior.toUpperCase()}`);
+    this.activeTransaction = id;
+    return { id };
+  }
+
+  async commit(transactionId: string): Promise<void> {
+    this.requireOwner(transactionId);
+    this.database.exec('COMMIT');
+    this.activeTransaction = null;
+  }
+
+  async rollback(transactionId: string): Promise<void> {
+    this.requireOwner(transactionId);
+    this.database.exec('ROLLBACK');
+    this.activeTransaction = null;
+  }
+
+  async checkpoint(): Promise<DatabaseCheckpointResult> {
+    return { busy: 0, logFrames: 0, checkpointedFrames: 0 };
+  }
+
+  async close(): Promise<void> {
+    this.database.close();
+  }
+
+  private assertTransaction(transactionId?: string): void {
+    if (transactionId !== undefined) this.requireOwner(transactionId);
+    if (transactionId === undefined && this.activeTransaction) {
+      throw new Error('query escaped active transaction');
+    }
+  }
+
+  private requireOwner(transactionId: string): void {
+    if (this.activeTransaction !== transactionId) {
+      throw new Error(`transaction ${transactionId} does not own the database`);
+    }
+  }
+}
+
+function completeJournal(): AgentRuntimeEvent[] {
+  return [
+    { type: 'turn_started', prompt: 'Persist the final answer.' },
+    {
+      type: 'model_iteration_started',
+      iteration: 1,
+      driverId: 'test-provider',
+    },
+    {
+      type: 'text_delta',
+      iteration: 1,
+      text: 'Final answer is durable.',
+    },
+    { type: 'model_usage', iteration: 1, usage: USAGE },
+    {
+      type: 'model_iteration_completed',
+      iteration: 1,
+      stopReason: 'end_turn',
+    },
+    {
+      type: 'turn_finished',
+      outcome: 'completed',
+      usage: USAGE,
+      modelIterations: 1,
+      durationMs: 1_000,
+    },
+  ];
+}
+
+function deniedJournal(): AgentRuntimeEvent[] {
+  const totalUsage: AgentRuntimeUsage = {
+    inputTokens: USAGE.inputTokens * 2,
+    outputTokens: USAGE.outputTokens * 2,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: 0,
+  };
+  return [
+    {
+      type: 'turn_started',
+      prompt: 'Use the missing tool, then recover.',
+    },
+    {
+      type: 'model_iteration_started',
+      iteration: 1,
+      driverId: 'test-provider',
+    },
+    {
+      type: 'tool_call_started',
+      iteration: 1,
+      callId: 'denied-call',
+      name: 'missing_tool',
+    },
+    {
+      type: 'tool_args_delta',
+      iteration: 1,
+      callId: 'denied-call',
+      delta: '{}',
+    },
+    {
+      type: 'tool_result',
+      callId: 'denied-call',
+      name: 'missing_tool',
+      ok: false,
+      content: agentRuntimeUnknownToolResultContent('missing_tool'),
+      source: 'runtime',
+      errorCode: 'UNKNOWN_TOOL',
+    },
+    { type: 'model_usage', iteration: 1, usage: USAGE },
+    {
+      type: 'model_iteration_completed',
+      iteration: 1,
+      stopReason: 'tool_use',
+    },
+    {
+      type: 'model_iteration_started',
+      iteration: 2,
+      driverId: 'test-provider',
+    },
+    {
+      type: 'text_delta',
+      iteration: 2,
+      text: 'Recovered after denial.',
+    },
+    { type: 'model_usage', iteration: 2, usage: USAGE },
+    {
+      type: 'model_iteration_completed',
+      iteration: 2,
+      stopReason: 'end_turn',
+    },
+    {
+      type: 'turn_finished',
+      outcome: 'completed',
+      usage: totalUsage,
+      modelIterations: 2,
+      durationMs: 1_000,
+    },
+  ];
+}
+
+function nonLexicalToolJournal(): AgentRuntimeEvent[] {
+  const totalUsage: AgentRuntimeUsage = {
+    inputTokens: USAGE.inputTokens * 2,
+    outputTokens: USAGE.outputTokens * 2,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: 0,
+  };
+  return [
+    {
+      type: 'turn_started',
+      prompt: 'Read with nested arguments.',
+    },
+    {
+      type: 'model_iteration_started',
+      iteration: 1,
+      driverId: 'test-provider',
+    },
+    {
+      type: 'tool_call_started',
+      iteration: 1,
+      callId: 'nested-call',
+      name: 'read_complex',
+    },
+    {
+      type: 'tool_args_delta',
+      iteration: 1,
+      callId: 'nested-call',
+      delta: NON_LEXICAL_TOOL_RAW_ARGUMENTS,
+    },
+    {
+      type: 'tool_call_ready',
+      iteration: 1,
+      callId: 'nested-call',
+      name: 'read_complex',
+      arguments: NON_LEXICAL_TOOL_ARGUMENTS,
+      rawArguments: NON_LEXICAL_TOOL_RAW_ARGUMENTS,
+    },
+    { type: 'model_usage', iteration: 1, usage: USAGE },
+    {
+      type: 'model_iteration_completed',
+      iteration: 1,
+      stopReason: 'tool_use',
+    },
+    {
+      type: 'tool_execution_started',
+      callId: 'nested-call',
+      name: 'read_complex',
+      access: 'read',
+    },
+    {
+      type: 'tool_result',
+      callId: 'nested-call',
+      name: 'read_complex',
+      ok: true,
+      content: '{"ok":true}',
+      source: 'executor',
+    },
+    {
+      type: 'model_iteration_started',
+      iteration: 2,
+      driverId: 'test-provider',
+    },
+    {
+      type: 'text_delta',
+      iteration: 2,
+      text: 'Nested arguments survived.',
+    },
+    { type: 'model_usage', iteration: 2, usage: USAGE },
+    {
+      type: 'model_iteration_completed',
+      iteration: 2,
+      stopReason: 'end_turn',
+    },
+    {
+      type: 'turn_finished',
+      outcome: 'completed',
+      usage: totalUsage,
+      modelIterations: 2,
+      durationMs: 1_000,
+    },
+  ];
+}
+
+function corruptionCode(error: unknown): string | undefined {
+  return error instanceof AgentRuntimeRecoveryCorruptionError
+    ? error.code
+    : undefined;
+}
+
+describe('file-backed Agent V2 context recovery', () => {
+  let directory: string | undefined;
+  let gateway: FileSqliteGateway | undefined;
+
+  afterEach(async () => {
+    await gateway?.close();
+    gateway = undefined;
+    if (directory) rmSync(directory, { recursive: true, force: true });
+    directory = undefined;
+  });
+
+  it('recovers execution ownership after same-turn steering without changing checkpoint source hashes', async () => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-steering-restart-'));
+    const databasePath = join(directory, 'runtime.sqlite');
+    gateway = new FileSqliteGateway(databasePath, true);
+    const openPersistence = () => createRepositoryAgentTransportPersistence({
+      repository: createAgentRuntimePersistenceRepository(createDatabaseClient(gateway!)),
+      resolveToolAccess: () => 'write',
+    });
+    let persistence = openPersistence();
+    const prepare = (turnId: string) => persistence.prepareTurn({
+      candidateSessionId: 'session-steering', resumeSessionId: 'session-steering',
+      newConversation: false, route: ROUTE, provider: 'synthetic-provider', model: 'synthetic',
+      turnId, prompt: 'Edit the synthetic title.', acceptedAt: NOW,
+    });
+    await prepare('physical-turn');
+    const control = new AgentRuntimeControlChannel('session-steering', 'physical-turn');
+    const runtime = new AgentRuntime({
+      journal: { append: (entry) => persistence.appendJournal(entry) },
+      tools: { listDefinitions: () => [{ name: 'rename_node', description: 'Synthetic rename.',
+        access: 'write', inputSchema: { type: 'object' }, validateInput: (value) => ({ ok: true, value }) }],
+      execute: async () => ({ ok: true, data: { saved: true } }) },
+      driver: { id: 'synthetic-provider', async *stream(request) {
+        if (request.iteration === 1) await control.steer({ turnId: 'physical-turn', text: 'Keep the title in English.' });
+        if (request.iteration === 2) {
+          yield { type: 'tool_call_start', callId: 'rename-after-steer', name: 'rename_node' };
+          yield { type: 'tool_args_delta', callId: 'rename-after-steer', delta: '{"node":"synthetic","title":"Changed"}' };
+          yield { type: 'tool_call_end', callId: 'rename-after-steer' };
+        } else if (request.iteration === 3) yield { type: 'text_delta', text: 'Saved.' };
+        yield { type: 'usage', usage: USAGE };
+        yield { type: 'finish', reason: request.iteration === 2 ? 'tool_use' : 'end_turn' };
+      } },
+    });
+    const result = await runtime.runTurn({ sessionId: 'session-steering', turnId: 'physical-turn',
+      route: ROUTE, prompt: 'Edit the synthetic title.', control });
+    expect(result.state.status).toBe('completed');
+    expect(result.completedContextCheckpoint).toBeDefined();
+    await persistence.commitTurn({ sessionId: 'session-steering', turnId: 'physical-turn',
+      turnMessages: result.messages, contextCheckpointV2: result.completedContextCheckpoint,
+      outcome: 'completed', errorCode: null, errorMessage: null, endedAt: ENDED });
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    persistence = openPersistence();
+    const resumed = await prepare('next-physical-turn');
+    expect(resumed.history).toEqual(result.messages);
+    expect(resumed.historyTurnIds).toEqual(result.messages.map(() => 'physical-turn'));
+    const planned = await planAgentModelContext({ systemPrompt: 'Synthetic policy.',
+      messages: [...resumed.history, { role: 'user', content: 'Continue.' }],
+      messageTurnIds: [...resumed.historyTurnIds!, 'next-physical-turn'],
+      resolveToolAccess: () => 'write',
+      supplementalRows: [{ sourceId: 'durable-receipt', turnOrdinal: 0, kind: 'write_receipt', content: 'Synthetic title saved.',
+        durableWriteCoverage: [{ turnId: 'physical-turn', turnOrdinal: 0, callId: 'rename-after-steer', toolName: 'rename_node' }] }],
+      planner: { contextWindowTokens: 32_768, requestedOutputTokens: 4_096, fixedInputTokens: 0 },
+    });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect(planned.plan.segments.some((segment) => segment.type === 'source' && segment.row.callId === 'rename-after-steer')).toBe(false);
+    expect(planned.plan.checkpoint.pinned.sourceIds).toContain('durable-receipt');
+  });
+
+  it.each(['aborted', 'failed', 'interrupted'] as const)('reuses discovered schemas after a write and explicit retry across restart (%s)', async (outcome) => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-discovery-retry-'));
+    const databasePath = join(directory, 'runtime.sqlite');
+    gateway = new FileSqliteGateway(databasePath, true);
+    const definitions: AgentToolDefinition[] = ['read_complex', 'write_complex'].map((name) => ({
+      name, access: name === 'read_complex' ? 'read' : 'write', description: 'Synthetic operation.',
+      inputSchema: { type: 'object', properties: { schemaOnlyParameter: { type: 'string' } }, additionalProperties: false },
+      validateInput: (value) => ({ ok: true, value }),
+    }));
+    const openPersistence = () => createRepositoryAgentTransportPersistence({
+      repository: createAgentRuntimePersistenceRepository(createDatabaseClient(gateway!)),
+      resolveToolAccess: (name) => name === 'tool_search' ? 'read' : definitions.find((tool) => tool.name === name)?.access,
+    });
+    let persistence = openPersistence();
+    const prepare = (turnId: string, prompt: string) => persistence.prepareTurn({
+      candidateSessionId: 'session-discovery-retry', resumeSessionId: 'session-discovery-retry',
+      newConversation: false, route: ROUTE, provider: 'test-provider', model: 'test-model',
+      turnId, prompt, acceptedAt: NOW,
+    });
+    const originalPrompt = 'Inspect the synthetic element and simplify its notes.';
+    await prepare('turn-original', originalPrompt);
+    const control = new AgentRuntimeControlChannel('session-discovery-retry', 'turn-original');
+    const requests: AgentModelRequest[] = [];
+    const executions: string[] = [];
+    const runtime = new AgentRuntime({
+      toolDiscovery: () => true,
+      journal: { append: (entry) => persistence.appendJournal(entry) },
+      tools: { listDefinitions: () => definitions, execute: async (request) => {
+        executions.push(request.name);
+        return { ok: true, data: request.access === 'read' ? 'Obsolete pre-write reading.' : 'Write committed once.' };
+      } },
+      driver: { id: 'test-provider', async *stream(request) {
+        requests.push(request);
+        const invocation = [
+          { name: 'tool_search', arguments: { names: ['read_complex', 'write_complex'] } },
+          { name: 'call_tool', arguments: { name: 'read_complex', arguments: {} } },
+          { name: 'call_tool', arguments: { name: 'write_complex', arguments: {} } },
+        ][request.iteration - 1];
+        if (!invocation) {
+          if (outcome === 'aborted') {
+            await control.requestCancellation('Synthetic stop.');
+            yield { type: 'finish', reason: 'end_turn' };
+            return;
+          }
+          throw new Error('Synthetic provider interruption.');
+        }
+        const callId = `call-${request.iteration}`;
+        yield { type: 'tool_call_start', callId, name: invocation.name };
+        yield { type: 'tool_args_delta', callId, delta: JSON.stringify(invocation.arguments) };
+        yield { type: 'tool_call_end', callId };
+        yield { type: 'usage', usage: USAGE };
+        yield { type: 'finish', reason: 'tool_use' };
+      } },
+    });
+    const result = await runtime.runTurn({
+      sessionId: 'session-discovery-retry', turnId: 'turn-original', route: ROUTE,
+      prompt: originalPrompt, control,
+    });
+    expect(result.state.status).toBe(outcome === 'aborted' ? 'aborted' : 'failed');
+    if (outcome !== 'interrupted') {
+      await persistence.commitTurn({
+        sessionId: 'session-discovery-retry', turnId: 'turn-original', turnMessages: result.messages,
+        outcome, errorCode: result.state.terminal?.failureCode ?? null,
+        errorMessage: result.state.terminal?.message ?? null, endedAt: ENDED,
+      });
+    }
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    persistence = openPersistence();
+    await recoverAgentRuntimeSnapshot((await createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    ).loadRecoverySnapshot('session-discovery-retry'))!);
+    const retry = await prepare('turn-retry', '重试');
+    expect(retry.history[0]).toEqual({ role: 'user', content: originalPrompt });
+    const restored = retry.history.flatMap((message) => message.role === 'tool' ? message.content : []);
+    expect(restored.map((tool) => tool.name)).toEqual(['tool_search']);
+    expect(restored[0]!.content).toContain('schemaOnlyParameter');
+    expect(JSON.stringify(retry.history)).not.toContain('Obsolete pre-write reading.');
+    expect(JSON.stringify(retry.history)).not.toContain('Write committed once.');
+
+    // A second interruption after accepting retry must still find the real
+    // author request and schemas beyond the bare retry prompt.
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    persistence = openPersistence();
+    const continued = await prepare('turn-continued', '继续');
+    expect(continued.history).toEqual(retry.history);
+    const resumedRequests: AgentModelRequest[] = [];
+    const resumedRuntime = new AgentRuntime({
+      toolDiscovery: () => true,
+      tools: { listDefinitions: () => definitions, execute: async (request) => {
+        executions.push(request.name);
+        return { ok: true, data: 'Fresh post-write reading.' };
+      } },
+      driver: { id: 'test-provider', async *stream(request) {
+        resumedRequests.push(request);
+        if (request.iteration === 1) {
+          yield { type: 'tool_call_start', callId: 'read-resumed', name: 'call_tool' };
+          yield { type: 'tool_args_delta', callId: 'read-resumed', delta: JSON.stringify({ name: 'read_complex', arguments: {} }) };
+          yield { type: 'tool_call_end', callId: 'read-resumed' };
+          yield { type: 'usage', usage: USAGE };
+          yield { type: 'finish', reason: 'tool_use' };
+        } else {
+          yield { type: 'text_delta', text: 'Synthetic inspection completed.' };
+          yield { type: 'usage', usage: USAGE };
+          yield { type: 'finish', reason: 'end_turn' };
+        }
+      } },
+    });
+    const resumedResult = await resumedRuntime.runTurn({
+      sessionId: 'session-discovery-retry', turnId: 'turn-continued', route: ROUTE,
+      prompt: '继续', history: continued.history,
+    });
+    expect(resumedResult.state.status).toBe('completed');
+    expect(JSON.stringify(resumedRequests[0]!.context)).toContain('schemaOnlyParameter');
+    expect(resumedRequests[0]!.tools).toEqual(requests[0]!.tools);
+    expect(executions).toEqual(['read_complex', 'write_complex', 'read_complex']);
+  });
+
+  it.each([false, true])('preserves interrupted author intent and completed reads through repeated restart and a completed continuation (writes: %s)', async (withWrites) => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-agent-interrupted-context-'));
+    const databasePath = join(directory, 'runtime.sqlite');
+    gateway = new FileSqliteGateway(databasePath, true);
+    const openPersistence = () => {
+      const repository = createAgentRuntimePersistenceRepository(createDatabaseClient(gateway!));
+      return { repository, persistence: createRepositoryAgentTransportPersistence({
+        repository, resolveToolAccess: (name) => name === 'read_complex' ? 'read' : 'write',
+      }) };
+    };
+    let { repository, persistence } = openPersistence();
+    const prepare = (turnId: string, prompt: string) => persistence.prepareTurn({
+      candidateSessionId: 'session-interrupted-context',
+      resumeSessionId: 'session-interrupted-context',
+      newConversation: false, route: ROUTE, provider: 'test-provider', model: 'test-model',
+      turnId, prompt, acceptedAt: NOW,
+    });
+    const append = async (turnId: string, events: AgentRuntimeEvent[]) => {
+      for (const [index, event] of events.entries()) {
+        await persistence.appendJournal({
+          schemaVersion: 1, sessionId: 'session-interrupted-context', turnId, route: ROUTE,
+          seq: index + 1, eventId: `${turnId}:${String(index + 1).padStart(8, '0')}`,
+          wallTimeMs: Date.parse(NOW) + index + 1, event,
+        });
+      }
+    };
+    await prepare('turn-interrupted', 'Read with nested arguments.');
+    const journal = nonLexicalToolJournal();
+    const toolEvents = (callId: string, name: string, access: 'read' | 'write', content?: string): AgentRuntimeEvent[] => [
+      { type: 'tool_call_started', iteration: 2, callId, name },
+      { type: 'tool_args_delta', iteration: 2, callId, delta: NON_LEXICAL_TOOL_RAW_ARGUMENTS },
+      { type: 'tool_call_ready', iteration: 2, callId, name,
+        arguments: NON_LEXICAL_TOOL_ARGUMENTS, rawArguments: NON_LEXICAL_TOOL_RAW_ARGUMENTS },
+      { type: 'tool_execution_started', callId, name, access },
+      ...(content === undefined ? [] : [{ type: 'tool_result' as const, callId, name,
+        ok: true, content, source: 'executor' as const }]),
+    ];
+    const calls = [
+      toolEvents('read-again', 'read_complex', 'read', 'Latest completed reading.'),
+      ...(withWrites ? [
+        toolEvents('write-done', 'write_complex', 'write', 'A write committed.'),
+        toolEvents('write-uncertain', 'write_complex', 'write'),
+      ] : []),
+      toolEvents('read-pending', 'read_complex', 'read'),
+    ];
+    await append('turn-interrupted', [
+      ...journal.slice(0, journal.findIndex((event) => event.type === 'text_delta') + 1),
+      ...calls.flatMap((events) => events.slice(0, 3)),
+      { type: 'model_usage', iteration: 2, usage: USAGE },
+      { type: 'model_iteration_completed', iteration: 2, stopReason: 'tool_use' },
+      ...calls.flatMap((events) => events.slice(3)),
+      { type: 'steering_received', messageId: 'steer-audit', text: 'Only audit; do not edit.' },
+    ]);
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    ({ repository, persistence } = openPersistence());
+    const resumed = await prepare('turn-resume-once', '继续');
+    const callId = 'continued:turn-interrupted:read-again';
+    const expected: AgentModelMessage[] = [
+      { role: 'user', content: 'Read with nested arguments.' },
+      ...(!withWrites ? [
+      { role: 'assistant', content: [{ type: 'tool_call', callId, name: 'read_complex',
+        arguments: NON_LEXICAL_TOOL_ARGUMENTS, rawArguments: NON_LEXICAL_TOOL_RAW_ARGUMENTS }] },
+      { role: 'tool', content: [{ callId, name: 'read_complex', ok: true, content: 'Latest completed reading.' }] },
+      ] satisfies AgentModelMessage[] : []),
+      { role: 'user', content: 'Only audit; do not edit.' },
+    ];
+    expect(resumed.history).toEqual(expected);
+    expect(JSON.stringify(resumed.history)).not.toContain('Nested arguments survived.');
+    const accepted = await repository.loadRecoverySnapshot('session-interrupted-context');
+    expect(accepted?.messages.filter((row) => row.turnId === 'turn-resume-once')
+      .map(({ role, content }) => ({ role, content }))).toEqual([
+      ...expected, { role: 'user', content: '继续' },
+    ]);
+
+    // A second interruption must keep the first task and both author corrections.
+    await append('turn-resume-once', [
+      { type: 'turn_started', prompt: '继续' },
+      { type: 'steering_received', messageId: 'steer-names', text: 'Keep names unchanged.' },
+    ]);
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    ({ repository, persistence } = openPersistence());
+    const resumedAgain = await prepare('turn-resume-twice', '请继续');
+    expected.push({ role: 'user', content: 'Keep names unchanged.' });
+    expect(resumedAgain.history).toEqual(expected);
+    const turnMessages: AgentModelMessage[] = [
+      { role: 'user', content: '请继续' }, HISTORY[1]!,
+    ];
+    await append('turn-resume-twice', completeJournal().map((event) =>
+      event.type === 'turn_started' ? { ...event, prompt: '请继续' } : event));
+    const planned = await planAgentModelContext({
+      systemPrompt: 'Drifting durable policy.', messages: [...expected, ...turnMessages],
+      resolveToolAccess: () => 'read',
+      planner: { contextWindowTokens: 20_000, requestedOutputTokens: 1_000, fixedInputTokens: 100 },
+    });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const commit = {
+      sessionId: 'session-interrupted-context', turnId: 'turn-resume-twice', turnMessages,
+      contextCheckpointV2: { canonicalSourceRows: planned.bridge.sourceRows, providerEnvelope: planned.envelope },
+      outcome: 'completed' as const, errorCode: null, errorMessage: null, endedAt: ENDED,
+    };
+    await persistence.commitTurn(commit);
+    await persistence.commitTurn(commit);
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    ({ repository, persistence } = openPersistence());
+    const settled = await repository.loadRecoverySnapshot('session-interrupted-context');
+    expect(settled?.checkpoints[0]?.context).toMatchObject({ schemaVersion: 2 });
+    const next = await prepare('turn-after-completion', 'Discuss the findings.');
+    expect(next.history).toEqual([...expected, ...turnMessages]);
+  });
+
+  it('adopts one exact history when SQLite committed but the first commit acknowledgement was lost', async () => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-agent-lost-commit-ack-'));
+    const databasePath = join(directory, 'runtime.sqlite');
+    gateway = new FileSqliteGateway(databasePath, true);
+    const durableRepository = createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    );
+    let loseAcknowledgement = true;
+    const repository = {
+      ...durableRepository,
+      async commitTurn(
+        input: Parameters<AgentRuntimePersistenceRepository['commitTurn']>[0],
+      ) {
+        const outcome = await durableRepository.commitTurn(input);
+        if (loseAcknowledgement) {
+          loseAcknowledgement = false;
+          throw new Error('commit acknowledgement lost after SQLite COMMIT');
+        }
+        return outcome;
+      },
+    } satisfies AgentRuntimePersistenceRepository;
+    const persistence = createRepositoryAgentTransportPersistence({
+      repository,
+      resolveToolAccess: () => undefined,
+    });
+
+    await persistence.prepareTurn({
+      candidateSessionId: 'session-lost-ack',
+      newConversation: true,
+      route: ROUTE,
+      provider: 'test-provider',
+      model: 'test-model',
+      turnId: 'turn-lost-ack',
+      prompt: 'Persist the final answer.',
+      acceptedAt: NOW,
+    });
+    for (const [index, event] of completeJournal().entries()) {
+      const seq = index + 1;
+      await persistence.appendJournal({
+        schemaVersion: 1,
+        sessionId: 'session-lost-ack',
+        turnId: 'turn-lost-ack',
+        route: ROUTE,
+        seq,
+        eventId: `turn-lost-ack:${String(seq).padStart(8, '0')}`,
+        wallTimeMs: Date.parse(NOW) + seq,
+        event,
+      });
+    }
+    const commit = {
+      sessionId: 'session-lost-ack',
+      turnId: 'turn-lost-ack',
+      turnMessages: HISTORY,
+      outcome: 'completed' as const,
+      errorCode: null,
+      errorMessage: null,
+      endedAt: ENDED,
+    };
+
+    await expect(persistence.commitTurn(commit)).rejects.toThrow(
+      'commit acknowledgement lost',
+    );
+    await expect(persistence.commitTurn(commit)).resolves.toBeUndefined();
+
+    const snapshot = await durableRepository.loadRecoverySnapshot(
+      'session-lost-ack',
+    );
+    expect(snapshot?.turns).toEqual([
+      expect.objectContaining({
+        id: 'turn-lost-ack',
+        status: 'completed',
+      }),
+    ]);
+    expect(
+      snapshot?.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    ).toEqual(HISTORY);
+    if (!snapshot) throw new Error('lost-ack snapshot disappeared');
+    await expect(recoverAgentRuntimeSnapshot(snapshot)).resolves.toMatchObject({
+      providerHistory: HISTORY,
+    });
+  });
+
+  it('commits the final assistant atomically, restarts, verifies nested integrity, and resumes canonical history', async () => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-agent-v2-'));
+    const databasePath = join(directory, 'runtime.sqlite');
+    gateway = new FileSqliteGateway(databasePath, true);
+    const firstRepository = createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    );
+    const firstPersistence = createRepositoryAgentTransportPersistence({
+      repository: firstRepository,
+      resolveToolAccess: () => undefined,
+    });
+
+    await firstPersistence.prepareTurn({
+      candidateSessionId: 'session-v2',
+      newConversation: true,
+      route: ROUTE,
+      provider: 'test-provider',
+      model: 'test-model',
+      turnId: 'turn-v2',
+      prompt: 'Persist the final answer.',
+      acceptedAt: NOW,
+    });
+    for (const [index, event] of completeJournal().entries()) {
+      const seq = index + 1;
+      await firstPersistence.appendJournal({
+        schemaVersion: 1,
+        sessionId: 'session-v2',
+        turnId: 'turn-v2',
+        route: ROUTE,
+        seq,
+        eventId: `turn-v2:${String(seq).padStart(8, '0')}`,
+        wallTimeMs: Date.parse(NOW) + seq,
+        event,
+      });
+    }
+    const planned = await planAgentModelContext({
+      systemPrompt: 'Drifting durable policy.',
+      messages: HISTORY,
+      resolveToolAccess: () => undefined,
+      planner: {
+        contextWindowTokens: 20_000,
+        requestedOutputTokens: 1_000,
+        fixedInputTokens: 100,
+      },
+    });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    await firstPersistence.commitTurn({
+      sessionId: 'session-v2',
+      turnId: 'turn-v2',
+      turnMessages: HISTORY,
+      contextCheckpointV2: {
+        canonicalSourceRows: planned.bridge.sourceRows,
+        providerEnvelope: planned.envelope,
+      },
+      outcome: 'completed',
+      errorCode: null,
+      errorMessage: null,
+      endedAt: ENDED,
+    });
+
+    const persisted = await firstRepository.loadRecoverySnapshot('session-v2');
+    expect(persisted?.checkpoints[0]).toMatchObject({
+      throughTurnOrdinal: 0,
+      messageCount: 2,
+      context: {
+        schemaVersion: 2,
+        format: 'drifting.agent-runtime-checkpoint-context',
+        canonicalHistory: HISTORY,
+      },
+    });
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    const restartedRepository = createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    );
+
+    const restartedSnapshot =
+      await restartedRepository.loadRecoverySnapshot('session-v2');
+    if (!restartedSnapshot) throw new Error('restart lost the session');
+    await expect(
+      recoverAgentRuntimeSnapshot(restartedSnapshot),
+    ).resolves.toMatchObject({
+      providerHistory: HISTORY,
+      checkpointId: 'agent-checkpoint:session-v2:0',
+    });
+
+    const checkpoint = restartedSnapshot.checkpoints[0];
+    if (
+      !checkpoint ||
+      typeof checkpoint.context !== 'object' ||
+      checkpoint.context === null
+    ) {
+      throw new Error('restart lost the V2 checkpoint');
+    }
+    const original = structuredClone(
+      checkpoint.context,
+    ) as AgentRuntimeCheckpointContextV2;
+    gateway.database
+      .prepare(
+        `UPDATE agent_runtime_checkpoint
+         SET context_hash = ?
+         WHERE id = ?`,
+      )
+      .run('sha256:tampered', 'agent-checkpoint:session-v2:0');
+    const hashTamperedSnapshot =
+      await restartedRepository.loadRecoverySnapshot('session-v2');
+    if (!hashTamperedSnapshot) throw new Error('hash tamper lost snapshot');
+    await expect(
+      recoverAgentRuntimeSnapshot(hashTamperedSnapshot),
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        corruptionCode(error) === 'CHECKPOINT_HASH_MISMATCH',
+    );
+
+    const tamperCases: Array<{
+      label: string;
+      mutate: (context: AgentRuntimeCheckpointContextV2) => void;
+    }> = [
+      {
+        label: 'canonical source',
+        mutate: (context) => {
+          context.canonicalSourceRows[0].content = 'tampered policy';
+        },
+      },
+      {
+        label: 'manifest',
+        mutate: (context) => {
+          context.providerEnvelope.sourceManifest[0].sourceHash =
+            'sha256:tampered';
+        },
+      },
+      {
+        label: 'binding',
+        mutate: (context) => {
+          context.providerEnvelope.sourceBindings[0].sourceId =
+            'tampered-binding';
+        },
+      },
+      {
+        label: 'projection',
+        mutate: (context) => {
+          context.providerEnvelope.providerContext.systemPrompt =
+            'tampered projection';
+        },
+      },
+      {
+        label: 'budget',
+        mutate: (context) => {
+          context.providerEnvelope.plannerCheckpoint.budget.fixedInputTokens +=
+            1;
+        },
+      },
+    ];
+    for (const { label, mutate } of tamperCases) {
+      const tampered = structuredClone(original);
+      mutate(tampered);
+      const outerHash = await hashAgentRuntimeCheckpointPayload(tampered);
+      gateway.database
+        .prepare(
+          `UPDATE agent_runtime_checkpoint
+           SET context_json = ?, context_hash = ?
+           WHERE id = ?`,
+        )
+        .run(
+          JSON.stringify(tampered),
+          outerHash,
+          'agent-checkpoint:session-v2:0',
+        );
+      const tamperedSnapshot =
+        await restartedRepository.loadRecoverySnapshot('session-v2');
+      if (!tamperedSnapshot) throw new Error(`tamper ${label} lost snapshot`);
+      await expect(
+        recoverAgentRuntimeSnapshot(tamperedSnapshot),
+        label,
+      ).rejects.toSatisfy(
+        (error: unknown) => corruptionCode(error) === 'INVALID_CHECKPOINT',
+      );
+    }
+
+    const v1Hash = await hashAgentRuntimeCheckpointContext(HISTORY);
+    gateway.database
+      .prepare(
+        `UPDATE agent_runtime_checkpoint
+         SET context_json = ?, context_hash = ?
+         WHERE id = ?`,
+      )
+      .run(
+        JSON.stringify(HISTORY),
+        v1Hash,
+        'agent-checkpoint:session-v2:0',
+      );
+    const v1Snapshot =
+      await restartedRepository.loadRecoverySnapshot('session-v2');
+    if (!v1Snapshot) throw new Error('V1 rejection fixture lost snapshot');
+    await expect(
+      recoverAgentRuntimeSnapshot(v1Snapshot),
+    ).rejects.toSatisfy(
+      (error: unknown) => corruptionCode(error) === 'INVALID_CHECKPOINT',
+    );
+
+    const originalHash = await hashAgentRuntimeCheckpointPayload(original);
+    gateway.database
+      .prepare(
+        `UPDATE agent_runtime_checkpoint
+         SET context_json = ?, context_hash = ?
+         WHERE id = ?`,
+      )
+      .run(
+        JSON.stringify(original),
+        originalHash,
+        'agent-checkpoint:session-v2:0',
+      );
+    const restartedPersistence = createRepositoryAgentTransportPersistence({
+      repository: restartedRepository,
+      resolveToolAccess: () => undefined,
+    });
+    await expect(
+      restartedPersistence.prepareTurn({
+        candidateSessionId: 'unused-session',
+        resumeSessionId: 'session-v2',
+        newConversation: false,
+        route: ROUTE,
+        provider: 'test-provider',
+        model: 'test-model',
+        turnId: 'turn-after-restart',
+        prompt: 'Continue after restart.',
+        acceptedAt: '2026-07-30T10:00:02.000Z',
+      }),
+    ).resolves.toEqual({
+      sessionId: 'session-v2',
+      history: HISTORY,
+      historyTurnIds: HISTORY.map(() => 'turn-v2'),
+      recovered: false,
+    });
+  });
+
+  it('stores a V4 row digest when a stale V2 projection cannot prove the completed turn', async () => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-agent-v2-stale-'));
+    gateway = new FileSqliteGateway(join(directory, 'runtime.sqlite'), true);
+    const repository = createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    );
+    const persistence = createRepositoryAgentTransportPersistence({
+      repository,
+      resolveToolAccess: () => undefined,
+    });
+
+    await persistence.prepareTurn({
+      candidateSessionId: 'session-v2-stale',
+      newConversation: true,
+      route: ROUTE,
+      provider: 'test-provider',
+      model: 'test-model',
+      turnId: 'turn-v2-stale',
+      prompt: 'Persist the final answer.',
+      acceptedAt: NOW,
+    });
+    for (const [index, event] of completeJournal().entries()) {
+      const seq = index + 1;
+      await persistence.appendJournal({
+        schemaVersion: 1,
+        sessionId: 'session-v2-stale',
+        turnId: 'turn-v2-stale',
+        route: ROUTE,
+        seq,
+        eventId: `turn-v2-stale:${String(seq).padStart(8, '0')}`,
+        wallTimeMs: Date.parse(NOW) + seq,
+        event,
+      });
+    }
+    const stale = await planAgentModelContext({
+      systemPrompt: 'Drifting durable policy.',
+      messages: HISTORY.slice(0, 1),
+      resolveToolAccess: () => undefined,
+      planner: {
+        contextWindowTokens: 20_000,
+        requestedOutputTokens: 1_000,
+        fixedInputTokens: 100,
+      },
+    });
+    expect(stale.ok).toBe(true);
+    if (!stale.ok) return;
+
+    await expect(
+      persistence.commitTurn({
+        sessionId: 'session-v2-stale',
+        turnId: 'turn-v2-stale',
+        turnMessages: HISTORY,
+        contextCheckpointV2: {
+          canonicalSourceRows: stale.bridge.sourceRows,
+          providerEnvelope: stale.envelope,
+        },
+        outcome: 'completed',
+        errorCode: null,
+        errorMessage: null,
+        endedAt: ENDED,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect((await repository.getTurn('turn-v2-stale'))?.status).toBe('completed');
+    const snapshot = await repository.loadRecoverySnapshot('session-v2-stale');
+    expect(snapshot?.checkpoints[0]).toMatchObject({
+      throughTurnOrdinal: 0,
+      messageCount: 2,
+      context: {
+        schemaVersion: 4,
+        format: 'drifting.agent-runtime-checkpoint-digest-with-summaries',
+        canonicalMessageCount: 2,
+        durableSummaries: [],
+      },
+    });
+    if (!snapshot) throw new Error('fallback lost the session');
+    await expect(recoverAgentRuntimeSnapshot(snapshot)).resolves.toMatchObject({
+      providerHistory: HISTORY,
+      checkpointId: 'agent-checkpoint:session-v2-stale:0',
+    });
+  });
+
+  it('stores a bounded V4 row digest after validating an oversized V2 checkpoint', async () => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-agent-v2-large-'));
+    gateway = new FileSqliteGateway(join(directory, 'runtime.sqlite'), true);
+    const repository = createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    );
+    const persistence = createRepositoryAgentTransportPersistence({
+      repository,
+      resolveToolAccess: () => undefined,
+    });
+    const largeText = 'x'.repeat(MAX_INLINE_AGENT_RUNTIME_V2_CHECKPOINT_BYTES);
+    const largeHistory: AgentModelMessage[] = [
+      { role: 'user', content: 'Keep the completed long turn durable.' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: largeText,
+          },
+        ],
+      },
+    ];
+
+    await persistence.prepareTurn({
+      candidateSessionId: 'session-v2-large',
+      newConversation: true,
+      route: ROUTE,
+      provider: 'test-provider',
+      model: 'test-model',
+      turnId: 'turn-v2-large',
+      prompt: 'Keep the completed long turn durable.',
+      acceptedAt: NOW,
+    });
+    const journal: AgentRuntimeEvent[] = [
+      {
+        type: 'turn_started',
+        prompt: 'Keep the completed long turn durable.',
+      },
+      {
+        type: 'model_iteration_started',
+        iteration: 1,
+        driverId: 'test-provider',
+      },
+      { type: 'text_delta', iteration: 1, text: largeText },
+      { type: 'model_usage', iteration: 1, usage: USAGE },
+      {
+        type: 'model_iteration_completed',
+        iteration: 1,
+        stopReason: 'end_turn',
+      },
+      {
+        type: 'turn_finished',
+        outcome: 'completed',
+        usage: USAGE,
+        modelIterations: 1,
+        durationMs: 1_000,
+      },
+    ];
+    for (const [index, event] of journal.entries()) {
+      const seq = index + 1;
+      await persistence.appendJournal({
+        schemaVersion: 1,
+        sessionId: 'session-v2-large',
+        turnId: 'turn-v2-large',
+        route: ROUTE,
+        seq,
+        eventId: `turn-v2-large:${String(seq).padStart(8, '0')}`,
+        wallTimeMs: Date.parse(NOW) + seq,
+        event,
+      });
+    }
+    const planned = await planAgentModelContext({
+      systemPrompt: 'Drifting durable policy.',
+      messages: largeHistory,
+      resolveToolAccess: () => undefined,
+      planner: {
+        contextWindowTokens: 3_000_000,
+        requestedOutputTokens: 1_000,
+        fixedInputTokens: 100,
+      },
+    });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+
+    await persistence.commitTurn({
+      sessionId: 'session-v2-large',
+      turnId: 'turn-v2-large',
+      turnMessages: largeHistory,
+      contextCheckpointV2: {
+        canonicalSourceRows: planned.bridge.sourceRows,
+        providerEnvelope: planned.envelope,
+      },
+      outcome: 'completed',
+      errorCode: null,
+      errorMessage: null,
+      endedAt: ENDED,
+    });
+
+    const snapshot = await repository.loadRecoverySnapshot('session-v2-large');
+    expect(snapshot?.checkpoints[0]?.context).toMatchObject({
+      schemaVersion: 4,
+      format: 'drifting.agent-runtime-checkpoint-digest-with-summaries',
+      canonicalMessageCount: largeHistory.length,
+      durableSummaries: [],
+    });
+    expect(snapshot?.checkpoints[0]?.context).not.toHaveProperty('canonicalHistory');
+    expect(
+      new TextEncoder().encode(
+        JSON.stringify(snapshot?.checkpoints[0]?.context),
+      ).byteLength,
+    ).toBeLessThanOrEqual(MAX_INLINE_AGENT_RUNTIME_V2_CHECKPOINT_BYTES);
+    if (!snapshot) throw new Error('oversized checkpoint lost the session');
+    await expect(recoverAgentRuntimeSnapshot(snapshot)).resolves.toMatchObject({
+      providerHistory: largeHistory,
+      checkpointId: 'agent-checkpoint:session-v2-large:0',
+    });
+  });
+
+  it('restarts and resumes a V2 session containing a canonical denied tool pair', async () => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-agent-v2-denied-'));
+    const databasePath = join(directory, 'runtime.sqlite');
+    gateway = new FileSqliteGateway(databasePath, true);
+    const repository = createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    );
+    const persistence = createRepositoryAgentTransportPersistence({
+      repository,
+      resolveToolAccess: () => undefined,
+    });
+
+    await persistence.prepareTurn({
+      candidateSessionId: 'session-v2-denied',
+      newConversation: true,
+      route: ROUTE,
+      provider: 'test-provider',
+      model: 'test-model',
+      turnId: 'turn-v2-denied',
+      prompt: 'Use the missing tool, then recover.',
+      acceptedAt: NOW,
+    });
+    for (const [index, event] of deniedJournal().entries()) {
+      const seq = index + 1;
+      await persistence.appendJournal({
+        schemaVersion: 1,
+        sessionId: 'session-v2-denied',
+        turnId: 'turn-v2-denied',
+        route: ROUTE,
+        seq,
+        eventId: `turn-v2-denied:${String(seq).padStart(8, '0')}`,
+        wallTimeMs: Date.parse(NOW) + seq,
+        event,
+      });
+    }
+    const planned = await planAgentModelContext({
+      systemPrompt: 'Drifting durable policy.',
+      messages: DENIED_HISTORY,
+      resolveToolAccess: () => undefined,
+      planner: {
+        contextWindowTokens: 20_000,
+        requestedOutputTokens: 1_000,
+        fixedInputTokens: 100,
+      },
+    });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect(
+      planned.bridge.sourceRows
+        .filter(
+          (row) =>
+            row.kind === 'tool_call' || row.kind === 'tool_result',
+        )
+        .map((row) => row.toolAccess),
+    ).toEqual(['denied', 'denied']);
+    await persistence.commitTurn({
+      sessionId: 'session-v2-denied',
+      turnId: 'turn-v2-denied',
+      turnMessages: DENIED_HISTORY,
+      contextCheckpointV2: {
+        canonicalSourceRows: planned.bridge.sourceRows,
+        providerEnvelope: planned.envelope,
+      },
+      outcome: 'completed',
+      errorCode: null,
+      errorMessage: null,
+      endedAt: ENDED,
+    });
+
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    const restartedRepository =
+      createAgentRuntimePersistenceRepository(
+        createDatabaseClient(gateway),
+      );
+    const snapshot = await restartedRepository.loadRecoverySnapshot(
+      'session-v2-denied',
+    );
+    if (!snapshot) throw new Error('restart lost denied session');
+    await expect(
+      recoverAgentRuntimeSnapshot(snapshot),
+    ).resolves.toMatchObject({
+      providerHistory: DENIED_HISTORY,
+      checkpointId: 'agent-checkpoint:session-v2-denied:0',
+    });
+
+    const restartedPersistence =
+      createRepositoryAgentTransportPersistence({
+        repository: restartedRepository,
+        resolveToolAccess: () => undefined,
+      });
+    await expect(
+      restartedPersistence.prepareTurn({
+        candidateSessionId: 'unused-session',
+        resumeSessionId: 'session-v2-denied',
+        newConversation: false,
+        route: ROUTE,
+        provider: 'test-provider',
+        model: 'test-model',
+        turnId: 'turn-after-denied-restart',
+        prompt: 'Continue after the denied tool.',
+        acceptedAt: '2026-07-30T10:00:02.000Z',
+      }),
+    ).resolves.toEqual({
+      sessionId: 'session-v2-denied',
+      history: DENIED_HISTORY,
+      historyTurnIds: DENIED_HISTORY.map(() => 'turn-v2-denied'),
+      recovered: false,
+    });
+  });
+
+  it('canonicalizes non-lexical nested tool arguments while preserving rawArguments across a V2 restart', async () => {
+    directory = mkdtempSync(join(tmpdir(), 'drifting-agent-v2-args-'));
+    const databasePath = join(directory, 'runtime.sqlite');
+    gateway = new FileSqliteGateway(databasePath, true);
+    const repository = createAgentRuntimePersistenceRepository(
+      createDatabaseClient(gateway),
+    );
+    const resolveToolAccess = (name: string) =>
+      name === 'read_complex' ? ('read' as const) : undefined;
+    const persistence = createRepositoryAgentTransportPersistence({
+      repository,
+      resolveToolAccess,
+    });
+
+    await persistence.prepareTurn({
+      candidateSessionId: 'session-v2-args',
+      newConversation: true,
+      route: ROUTE,
+      provider: 'test-provider',
+      model: 'test-model',
+      turnId: 'turn-v2-args',
+      prompt: 'Read with nested arguments.',
+      acceptedAt: NOW,
+    });
+    for (const [index, event] of nonLexicalToolJournal().entries()) {
+      const seq = index + 1;
+      await persistence.appendJournal({
+        schemaVersion: 1,
+        sessionId: 'session-v2-args',
+        turnId: 'turn-v2-args',
+        route: ROUTE,
+        seq,
+        eventId: `turn-v2-args:${String(seq).padStart(8, '0')}`,
+        wallTimeMs: Date.parse(NOW) + seq,
+        event,
+      });
+    }
+
+    const planned = await planAgentModelContext({
+      systemPrompt: 'Drifting durable policy.',
+      messages: NON_LEXICAL_TOOL_HISTORY,
+      resolveToolAccess,
+      planner: {
+        contextWindowTokens: 20_000,
+        requestedOutputTokens: 1_000,
+        fixedInputTokens: 100,
+      },
+    });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const toolCallRow = planned.bridge.sourceRows.find(
+      (row) => row.kind === 'tool_call',
+    );
+    if (!toolCallRow) throw new Error('planned context lost the tool call');
+    const serializedToolCall = JSON.parse(toolCallRow.content) as {
+      arguments: unknown;
+      rawArguments: string;
+    };
+    expect(JSON.stringify(serializedToolCall.arguments)).toBe(
+      '{"a":{"m":[{"x":1,"y":2}],"z":3},"b":1}',
+    );
+    expect(serializedToolCall.rawArguments).toBe(
+      NON_LEXICAL_TOOL_RAW_ARGUMENTS,
+    );
+
+    await persistence.commitTurn({
+      sessionId: 'session-v2-args',
+      turnId: 'turn-v2-args',
+      turnMessages: NON_LEXICAL_TOOL_HISTORY,
+      contextCheckpointV2: {
+        canonicalSourceRows: planned.bridge.sourceRows,
+        providerEnvelope: planned.envelope,
+      },
+      outcome: 'completed',
+      errorCode: null,
+      errorMessage: null,
+      endedAt: ENDED,
+    });
+
+    await gateway.close();
+    gateway = new FileSqliteGateway(databasePath, false);
+    const restartedRepository =
+      createAgentRuntimePersistenceRepository(
+        createDatabaseClient(gateway),
+      );
+    const snapshot = await restartedRepository.loadRecoverySnapshot(
+      'session-v2-args',
+    );
+    if (!snapshot) throw new Error('restart lost nested-argument session');
+    const recovered = await recoverAgentRuntimeSnapshot(snapshot);
+    expect(recovered).toMatchObject({
+      providerHistory: NON_LEXICAL_TOOL_HISTORY,
+      checkpointId: 'agent-checkpoint:session-v2-args:0',
+    });
+    expect(recovered.providerHistory[1]).toMatchObject({
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool_call',
+          rawArguments: NON_LEXICAL_TOOL_RAW_ARGUMENTS,
+          arguments: NON_LEXICAL_TOOL_ARGUMENTS,
+        },
+      ],
+    });
+
+    const restartedPersistence =
+      createRepositoryAgentTransportPersistence({
+        repository: restartedRepository,
+        resolveToolAccess,
+      });
+    await expect(
+      restartedPersistence.prepareTurn({
+        candidateSessionId: 'unused-session',
+        resumeSessionId: 'session-v2-args',
+        newConversation: false,
+        route: ROUTE,
+        provider: 'test-provider',
+        model: 'test-model',
+        turnId: 'turn-after-args-restart',
+        prompt: 'Continue after nested arguments.',
+        acceptedAt: '2026-07-30T10:00:02.000Z',
+      }),
+    ).resolves.toEqual({
+      sessionId: 'session-v2-args',
+      history: NON_LEXICAL_TOOL_HISTORY,
+      historyTurnIds: NON_LEXICAL_TOOL_HISTORY.map(() => 'turn-v2-args'),
+      recovered: false,
+    });
+  });
+});

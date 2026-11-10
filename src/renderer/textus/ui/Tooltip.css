@@ -1,0 +1,22 @@
+/* The hint over an icon-only button: it fades only, so reduced motion has
+   nothing to take away, and never takes the pointer. */
+.tooltip {
+  position: fixed;
+  z-index: var(--z-select);
+  max-width: min(280px, calc(100vw - 16px));
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--shape-s);
+  color: var(--ui-text);
+  font-size: var(--text-footnote);
+  font-weight: normal;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+  animation: motion-fade-in var(--dur-fast) var(--ease-out);
+}
+
+.tooltip[data-state="closing"] {
+  animation: motion-fade-out var(--dur-fast) var(--ease-in) forwards;
+}

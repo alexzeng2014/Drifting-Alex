@@ -1,0 +1,51 @@
+/* Split view: source | preview, each scrolling on its own. */
+.split-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.split-view .split-source {
+  flex: 1 1 50%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  border-right: 1px solid var(--ui-border);
+}
+
+.split-view .split-source .cm-scroller {
+  padding: 2.5rem 1.5rem 42vh;
+}
+
+.split-preview {
+  flex: 1 1 50%;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--doc-bg, var(--ui-bg));
+}
+
+.split-preview .milkdown {
+  zoom: var(--content-zoom, 1);
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 2.5rem 1.75rem 42vh;
+}
+
+/* Narrow windows stack the panes instead of squeezing both. */
+@media (max-width: 760px) {
+  .split-view {
+    flex-direction: column;
+  }
+  .split-view .split-source {
+    border-right: none;
+    border-bottom: 1px solid var(--ui-border);
+  }
+}
+
+/* An Obsidian vault without strict line breaks breaks the line at a single
+   newline, which the editor shows as a space. */
+.split-preview-breaks [data-type="hardbreak"][data-is-inline="true"]::after {
+  content: "\A";
+  white-space: pre;
+}

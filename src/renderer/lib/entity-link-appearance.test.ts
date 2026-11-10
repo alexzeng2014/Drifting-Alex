@@ -1,0 +1,219 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  DEFAULT_ENTITY_LINK_KIND_COLORS,
+  buildEntityLinkColorSignature,
+  normalizeEntityLinkColorMode,
+  normalizeEntityLinkKindColors,
+  resolveEntityLinkTargetColor,
+  type EntityLinkColorState,
+} from './entity-link-appearance';
+
+function state(overrides: Record<string, unknown> = {}): EntityLinkColorState {
+  return {
+    bookElements: [],
+    bookElementCategories: [],
+    bookNodes: [],
+    storylines: [],
+    primaryStorylineByNode: {},
+    driftGroups: [],
+    ...overrides,
+  } as unknown as EntityLinkColorState;
+}
+
+describe('entity link appearance', () => {
+  it('shares a color signature across consumers and invalidates changed node kinds', () => {
+    let colorReads = 0;
+    const data = state({
+      bookElements: [{ id: 'element-1', categoryId: 'category-1' }],
+      bookElementCategories: [{ id: 'category-1', get color() { colorReads++; return '#112233'; } }],
+      bookNodes: [{ id: 'node-1', kind: 'chapter', driftGroupId: null }],
+    });
+    const signature = buildEntityLinkColorSignature(data, 'contextual', DEFAULT_ENTITY_LINK_KIND_COLORS);
+    const coldReads = colorReads;
+    for (let consumer = 0; consumer < 20; consumer++) {
+      expect(buildEntityLinkColorSignature({ ...data }, 'contextual', DEFAULT_ENTITY_LINK_KIND_COLORS)).toBe(signature);
+    }
+    expect(colorReads).toBe(coldReads);
+    const beforeKind = buildEntityLinkColorSignature(data, 'kind', DEFAULT_ENTITY_LINK_KIND_COLORS);
+    const changed = state({ ...data, bookNodes: [{ id: 'node-1', kind: 'drift', driftGroupId: null }] });
+    expect(buildEntityLinkColorSignature(changed, 'kind', DEFAULT_ENTITY_LINK_KIND_COLORS)).not.toBe(beforeKind);
+  });
+
+  it('shares immutable collection lookups without scanning IDs for each rendered link', () => {
+    let idReads = 0;
+    const data = state({
+      bookElements: Array.from({ length: 1_000 }, (_, index) => ({
+        get id() { idReads++; return `element-${index}`; },
+        categoryId: 'category-1',
+      })),
+      bookElementCategories: [{ id: 'category-1', color: '#AA5577' }],
+    });
+    const resolve = (snapshot: EntityLinkColorState) => resolveEntityLinkTargetColor(
+      'element', 'element-999', snapshot, 'contextual', DEFAULT_ENTITY_LINK_KIND_COLORS,
+    );
+    expect(resolve(data)).toBe('#AA5577');
+    const coldReads = idReads;
+    for (let index = 0; index < 100; index++) expect(resolve(data)).toBe('#AA5577');
+    expect(idReads).toBe(coldReads);
+    expect(resolve({ ...data, bookElementCategories: [{ id: 'category-1', color: '#123456' }] } as EntityLinkColorState)).toBe('#123456');
+    expect(resolve({ ...data, bookElements: [] })).toBeNull();
+    expect(resolve(data)).toBe('#AA5577');
+  });
+
+  it('preserves first matching ID behavior and isolates different collection snapshots', () => {
+    const data = state({ bookElementCategories: [
+      { id: 'same-id', color: '#112233' }, { id: 'same-id', color: '#445566' },
+    ] });
+    const resolve = (snapshot: EntityLinkColorState) => resolveEntityLinkTargetColor(
+      'category', 'same-id', snapshot, 'contextual', DEFAULT_ENTITY_LINK_KIND_COLORS,
+    );
+    expect(resolve(data)).toBe('#112233');
+    expect(resolve(state({ bookElementCategories: [{ id: 'same-id', color: '#778899' }] }))).toBe('#778899');
+    expect(resolve(data)).toBe('#112233');
+  });
+
+  it('normalizes synced modes and custom colors', () => {
+    expect(normalizeEntityLinkColorMode('kind')).toBe('kind');
+    expect(normalizeEntityLinkColorMode('hover')).toBe('hover');
+    expect(normalizeEntityLinkColorMode('legacy')).toBe('contextual');
+    expect(
+      normalizeEntityLinkKindColors({
+        element: '#AABBCC',
+        chapter: 'red',
+      }),
+    ).toMatchObject({
+      element: '#aabbcc',
+      chapter: DEFAULT_ENTITY_LINK_KIND_COLORS.chapter,
+    });
+  });
+
+  it('derives colors from each entity owner in contextual mode', () => {
+    const data = state({
+      bookElements: [{ id: 'element-1', categoryId: 'category-1' }],
+      bookElementCategories: [{ id: 'category-1', color: '#AA5577' }],
+      bookNodes: [
+        { id: 'chapter-1', kind: 'chapter', driftGroupId: null },
+        { id: 'drift-1', kind: 'drift', driftGroupId: 'group-1' },
+      ],
+      storylines: [{ id: 'storyline-1', color: '#5577AA' }],
+      primaryStorylineByNode: { 'chapter-1': 'storyline-1' },
+      driftGroups: [{ id: 'group-1', color: '#7755AA' }],
+    });
+
+    expect(
+      resolveEntityLinkTargetColor(
+        'element',
+        'element-1',
+        data,
+        'contextual',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe('#AA5577');
+    expect(
+      resolveEntityLinkTargetColor(
+        'node',
+        'chapter-1',
+        data,
+        'contextual',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe('#5577AA');
+    expect(
+      resolveEntityLinkTargetColor(
+        'node',
+        'drift-1',
+        data,
+        'contextual',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe('#7755AA');
+    expect(
+      resolveEntityLinkTargetColor(
+        'category',
+        'category-1',
+        data,
+        'contextual',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe('#AA5577');
+    expect(
+      resolveEntityLinkTargetColor(
+        'storyline',
+        'storyline-1',
+        data,
+        'contextual',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe('#5577AA');
+  });
+
+  it('distinguishes chapter and drift colors in type mode', () => {
+    const data = state({
+      bookNodes: [
+        { id: 'chapter-1', kind: 'chapter' },
+        { id: 'drift-1', kind: 'drift' },
+      ],
+    });
+
+    expect(
+      resolveEntityLinkTargetColor(
+        'node',
+        'chapter-1',
+        data,
+        'kind',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe(DEFAULT_ENTITY_LINK_KIND_COLORS.chapter);
+    expect(
+      resolveEntityLinkTargetColor(
+        'node',
+        'drift-1',
+        data,
+        'kind',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe(DEFAULT_ENTITY_LINK_KIND_COLORS.drift);
+  });
+
+  it('removes inline colors in prose mode and ignores ordinary metadata changes', () => {
+    const before = state({
+      bookElements: [{ id: 'element-1', categoryId: 'category-1', summary: 'before' }],
+      bookElementCategories: [{ id: 'category-1', color: '#AA5577' }],
+    });
+    const after = state({
+      bookElements: [{ id: 'element-1', categoryId: 'category-1', summary: 'after' }],
+      bookElementCategories: [{ id: 'category-1', color: '#AA5577' }],
+    });
+
+    expect(
+      resolveEntityLinkTargetColor(
+        'element',
+        'element-1',
+        before,
+        'prose',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBeNull();
+    expect(
+      buildEntityLinkColorSignature(before, 'contextual', DEFAULT_ENTITY_LINK_KIND_COLORS),
+    ).toBe(buildEntityLinkColorSignature(after, 'contextual', DEFAULT_ENTITY_LINK_KIND_COLORS));
+  });
+
+  it('keeps contextual owner colors available for hover-only styling', () => {
+    const data = state({
+      bookElements: [{ id: 'element-1', categoryId: 'category-1' }],
+      bookElementCategories: [{ id: 'category-1', color: '#AA5577' }],
+    });
+
+    expect(
+      resolveEntityLinkTargetColor(
+        'element',
+        'element-1',
+        data,
+        'hover',
+        DEFAULT_ENTITY_LINK_KIND_COLORS,
+      ),
+    ).toBe('#AA5577');
+  });
+});

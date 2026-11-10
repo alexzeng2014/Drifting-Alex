@@ -1,0 +1,1570 @@
+{
+  "agentPanel": {
+    "checking": "正在檢查…",
+    "common": {
+      "none": "無"
+    },
+    "composer": {
+      "answer": "回答",
+      "placeholder": "向 Agent 提問…（Enter 傳送，Shift+Enter 換行）",
+      "send": "傳送",
+      "steer": "補充指示",
+      "stop": "停止"
+    },
+    "config": {
+      "effort": "強度 · {{effort}}",
+      "effortLabel": "強度",
+      "model": "模型",
+      "modelUnavailable": "目前目錄中沒有選取的模型，請選擇其他模型。"
+    },
+    "context": {
+      "tokens": "{{count}} 個 token"
+    },
+    "control": {
+      "allow": {
+        "once": "允許一次"
+      },
+      "deny": "拒絕",
+      "permissionTitle": "Agent 請求執行操作",
+      "questionTitle": "Agent 需要你做決定",
+      "recoveredTitle": "已找回中斷前的等待狀態"
+    },
+    "empty": {
+      "start": "傳送訊息給 Agent 即可開始，它能讀寫此作品的章節、要素與關係。"
+    },
+    "history": {
+      "empty": "尚無對話歷史",
+      "untitled": "未命名"
+    },
+    "newConversation": "新增對話",
+    "onboarding": {
+      "connect": "連接模型",
+      "getKey": "取得 API 金鑰",
+      "history": "版本歷史",
+      "prompts": {
+        "castCharacters": "建立三位主要角色",
+        "commentChapter": "在「{{chapter}}」留下兩則批註",
+        "completeElement": "補完整「{{element}}」的設定",
+        "extractElements": "找出「{{chapter}}」中的人物與地點，加入要素",
+        "interview": "問我幾個問題，一起塑造這個故事",
+        "outline": "擬一份三幕章節大綱",
+        "relateElements": "梳理 {{first}} 和 {{second}} 的關係",
+        "tightenChapter": "精簡「{{chapter}}」的開頭段落"
+      },
+      "saveFailed": "無法將金鑰儲存至鑰匙圈。",
+      "try": "試試看"
+    },
+    "pending": {
+      "cancelling": "正在停止…",
+      "committing": "正在儲存…",
+      "now": "思考中…"
+    },
+    "setup": {
+      "openSettings": "開啟設定"
+    },
+    "thinking": {
+      "done": "思考過程",
+      "streaming": "思考中…"
+    },
+    "tool": {
+      "result": "結果"
+    },
+    "toolbar": {
+      "history": "歷史"
+    },
+    "turnChanges": "本回合變更",
+    "unavailable": "Agent 目前無法使用。"
+  },
+  "allChapters": {
+    "actOrdinal": "第 {{n}} 幕"
+  },
+  "bottomStatusBar": {
+    "collapseTimeline": "收合故事線時間線",
+    "elements": "要素",
+    "expandTimeline": "展開故事線時間線",
+    "storyGraph": "故事圖譜",
+    "todoLibrary": "審閱與素材"
+  },
+  "bottomTimeline": {
+    "act": {
+      "chapterCount": "{{count}} 章",
+      "deleteMergeNext": "刪除此幕並合併至下一幕",
+      "deleteMergePrev": "刪除此幕並合併至上一幕",
+      "dragBoundary": "拖曳以調整幕的邊界",
+      "newAct": "新幕",
+      "openActNote": "開啟幕備註",
+      "railLabel": "幕",
+      "startHere": "在此開始新幕",
+      "unbindDrift": "解除構想綁定"
+    },
+    "axis": {
+      "addPin": "新增時間標記",
+      "time": "時間"
+    },
+    "empty": {
+      "noChaptersInStoryline": "此故事線尚無章節 · 按兩下建立"
+    },
+    "locateCurrent": "定位目前章節",
+    "marker": {
+      "defaultLabel": "標記"
+    },
+    "menu": {
+      "detachFromNarrative": "移回尚未放置",
+      "moveToUnaffiliated": "移至未歸屬項目"
+    },
+    "pinMenu": {
+      "bindDrift": "綁定構想…",
+      "deleteMarker": "刪除標記",
+      "openDrift": "開啟構想",
+      "rename": "重新命名",
+      "unbind": "解除綁定並還原為一般標籤"
+    },
+    "spread": {
+      "needTwo": "至少需要兩個章節才能分散排列",
+      "title": "分散排列：重新排列{{mode}}，讓重疊的節點分開"
+    },
+    "storyline": {
+      "chapterCount": "{{count}} 章"
+    },
+    "synthetic": {
+      "book": "全書",
+      "unaffiliated": "無歸屬"
+    },
+    "unplaced": {
+      "empty": "所有章節皆已放置於敘事時間線",
+      "label": "尚未放置",
+      "title": "尚未放置於敘事時間線的章節"
+    },
+    "view": {
+      "book": "全書",
+      "narrative": "敘事時間"
+    }
+  },
+  "categoryEditor": {
+    "actions": {
+      "openElement": "開啟要素"
+    },
+    "alerts": {
+      "deleteFailed": "無法刪除分類，請再試一次。"
+    },
+    "deleteConfirm": "刪除分類「{{name}}」？\n\n此分類的要素將移至「未分類」。",
+    "empty": {
+      "noFilteredElements": "沒有符合篩選條件的要素",
+      "noSummary": "尚未填寫概述"
+    },
+    "filters": {
+      "unused": "空白",
+      "used": "已填寫"
+    },
+    "folio": "類目",
+    "labels": {
+      "elementCount": "要素",
+      "summary": "概述"
+    },
+    "meta": {
+      "elements": "{{count}} 個要素",
+      "items": "{{count}} 個項目"
+    },
+    "sections": {
+      "elements": "要素清單",
+      "scratch": "隨筆"
+    },
+    "untitled": "未命名類目"
+  },
+  "chapterEditor": {
+    "synopsisPlaceholder": "梗概…",
+    "untitledChapter": "未命名章節",
+    "untitledDrift": "未命名構想"
+  },
+  "chapterEnd": {
+    "defaultTitle": "新章節",
+    "insertAfter": "在後面新增章節",
+    "markDraft": "改回草稿",
+    "markFinished": "標為完成",
+    "trigger": "章末操作",
+    "triggerFinished": "章末操作（已完成）"
+  },
+  "commentRail": {
+    "actions": {
+      "reopen": "重新開啟",
+      "resolve": "標為已解決",
+      "toNote": "轉為註解",
+      "toTodo": "轉為待辦"
+    },
+    "card": {
+      "emptyComment": "空白註解"
+    },
+    "snapshot": {
+      "changed": "已刪除／變更"
+    }
+  },
+  "common": {
+    "cancel": "取消",
+    "close": "關閉",
+    "confirm": "確認",
+    "counting": "計算中…",
+    "creating": "正在建立…",
+    "customColor": "自訂顏色",
+    "delete": "刪除",
+    "edit": "編輯",
+    "local": "本機",
+    "processing": "正在處理…",
+    "save": "儲存",
+    "saveFailed": "無法儲存變更，請重試。",
+    "saving": "正在儲存…",
+    "untitled": "未命名",
+    "words": "字",
+    "wordsCount": "{{count}} 字"
+  },
+  "dashboard": {
+    "actions": {
+      "allChapters": "全部章節",
+      "elementOverview": "要素總覽",
+      "storyGraph": "故事圖譜"
+    },
+    "hero": {
+      "projectName": "作品名稱"
+    },
+    "plan": {
+      "wordsPerDay": "字／天"
+    },
+    "profilePlaceholder": "寫下作品前提、主旨或故事梗概",
+    "sections": {
+      "projectProfile": "作品簡介",
+      "writingPlan": "寫作計畫"
+    },
+    "today": {
+      "goal": "目標",
+      "streak": "連續寫作",
+      "week": "本週"
+    },
+    "wordCount": "{{count}} 字"
+  },
+  "edgeKindManager": {
+    "changeColor": "變更顏色",
+    "changeColorLabel": "變更 {{label}} 的顏色",
+    "editTypes": "編輯類型",
+    "resetColor": "還原預設顏色",
+    "summary": "{{kinds}} 種類型 · {{relations}} 個關係",
+    "title": "所有關係類型"
+  },
+  "editorOutline": {
+    "aria": "大綱",
+    "hiddenItems": "{{count}} 個遠處大綱項目，游標停留以顯示"
+  },
+  "editorTopBar": {
+    "actions": {
+      "collapsePlotPlanner": "收合情節規劃器",
+      "expandPlotPlanner": "展開情節規劃器",
+      "more": "更多操作"
+    },
+    "menu": {
+      "changeCategory": "變更分類",
+      "changeGroup": "變更群組",
+      "deleteCategory": "刪除分類",
+      "deleteElement": "刪除要素",
+      "deleteMaterial": "刪除素材",
+      "deleteNode": "刪除節點",
+      "deleteStoryline": "刪除故事線",
+      "editStorylines": "編輯故事線",
+      "moveMaterialToFolder": "移至素材夾…",
+      "moveToGroup": "移至分組…",
+      "openMaterialInSystem": "以預設應用程式開啟"
+    },
+    "outlineRailMode": {
+      "hidden": "隱藏目錄",
+      "visible": "顯示目錄"
+    },
+    "status": {
+      "discarded": "已棄用",
+      "draft": "草稿",
+      "drifting": "漂流中",
+      "finished": "已完成",
+      "resting": "停泊中"
+    },
+    "statusSection": {
+      "chapter": "寫作狀態",
+      "drift": "構想狀態"
+    }
+  },
+  "elementCategoryCreateMenu": {
+    "back": "返回新增選單",
+    "createGroup": "建立並開啟第一個要素",
+    "duplicateGroup": "同名分組已存在。",
+    "groupNameLabel": "分組名稱",
+    "groupNamePlaceholder": "輸入分組名稱",
+    "groupTitle": "新增分組",
+    "newElement": "新增要素",
+    "newGroup": "新增分組…",
+    "openCreateMenu": "新增至此類目",
+    "title": "新增至「{{name}}」"
+  },
+  "elementEditor": {
+    "alerts": {
+      "aliasConflict": "無法新增別名：「{{name}}」已被要素「{{conflicting}}」使用。",
+      "deleteFailed": "無法刪除要素，請再試一次。",
+      "groupUpdateFailed": "無法更新群組，請再試一次。",
+      "renameConflict": "無法重新命名：「{{name}}」已被要素「{{conflicting}}」用作名稱或別名。"
+    },
+    "alias": {
+      "add": "別名",
+      "addFirst": "新增別名",
+      "remove": "移除別名"
+    },
+    "category": {
+      "newOption": "新增分類…"
+    },
+    "deleteConfirm": "刪除要素「{{name}}」？",
+    "empty": {
+      "noFacts": "尚無欄位。建立要素時，所屬分類的「欄位範本」會自動填入。"
+    },
+    "folio": "要素",
+    "group": {
+      "create": "建立分組「{{name}}」",
+      "empty": "此分類尚無群組。",
+      "noGroup": "（無群組）",
+      "placeholder": "搜尋或建立群組…（留空＝無群組）",
+      "title": "群組 · {{category}}"
+    },
+    "sections": {
+      "bioTitle": "生平",
+      "facts": "設定資料"
+    },
+    "summaryPlaceholder": "一句話概述…",
+    "untitled": "未命名要素"
+  },
+  "feedback": {
+    "attachDiagnostics": "附上已去識別的診斷資料",
+    "cancel": "取消",
+    "close": "關閉",
+    "contact": "回覆用電子郵件",
+    "contactPlaceholder": "選填",
+    "crash": {
+      "emailSubject": "Drifting 當機後續回報",
+      "ignore": "忽略",
+      "placeholder": "當時正在進行什麼操作？",
+      "title": "Drifting 上次執行時發生問題"
+    },
+    "emailSubject": "Drifting 意見回饋",
+    "failed": "無法傳送",
+    "hidePreview": "隱藏",
+    "placeholder": "問題或想法",
+    "preview": "預覽",
+    "send": "傳送",
+    "sendByEmail": "以電子郵件傳送",
+    "sending": "正在傳送…",
+    "sent": "已傳送",
+    "title": "傳送意見回饋"
+  },
+  "findPanel": {
+    "bookPlaceholder": "搜尋全書…",
+    "closeTitle": "關閉（Esc）",
+    "currentPlaceholder": "在目前編輯器中尋找…",
+    "nextTitle": "下一個（Enter）",
+    "previousTitle": "上一個（Shift+Enter）",
+    "replace": "取代",
+    "replaceAll": "全部取代",
+    "replacePlaceholder": "取代為…"
+  },
+  "globalSearch": {
+    "closeTitle": "關閉（Esc）",
+    "field": {
+      "body": "正文",
+      "name": "名稱",
+      "title": "標題"
+    },
+    "noResults": "找不到符合項目",
+    "stats": "{{groups}} 個項目 · {{occurrences}} 處符合"
+  },
+  "guide": {
+    "back": "返回",
+    "done": "完成",
+    "hints": {
+      "search": "搜尋全部內容",
+      "timeline": "時間線"
+    },
+    "next": "下一頁",
+    "skip": "略過導覽",
+    "workspace": {
+      "agent": {
+        "body": "可閱讀、搜尋與編輯全書。變更會標示在正文中，也可從歷史記錄復原。",
+        "closedBody": "Agent 位於右側欄，可閱讀、搜尋與編輯全書。從這裡開啟。",
+        "title": "Agent"
+      },
+      "create": {
+        "body": "章節、構想、要素、故事線、分類與素材，都從這裡建立。",
+        "title": "新增"
+      },
+      "home": {
+        "body": "門形按鈕會帶你回到此頁；旁邊的風鈴收納通知。",
+        "title": "作品首頁"
+      },
+      "panels": {
+        "body": "全書的骨架。左側欄可分為上下兩部分，各自顯示不同面板。",
+        "closedBody": "全書的骨架位於左側欄：章節、要素與構想。從這裡開啟。",
+        "title": "章節 · 要素 · 構想"
+      },
+      "superViews": {
+        "body": "從面板標頭的圓形按鈕開啟。",
+        "title": "全視窗檢視"
+      },
+      "timeline": {
+        "body": "從頁面下方滑出，依書中順序或故事時間排列故事線。",
+        "title": "時間線"
+      }
+    }
+  },
+  "immersiveWriting": {
+    "enter": "沉浸寫作",
+    "leave": "退出沉浸寫作"
+  },
+  "import": {
+    "v1": {
+      "action": {
+        "download_last_release": "下載舊版最後一版",
+        "import_anyway": "仍然匯入"
+      },
+      "blocked": {
+        "changed_after_handoff": "有 {{count}} 篇在交接核對後又改過",
+        "get_last_release": "下載舊版的最後一版，打開這個資料庫一次再退出，然後重新匯入",
+        "no_handoff": "這個資料庫還沒在舊版的最後一版裡打開過",
+        "stale": "有 {{count}} 章比你寫到的舊",
+        "sync": "同步還有沒解決的衝突",
+        "title": "有幾篇正文可能少了最後幾秒打的字",
+        "unproven": "有 {{count}} 篇正文無法確認是最新的，列在下面"
+      },
+      "notice": {
+        "carry_on": "接著匯入",
+        "unfinished": "《{{name}}》沒匯入完"
+      },
+      "summary": {
+        "account_libraries_left": "資料夾裡還有 {{count}} 個帳號資料庫沒匯入，等帳號功能做好",
+        "already_imported": "這台裝置以前匯入過，這次沒再匯入",
+        "already_in_library": "新資料庫裡已經有這本書，沒有動",
+        "carries_on": "沒匯入完，再匯入一次這個資料庫會接著匯入",
+        "from_caches": "有 {{count}} 篇照快取匯入，可能少了最後幾秒的字"
+      }
+    }
+  },
+  "importDialog": {
+    "categoryTitle": "類目",
+    "chooseFiles": "選擇檔案",
+    "chooseFolder": "選擇資料夾",
+    "clear": "清除",
+    "filesTitle": "檔案",
+    "importing": "匯入中…",
+    "start": "開始匯入（{{count}}）",
+    "status": {
+      "committed": "已匯入",
+      "error": "錯誤",
+      "parsing": "解析中",
+      "ready": "已就緒"
+    },
+    "storylineTitle": "故事線",
+    "summary": {
+      "done": "完成",
+      "failed": "失敗",
+      "ok": "已匯入"
+    },
+    "targetTitle": "目標",
+    "targets": {
+      "chapter": {
+        "desc": "主線節點，會出現在時間線並計入字數。",
+        "label": "章節"
+      },
+      "element": {
+        "desc": "人物、地點、物品等參考資料，需選擇類目。",
+        "label": "要素"
+      },
+      "idea": {
+        "desc": "獨立於故事線的浮動構想卡片。",
+        "label": "構想"
+      }
+    },
+    "title": "匯入檔案",
+    "warnings": {
+      "imagesDropped": "{{count}} 張圖片沒有匯入",
+      "notUtf8": "不是 UTF-8 文字，有些字元被替換了"
+    }
+  },
+  "kvEditor": {
+    "addField": "新增欄位",
+    "keyPlaceholder": "欄位",
+    "removeRow": "移除此列",
+    "valuePlaceholder": "內容"
+  },
+  "leftSidebar": {
+    "actions": {
+      "collapseAll": "全部展開或收合",
+      "newCategory": "新增類目",
+      "newDrift": "新增構想",
+      "newDriftGroup": "新增分組",
+      "sort": "排序"
+    },
+    "empty": {
+      "noChapters": "尚無章節。",
+      "noDrifts": "尚無構想。",
+      "noElements": "尚無要素。"
+    },
+    "groups": {
+      "addElementToGroup": "在此分組新增要素",
+      "deleteGroup": "刪除分組",
+      "driftCount_one": "{{count}} 個構想",
+      "driftCount_other": "{{count}} 個構想",
+      "moveDriftToRoot": "最上層（移出分組）",
+      "moveGroupToRoot": "最上層（移至頂層）",
+      "newChapterInStoryline": "在此故事線新增章節",
+      "newDriftInGroup": "在此新增構想",
+      "newSubGroup": "新增子分組",
+      "rename": "重新命名",
+      "renameElementGroupTitle": "按兩下重新命名分組",
+      "unaffiliated": "無歸屬"
+    },
+    "meta": {
+      "chapters": "{{count}} 章",
+      "drifts": "{{count}} 個構想",
+      "elements": "{{categories}} 個類目 · {{elements}} 個要素"
+    },
+    "sort": {
+      "alphabet": "字母順序",
+      "bookOrder": "閱讀順序",
+      "categoryElements": "類目內要素排序",
+      "cellMetaGroup": "儲存格右側",
+      "chapters": "章節排序",
+      "createdAt": "建立時間",
+      "drifts": "構想排序",
+      "duplicatesAll": "顯示於每個連結的分組",
+      "duplicatesGroup": "多故事線章節",
+      "duplicatesPrimary": "只在主要故事線顯示",
+      "narrativeOrder": "敘事順序",
+      "outerCategoriesGroup": "外層類目",
+      "outerStorylinesGroup": "外層故事線",
+      "showBoth": "顯示字數與日期",
+      "showDate": "顯示日期",
+      "showNone": "皆不顯示",
+      "showWordCount": "顯示字數",
+      "storylineChapters": "故事線內章節排序",
+      "storylineOrder": "故事線順序",
+      "title": "標題 A–Z",
+      "updatedAt": "更新時間"
+    },
+    "tabs": {
+      "chapters": "章節",
+      "drifts": "構想",
+      "elements": "要素"
+    },
+    "top": {
+      "close": "關閉左側欄",
+      "open": "開啟左側欄"
+    },
+    "uncategorized": "未分類",
+    "viewMode": {
+      "chapterSummary": "{{storylines}} 條故事線 · {{chapters}} 章",
+      "elementCompactTitle": "精簡索引 · 切換至名稱清單",
+      "elementListTitle": "名稱清單 · 切換至精簡索引",
+      "globalTitle": "全書總覽 · 依故事線分組",
+      "storylineTitle": "依故事線分組 · 切換回全書總覽"
+    }
+  },
+  "manuscriptExport": {
+    "actTitles": "幕標題",
+    "author": "作者",
+    "bookInfo": "作品資料",
+    "bookTitle": "標題",
+    "changeCover": "變更",
+    "chapterCount_one": "{{count}} 章",
+    "chapterCount_other": "{{count}} 章",
+    "chapterTitles": "章節標題",
+    "chooseCover": "選擇圖片",
+    "contents": "內容",
+    "cover": "封面",
+    "coverFailed": "無法讀取這張圖片。",
+    "export": "匯出 {{format}}",
+    "exporting": "正在匯出…",
+    "failed": "匯出未完成，請重試。",
+    "format": "格式",
+    "loadFailed": "無法讀取章節，請重試。",
+    "loading": "正在讀取章節…",
+    "menu": "匯出書稿",
+    "removeCover": "移除",
+    "retry": "重試",
+    "saved": "已匯出",
+    "scope": "範圍",
+    "selectAll": "全選",
+    "selectNone": "全部取消選取",
+    "selectedChapters": "選取的章節",
+    "title": "匯出書稿",
+    "untitledAct": "未命名幕",
+    "untitledChapter": "未命名章節",
+    "wholeBook": "全書"
+  },
+  "markdownFolderGuide": {
+    "choose": "選擇資料夾…",
+    "chosen": "已選資料夾",
+    "continue": "繼續",
+    "intro": "每部作品都會在你選擇的資料夾裡保留 Markdown 副本。可用任何編輯器修改章節與構想，變更會合併回 Drifting。",
+    "title": "Markdown 資料夾要放在哪裡？"
+  },
+  "markdownShare": {
+    "characters": "{{count}} 個字元",
+    "copied": "已複製全部 Markdown",
+    "copy": "複製全部",
+    "currentBody": "這份文件的完整正文",
+    "failed": "操作未完成。請重試，或選取文字後複製。",
+    "loadFailed": "無法完整讀取文件，請重試。",
+    "loading": "正在準備完整 Markdown…",
+    "menu": "分享",
+    "proseOnly": "包含標題、正文及章節摘要；批註和情節規劃仍維持私密。",
+    "readOnly": "唯讀",
+    "retry": "重試",
+    "save": "儲存 .md",
+    "saved": "已儲存 Markdown",
+    "saving": "正在儲存…",
+    "title": "分享 Markdown",
+    "wholeBook": "依書稿順序分享全部章節"
+  },
+  "materialEditor": {
+    "deleteConfirm": "刪除素材「{{title}}」？此操作無法復原。",
+    "deleteFailed": "無法刪除素材。",
+    "descriptionPlaceholder": "新增說明…",
+    "embed": {
+      "importFile": "匯入圖片或 PDF…",
+      "importing": "匯入中…",
+      "pastedImage": "貼上的圖片"
+    },
+    "regions": {
+      "draw": "註解區域",
+      "drawHint": "在圖片上拖曳以標記區域",
+      "empty": "在圖片或頁面上拖曳，即可新增第一則註解。",
+      "listLabel": "此素材的註解",
+      "page": "第 {{page}} 頁",
+      "stopDrawing": "停止註解",
+      "whole": "整份素材"
+    },
+    "zoomIn": "放大",
+    "zoomOut": "縮小",
+    "zoomReset": "符合檢視範圍"
+  },
+  "materialFolders": {
+    "deleteConfirm": "刪除素材夾「{{name}}」？其中所有項目將移至上一層，不會刪除任何素材。",
+    "deleteSelectionConfirm": "刪除選取的 {{count}} 個項目？素材將被刪除；被刪除素材夾中的內容會移至上一層。",
+    "empty": "尚無素材。可使用上方「新增素材夾」按鈕整理素材。",
+    "menu": {
+      "collapseAll": "收合其中所有項目",
+      "delete": "刪除素材夾",
+      "deleteSelection": "刪除 {{count}} 個項目",
+      "expandAll": "展開其中所有項目",
+      "move": "移至素材夾…",
+      "moveSelection": "將 {{count}} 個項目移至素材夾…",
+      "newFolder": "新增素材夾",
+      "newSubfolder": "在內建立素材夾",
+      "open": "開啟",
+      "rename": "重新命名"
+    },
+    "picker": {
+      "createAndMove": "建立並移動",
+      "newPlaceholder": "新素材夾名稱",
+      "title": "移至素材夾"
+    },
+    "root": "所有素材",
+    "untitled": "新素材夾"
+  },
+  "memoMaterial": {
+    "card": {
+      "addSnippetBody": "在此筆記中寫作…"
+    },
+    "empty": {
+      "noRelated": "目前項目未連結任何素材。"
+    },
+    "error": {
+      "openFile": "無法開啟檔案：{{error}}",
+      "pickFailed": "無法匯入檔案：{{error}}"
+    },
+    "kind": {
+      "image": "圖片",
+      "pdf": "PDF",
+      "text": "筆記"
+    },
+    "menu": {
+      "deleteMaterial": "刪除素材",
+      "openInSystem": "用系統應用程式開啟"
+    },
+    "preview": {
+      "loading": "載入中…",
+      "loadingPdf": "正在載入 PDF…",
+      "nextPage": "下一頁",
+      "noImage": "無法預覽圖片",
+      "noPdf": "無法預覽 PDF",
+      "openPdfFailed": "無法開啟 PDF",
+      "previousPage": "上一頁",
+      "renderPdfFailed": "無法繪製 PDF"
+    },
+    "toolbar": {
+      "count": "{{count}} 份素材",
+      "newMaterial": "新增素材"
+    }
+  },
+  "mobileWorkspace": {
+    "projectActions": {
+      "deleteFailed": "無法刪除作品，請再試一次。"
+    }
+  },
+  "navigation": {
+    "back": "返回"
+  },
+  "nodeEditor": {
+    "empty": {
+      "noStoryline": "無故事線"
+    },
+    "folio": {
+      "chapter": "章節",
+      "chapterNumber": "第 {{n}} 章",
+      "drift": "構想"
+    },
+    "meta": {
+      "words": "{{count}} 字"
+    }
+  },
+  "notifications": {
+    "appUpdate": {
+      "available": "Drifting {{version}} 已推出",
+      "installed": "已更新至 Drifting {{version}}",
+      "source": "更新"
+    },
+    "clear": "清除",
+    "cloudSync": {
+      "source": "雲端同步"
+    },
+    "crashFollowUp": {
+      "source": "Drifting"
+    },
+    "empty": "沒有通知",
+    "markdownFolder": {
+      "issue": {
+        "empty": "正文已清空，未合併，檔案已保留",
+        "encoding": "不是 UTF-8，未讀取，檔案已保留",
+        "frontmatter": "頂端屬性格式錯誤，修正前不合併或覆寫",
+        "identity": "drifting-id 指向另一章，未合併，檔案已保留",
+        "lineage": "此章曾還原或重設，無法自動合併，檔案已保留",
+        "owned": "這個資料夾由另一個 Drifting 管理，沒有讀寫",
+        "too-large": "檔案過大，未讀取，檔案已保留"
+      },
+      "preserved_one": "已將 {{count}} 個編輯過的檔案保留在 .drifting/preserved",
+      "preserved_other": "已將 {{count}} 個編輯過的檔案保留在 .drifting/preserved",
+      "source": "Markdown 資料夾"
+    },
+    "organize": {
+      "source": "Agent"
+    },
+    "remove": "移除",
+    "shareComments": {
+      "source": "讀者留言"
+    },
+    "time": {
+      "daysAgo": "{{count}} 天前",
+      "hoursAgo": "{{count}} 小時前",
+      "justNow": "剛剛",
+      "minutesAgo": "{{count}} 分鐘前"
+    },
+    "title": "通知"
+  },
+  "plotGrid": {
+    "addColumnShort": "欄",
+    "addRowShort": "列",
+    "clear": "清除",
+    "clearConfirm": "清除情節規劃中全部列名、欄名與儲存格文字？表格結構、尺寸和正文會保留。此操作無法復原。",
+    "clearTitle": "清除情節規劃內容",
+    "columnPlaceholder": "欄",
+    "deleteClears": "清除 {{count}} 個儲存格",
+    "deleteColumn": "刪除此欄",
+    "deleteRow": "刪除此列",
+    "emptyCell": "寫點什麼…",
+    "fit": "符合視窗",
+    "insertColumnLeft": "在左側插入欄",
+    "insertColumnRight": "在右側插入欄",
+    "insertRowAbove": "在上方插入列",
+    "insertRowBelow": "在下方插入列",
+    "moveDown": "下移",
+    "moveLeft": "左移",
+    "moveRight": "右移",
+    "moveUp": "上移",
+    "rename": "重新命名",
+    "rowPlaceholder": "列",
+    "title": "情節"
+  },
+  "positionLink": {
+    "copied": "已複製位置連結"
+  },
+  "projectHome": {
+    "book": {
+      "noStorylines": "尚無故事線。",
+      "storylineCount": "{{done}}／{{total}} 章",
+      "title": "本書"
+    },
+    "continue": {
+      "empty": "尚無章節。",
+      "title": "繼續"
+    },
+    "create": {
+      "kinds": {
+        "category": "類目",
+        "chapter": "章節",
+        "drift": "構想",
+        "element": "要素",
+        "material": "素材",
+        "storyline": "故事線"
+      }
+    },
+    "kicker": "作品首頁",
+    "readout": "{{chapters}} 章 · {{storylines}} 條故事線 · {{elements}} 個要素",
+    "settings": {
+      "dailyGoal": "每日目標",
+      "projectTarget": "全書目標"
+    },
+    "since": "作品首頁 · 自 {{date}} 起",
+    "today": "今日 {{today}}／{{goal}} · 連續 {{streak}} 天",
+    "todayNoGoal": "今日 {{today}} · 連續 {{streak}} 天",
+    "views": {
+      "overview": "總覽",
+      "settings": "設定"
+    },
+    "words": "{{words}} 字",
+    "wordsOfTarget": "{{words}}／{{target}} 字"
+  },
+  "projectPicker": {
+    "bookTransfer": {
+      "exportFailed": "無法匯出作品，請重試。",
+      "exportFailedTitle": "無法匯出",
+      "importFailed": "無法匯入作品，請重試。",
+      "importFailedTitle": "無法匯入",
+      "invalid": "此檔案已損壞，無法匯入。",
+      "legacy": "這本書是 Drifting 0.1 匯出的。請在舊版裡匯入它，再把舊版資料庫交接給新版。",
+      "newer": "此作品由較新的 Drifting 匯出，請先更新。",
+      "notABook": "這不是從 Drifting 匯出的作品。",
+      "tooLarge": "作品過大，無法匯入。"
+    },
+    "delete": {
+      "deleting": "正在刪除…"
+    },
+    "desk": {
+      "chaptersUnit_one": "章",
+      "chaptersUnit_other": "章",
+      "coverStyle": {
+        "names": {
+          "bauhaus": "包浩斯",
+          "chars": "字海",
+          "cutout": "剪紙",
+          "cyanotype": "藍曬",
+          "field": "色域",
+          "quipu": "結繩",
+          "ridge": "山脊",
+          "rings": "年輪",
+          "riso": "孔版印刷",
+          "sand": "砂筆",
+          "stars": "星圖",
+          "strata": "地層",
+          "topo": "等高線",
+          "weave": "織紋"
+        },
+        "turn": "切換封面樣式 · 目前為{{name}}"
+      },
+      "elementsUnit_one": "個要素",
+      "elementsUnit_other": "個要素",
+      "exportBook": "匯出此作品（.driftingbook）",
+      "form": {
+        "createTitle": "新作品",
+        "editTitle": "編輯「{{name}}」",
+        "nameLabel": "標題",
+        "summaryLabel": "摘要"
+      },
+      "goal": "{{pct}}% · 目標 {{target}} 字",
+      "importing": "匯入中",
+      "moveToTrash": "移至最近刪除",
+      "newCard": "新作品",
+      "newCardSub": "從空白頁開始",
+      "open": "開啟「{{name}}」",
+      "progress": "進度",
+      "recent": "最近 30 天",
+      "recentLabel": "最近 30 天寫了 {{words}} 字",
+      "storylinesUnit_one": "條故事線",
+      "storylinesUnit_other": "條故事線",
+      "trashEntry": "最近刪除",
+      "trashList": {
+        "confirmTitle": "永久刪除「{{name}}」？",
+        "empty": "沒有最近刪除的作品。",
+        "subLocal": "作品在此保留 30 天，之後永久刪除。",
+        "title": "最近刪除"
+      },
+      "trashTitle": "將「{{name}}」移至最近刪除？",
+      "untitled": "未命名",
+      "wordsUnit": "字"
+    },
+    "form": {
+      "createSubmit": "建立",
+      "namePlaceholder": "例如：北岬燈塔",
+      "summaryPlaceholder": "用一兩句話描述這部作品。"
+    },
+    "header": {
+      "titleEm": "書架"
+    },
+    "heat": {
+      "daysUnit": "天",
+      "daysWritten": "天數",
+      "fri": "週五",
+      "label": "寫作熱度圖",
+      "mon": "週一",
+      "streak": "連續寫作",
+      "summary": "過去一年寫了 {{words}} 字，共寫作 {{days}} 天",
+      "today": "今天",
+      "wed": "週三",
+      "year": "過去一年"
+    },
+    "projectCount": "{{filtered}}／{{total}} 部作品",
+    "rail": {
+      "books_one": "{{count}} 部作品",
+      "books_other": "{{count}} 部作品",
+      "import": "匯入作品",
+      "library_one": "{{count}} 部作品 · {{words}} 字",
+      "library_other": "{{count}} 部作品 · {{words}} 字"
+    },
+    "status": {
+      "draft": "草稿",
+      "paused": "已暫停",
+      "writing": "寫作中"
+    },
+    "trash": {
+      "body": "此作品（{{words}} 字 · {{nodes}} 章 · {{elements}} 個要素）將離開書架。30 天內可從「最近刪除」還原，之後會永久刪除。",
+      "confirm": "移至最近刪除",
+      "deleteNow": "立即刪除",
+      "expiresIn_one": "{{count}} 天後永久刪除",
+      "expiresIn_other": "{{count}} 天後永久刪除",
+      "expiresSoon": "等待永久刪除",
+      "failed": "無法移動作品，請重試。",
+      "localNote": "永久刪除前，內容與可讀 Markdown 副本都會保留。",
+      "moving": "正在移動…",
+      "permanentBody": "立即永久刪除，不再等 30 天。此操作無法復原。",
+      "restore": "還原",
+      "restoreFailed": "無法還原作品，請重試。",
+      "restoring": "正在還原…"
+    }
+  },
+  "referencesPanel": {
+    "actions": {
+      "linkEntity": "連結實體",
+      "remove": "移除關係"
+    },
+    "deleted": {
+      "category": "（已刪除的分類）",
+      "element": "（已刪除的要素）",
+      "node": "（已刪除的章節）",
+      "storyline": "（已刪除的故事線）"
+    },
+    "empty": {
+      "incoming": "尚無內容參照此項目",
+      "outgoing": "此正文尚未參照其他實體",
+      "relations": "尚無關係"
+    },
+    "filters": {
+      "all": "全部"
+    },
+    "kind": {
+      "category": "類目",
+      "element": "要素",
+      "node": "章節",
+      "patch": "演化記錄",
+      "storyline": "故事線"
+    },
+    "meta": {
+      "blocksSpans": "{{blocks}} 個區塊 · {{spans}} 處提及",
+      "spans": "{{count}} 處提及"
+    },
+    "picker": {
+      "empty": "沒有可選項目",
+      "placeholder": "搜尋可連結的實體…"
+    },
+    "sections": {
+      "incoming": "反向連結",
+      "outgoing": "引用",
+      "relations": "關係"
+    }
+  },
+  "relationPicker": {
+    "untitledChapter": "未命名章節",
+    "untitledDrift": "未命名構想",
+    "untitledElement": "未命名要素",
+    "untitledStoryline": "未命名故事線"
+  },
+  "relationTypes": {
+    "allowedEntities": "允許的實體",
+    "allowedSources": "允許的來源實體",
+    "allowedTargets": "允許的目標實體",
+    "builtIn": "內建",
+    "cancel": "取消",
+    "confirmDelete": "刪除關係類型「{{name}}」？",
+    "create": "新增",
+    "createInline": "建立關係類型",
+    "defaultSourceRole": "來源",
+    "defaultTargetRole": "目標",
+    "delete": "刪除關係類型",
+    "description": "說明",
+    "directed": "有方向",
+    "direction": "方向",
+    "endpointRole": "端點角色",
+    "entityKinds": {
+      "category": "要素類目",
+      "comment": "註解",
+      "element": "要素",
+      "library_item": "素材",
+      "node": "章節或構想",
+      "patch": "要素演化記錄",
+      "storyline": "故事線"
+    },
+    "genericAssociation": {
+      "name": "關聯",
+      "sourceRole": "關聯項目",
+      "targetRole": "物件"
+    },
+    "missing": "缺少關係類型",
+    "name": "名稱",
+    "pendingIncoming": "此實體 ← 目標",
+    "pendingOutgoing": "此實體 → 目標",
+    "save": "儲存",
+    "selectConfigured": "選擇關係類型",
+    "sourceRole": "來源角色",
+    "swap": "交換關係端點",
+    "symmetric": "對稱",
+    "symmetricSummary": "對稱 · {{role}}",
+    "targetRole": "目標角色",
+    "title": "關係類型定義"
+  },
+  "reviewPanel": {
+    "commentPlaceholder": "撰寫註解…",
+    "empty": "此範圍內沒有審閱項目。",
+    "filters": {
+      "all": "兩者皆用",
+      "comment": "註解",
+      "todo": "待辦事項"
+    },
+    "groups": {
+      "deleted": "已刪除",
+      "floating": "未附加"
+    },
+    "resolved": "已解決（{{count}}）",
+    "scopes": {
+      "current": "目前"
+    },
+    "sourceFloating": "作品層級 · 未連結實體",
+    "sourceTextUnavailable": "沒有儲存的摘錄"
+  },
+  "rightSidebar": {
+    "kickers": {
+      "library": "作品 · 素材庫",
+      "review": "作品 · 審閱",
+      "stats": {
+        "all-chapters": "全書 · 節奏",
+        "category": "此類目 · 詳細統計",
+        "chapter": "此章 · 詳細統計",
+        "drift": "此構想 · 詳細統計",
+        "element": "此要素 · 詳細統計",
+        "material": "此素材 · 詳情",
+        "none": "作品 · 詳細統計",
+        "storyline": "此故事線 · 詳細統計"
+      }
+    },
+    "stats": {
+      "actMeta": "{{chapters}} 章 · {{wordsK}}k 字 · {{pct}}%",
+      "actRhythm": "幕節奏",
+      "allElementsAppeared": "所有要素都已在正文中登場。",
+      "appeared": "已登場",
+      "averageAppearance": "平均出現次數",
+      "averagePerChapter": "平均每章",
+      "avgChaptersPerElement": "每個要素 {{count}} 章",
+      "bookPosition": "全書位置",
+      "category": "類目",
+      "categoryCoordinates": "類目座標",
+      "categoryNoElements": "此類目尚無要素。",
+      "chapter": "章節",
+      "chapterCoordinates": "章節座標",
+      "chapterCount": "章節",
+      "chapterLengthRhythm": "章節篇幅節奏",
+      "chapterOrdinal": "第 {{count}} 章",
+      "chaptersValue": "{{count}} 章",
+      "completion": "完成度",
+      "dialogueRatio": "對話比例",
+      "dimensions": "尺寸",
+      "discardedParen": "（已棄用 {{count}}）",
+      "driftCoordinates": "構想座標",
+      "driftFreeFragment": "構想 · 自由漂浮",
+      "elementCoordinates": "要素座標",
+      "elementCount": "要素數量",
+      "elementsValue": "{{count}} 個要素",
+      "embeddedMaterials": "嵌入素材",
+      "fileSize": "大小",
+      "fileType": "類型",
+      "floatingStoryline": "漂浮／無歸屬",
+      "health": "健康狀態",
+      "lastModified": "最後修改",
+      "longestWithWords": "最長 · {{title}}（{{words}} 字）",
+      "materialCoordinates": "素材",
+      "materialFile": "檔案",
+      "materialRelations": "連結至",
+      "moreLowAppearanceElements": "另有 {{count}} 個較少出現的要素",
+      "moreUnappearedElements": "另有 {{count}} 個尚未登場",
+      "name": "名稱",
+      "noActiveProgress": "所有章節都已棄用，或尚無進度。",
+      "noChapters": "書中尚無章節，開始第一章後，這裡會顯示全書節奏。",
+      "noMentionedElements": "正文尚未透過 @ 提及任何要素。",
+      "noteShape": "筆記",
+      "noteTasks": "待辦事項",
+      "noteTasksValue": "已完成 {{done}}／{{total}}",
+      "noteWords": "篇幅",
+      "openComments": "未解決批註與待辦",
+      "paragraphSentence": "段落／句子",
+      "paragraphSentenceValue": "{{paragraphs}} 段 · {{sentences}} 句",
+      "recent": "近期",
+      "shortestWithWords": "最短 · {{title}}（{{words}} 字）",
+      "snapshotButton": "歷史快照…",
+      "statusCount": "{{status}} {{count}} 章",
+      "storyline": "故事線",
+      "storylineCoordinates": "故事線座標",
+      "storylineCoreElements": "此故事線的核心要素",
+      "storylineDistribution": "故事線分布",
+      "storylineNoChapters": "此故事線尚無章節。",
+      "storylineNoMentionedElements": "此故事線的章節尚未透過 @ 提及任何要素。",
+      "thisChapterElements": "此章中的要素",
+      "thisFragmentElements": "此構想中的要素",
+      "titleWithWords": "{{title}}（{{words}} 字）",
+      "type": "類型",
+      "unappearedElements": "尚未登場的要素",
+      "updated": "已更新",
+      "wordRhythm": "字數 · 節奏",
+      "wordsPerChapterValue": "每章 {{words}} 字",
+      "wordsValue": "{{count}} 字",
+      "writingProgress": "寫作進度",
+      "writtenTarget": "已寫／目標"
+    },
+    "status": {
+      "discarded": "已棄用",
+      "done": "完成",
+      "draft": "草稿",
+      "todo": "待寫"
+    },
+    "tabs": {
+      "companion": "幫手",
+      "library": "素材庫",
+      "review": "審閱",
+      "stats": "統計"
+    },
+    "top": {
+      "close": "關閉右側欄",
+      "open": "開啟右側欄"
+    }
+  },
+  "settings": {
+    "about": {
+      "channel": "發行通道",
+      "channelPreAlpha": "Alpha",
+      "contact": "聯絡",
+      "credits": "致謝與授權",
+      "emailTeam": "寄電子郵件給團隊",
+      "engine": "引擎",
+      "feedback": "意見回饋…",
+      "knownIssues": "已知問題",
+      "knownIssuesDesc": "目前 Alpha 版的已知限制",
+      "license": "用戶端授權",
+      "licenseDesc": "GNU AGPL 第 3 版或更新版本",
+      "openSource": "開放原始碼相依套件",
+      "sourceCode": "原始碼",
+      "sourceCodeDesc": "此 AGPL 用戶端對應的原始碼",
+      "sub": "極致寫作體驗",
+      "submitFeedback": "提交意見回饋",
+      "submitFeedbackDesc": "可包含去除敏感資訊的診斷摘要，絕不包含書稿文字。",
+      "support": "Alpha 支援",
+      "supportDesc": "疑難排解與安全回報說明",
+      "tagline": "獻給深夜仍清醒寫作的人。",
+      "title": "Drifting",
+      "version": "版本",
+      "viewLicense": "檢視授權",
+      "viewList": "檢視清單",
+      "viewSource": "檢視原始碼",
+      "writeEmail": "撰寫電子郵件"
+    },
+    "agent": {
+      "chatConfigDesc": "在右側 Agent 輸入框的設定選單中選擇服務商、模型和推理強度。金鑰與 ChatGPT 訂閱在「模型與 API」管理。",
+      "effortOptions": {
+        "high": "高",
+        "low": "低",
+        "max": "最大",
+        "medium": "中",
+        "minimal": "最低",
+        "ultra": "極高",
+        "xhigh": "很高"
+      },
+      "replayOnboarding": "再次顯示初次使用導覽",
+      "title": "右側可執行操作的 Agent。"
+    },
+    "agentLimits": {
+      "desc": "限制每輪對話中的模型呼叫次數。達到上限時本輪停止，已提交的變更保留。設定變更於下一輪對話生效。",
+      "iterationLabel": "每回合模型迭代上限",
+      "iterationOption": "{{value}} 次迭代",
+      "unlimited": "無上限",
+      "unlimitedHint": "「無上限」不設模型呼叫次數上限，你可以手動停止本輪。"
+    },
+    "appearance": {
+      "dark": "深色",
+      "guides": "導覽",
+      "interface_text_large": "較大",
+      "interface_text_largest": "最大",
+      "interface_text_size": "介面文字大小",
+      "interface_text_size_desc": "調整這部裝置的桌面介面文字；書稿文字使用編輯器的字級。",
+      "interface_text_small": "較小",
+      "interface_text_smallest": "最小",
+      "interface_text_standard": "標準",
+      "light": "淺色",
+      "replay_guides": "首次開啟作品時顯示導覽",
+      "replay_guides_action": "再次顯示",
+      "system": "跟隨系統",
+      "theme": "主題",
+      "theme_desc": "淺色、深色，或跟隨系統。"
+    },
+    "byokProvider": {
+      "available": "可用",
+      "editKey": "編輯金鑰",
+      "invalidKey": "金鑰無效",
+      "keyPlaceholder": "貼上金鑰…",
+      "notConnected": "尚未連線",
+      "requestFailed": "請求失敗（服務商無法使用或網路問題）"
+    },
+    "codexSubscription": {
+      "cancelled": "已取消登入。",
+      "codeHint": "在 OpenAI 裝置頁面輸入驗證碼；Drifting 會持續確認，直到你核准為止",
+      "codeLabel": "一次性驗證碼",
+      "failure": {
+        "expired": "驗證碼在核准前已過期。",
+        "invalid_response": "OpenAI 傳回非預期的回應。",
+        "network_failed": "無法連線至 OpenAI。",
+        "provider_rejected": "OpenAI 拒絕了這次登入。",
+        "storage_failed": "無法將登入資訊儲存至鑰匙圈。"
+      },
+      "name": "ChatGPT 訂閱",
+      "openVerification": "開啟驗證頁面",
+      "signOut": "登出",
+      "signedInAs": "已登入"
+    },
+    "common": {
+      "cancel": "取消",
+      "connect": "連線",
+      "disconnect": "中斷連線",
+      "manageKeys": "管理 API 金鑰",
+      "open_in_browser": "在瀏覽器中開啟",
+      "save": "儲存",
+      "test_connection": "測試連線"
+    },
+    "editor": {
+      "auto_element_link": "自動連結要素",
+      "auto_element_link_desc": "輸入時辨識現有要素名稱，並連結至其頁面。",
+      "auto_immersive": "打字時自動沉浸",
+      "auto_immersive_desc": "開始寫正文就收起側欄與工具；按 Esc 或點正文以外的地方回來。",
+      "flow": "寫作節奏",
+      "font_size": "字級",
+      "font_size_desc": "僅影響編輯器畫面，不影響匯出。",
+      "indent": "段落縮排",
+      "indent_desc": "僅用於編輯器畫面；匯出使用獨立設定。",
+      "indent_none": "無",
+      "indent_one": "1 字",
+      "indent_two": "2 字",
+      "justify": "兩端對齊",
+      "line_height": "行高",
+      "page_width": "紙張寬度",
+      "page_width_desc": "編輯器中的紙張寬度；正文會在固定邊距內填滿可用寬度。",
+      "paragraph_spacing": "段落間距",
+      "paragraph_spacing_desc": "正文段落與各級標題共用的間距，以正文字級為基準；僅影響編輯器畫面。",
+      "preview": "預覽",
+      "preview_h1": "標題 1",
+      "preview_p1": "沉默像潮水漫過石頭般在兩人之間鋪開。終於，她開口了，聲音幾乎被風吹散，落在他勉強聽得見的地方。",
+      "preview_p2": "「你會回來嗎？」他沒有立刻回答。他望著太陽沉入海裡，過了很久才點頭，連他自己也分不清那是承諾還是憐憫。",
+      "reset_style": "還原建議樣式",
+      "typesetting": "排版",
+      "typewriter_mode": "打字機模式",
+      "typewriter_mode_desc": "輸入或移動游標時，將目前正文行維持在畫面的固定位置；僅影響編輯器畫面。",
+      "typewriter_position": "輸入行位置",
+      "typewriter_position_desc": "距編輯器頂端的百分比：25% 偏高、50% 置中、75% 偏低。"
+    },
+    "groups": {
+      "about": "關於",
+      "control": "管理",
+      "intelligence": "智慧功能",
+      "preferences": "偏好設定"
+    },
+    "hosted": {
+      "connect_errors": {
+        "cancelled": "已取消。"
+      }
+    },
+    "keys": {
+      "actions": {
+        "closeActiveTab": {
+          "desc": "關閉底部 Dock 中的目前分頁",
+          "label": "關閉目前分頁"
+        },
+        "closeProject": {
+          "desc": "關閉此作品並返回書架",
+          "label": "關閉作品"
+        },
+        "findInEditor": {
+          "desc": "尋找目前開啟編輯器中的文字",
+          "label": "在目前編輯器中尋找"
+        },
+        "globalSearch": {
+          "desc": "搜尋章節、故事線、要素與類目",
+          "label": "全域搜尋"
+        },
+        "goBack": {
+          "desc": "返回上一個瀏覽的頁面，類似瀏覽器的返回操作",
+          "label": "返回"
+        },
+        "goForward": {
+          "desc": "前往下一個已瀏覽的頁面，類似瀏覽器的前進操作",
+          "label": "前進"
+        },
+        "newEntity": {
+          "desc": "開啟作品首頁，並顯示新增操作列",
+          "label": "新增"
+        },
+        "nextTab": {
+          "desc": "向右切換開啟的分頁",
+          "label": "下一個分頁"
+        },
+        "prevTab": {
+          "desc": "向左切換開啟的分頁",
+          "label": "上一個分頁"
+        },
+        "toggleBottomTimeline": {
+          "desc": "顯示或隱藏底部時間線",
+          "label": "切換底部時間線"
+        },
+        "toggleImmersiveWriting": {
+          "desc": "只留頁面；再按一次或按 Esc 回來",
+          "label": "沉浸寫作"
+        }
+      },
+      "allActionsShort": "全部操作 · {{count}}",
+      "conflict": "{{accelerator}} 已由「{{action}}」使用",
+      "pressNewCombo": "按下新的組合鍵…",
+      "recording": "錄製中",
+      "reset": "還原",
+      "resetAll": "還原所有預設值"
+    },
+    "language": {
+      "ui_locale": "介面語言",
+      "ui_locale_desc": "選單、按鈕與訊息的語言，不會影響你的寫作內容。"
+    },
+    "models": {
+      "providers": {
+        "anthropic": "供通用 Agent 使用。",
+        "deepseek": "供通用 Agent 使用。",
+        "openai": "供通用 Agent 使用。",
+        "openaiCodex": "透過 OpenAI 的 Codex 裝置登入流程，以自己的 ChatGPT 訂閱執行通用 Agent，使用帳號提供的模型；要素設定圖也會使用此連線。OpenAI 未對此途徑提供第三方服務契約，可能隨時失效，用量計入你的 ChatGPT 方案。"
+      },
+      "title": "Drifting 的 AI 功能使用的服務。"
+    },
+    "privacy": {
+      "copyDiagnostics": "複製摘要",
+      "crashLogs": "自動傳送故障診斷資訊",
+      "crashLogsDesc": "向維護者傳送去除敏感資訊的錯誤位置、版本及平台資料，以利診斷。不含書稿文字，可隨時關閉。",
+      "dataUsage": "資料使用",
+      "diagnostics": "去除敏感資訊的診斷摘要",
+      "diagnosticsCopied": "已複製去除敏感資訊的診斷摘要。",
+      "diagnosticsCopyFailed": "無法寫入剪貼簿，可能未取得剪貼簿權限。",
+      "diagnosticsDesc": "複製版本、平台、功能可用狀態、同步計數與錯誤類型，以及更新狀態。不含書稿、憑證、作品識別碼或絕對路徑，也不會自動上傳。",
+      "noteLocal": "此版本不會連接 Drifting 伺服器，作品留在這部裝置上。AI 與語音轉錄請求直接從本裝置送往所選服務商，並適用其資料與訓練條款；你新增的遠端 MCP 擴充功能也會使用網路。"
+    },
+    "rail": {
+      "about_app": "關於 Drifting",
+      "agent": "通用 Agent",
+      "appearance": "外觀",
+      "editor": "編輯器",
+      "keys": "鍵盤",
+      "language": "語言",
+      "models": "模型與 API"
+    },
+    "search_placeholder": "搜尋設定…",
+    "sync": {
+      "backup": {
+        "errors": {
+          "invalid": "此檔案不是有效的 Drifting 備份，或已損壞。目前資料庫未變更。",
+          "legacy": "這是 Drifting 0.1 的備份，這一版不能直接還原。請先在 Drifting 0.1 裡還原它，再在書架上用「匯入 · Drifting 0.1」匯入那個資料庫。",
+          "newer": "此備份由較新的 Drifting 版本建立，請先更新應用程式再還原。",
+          "unknown": "操作未完成，目前資料庫未變更：{{detail}}"
+        },
+        "exportButton": "匯出備份…",
+        "exportDesc": "將所有作品的資料庫及原始圖片、PDF 檔案封裝為一個 .drifting 檔，用於還原或搬到另一部電腦。",
+        "exportTitle": "資料庫備份",
+        "exported": "已儲存「{{file}}」。",
+        "exporting": "正在備份…",
+        "inspecting": "正在驗證…",
+        "missingAssets": "此裝置上缺少 {{count}} 個素材，未納入備份。",
+        "noProjects": "（沒有作品）",
+        "openSafety": "開啟還原前副本",
+        "restoreButton": "選擇備份…",
+        "restoreConfirm": "以「{{file}}」取代目前資料庫。\n\n建立時間：{{date}}\n內容：{{summary}}\n作品：{{projects}}\n\n會先保留目前資料庫的還原前副本，可由「開啟還原前副本」查看。還原完成後 Drifting 會重新載入。",
+        "restoreConfirmButton": "取代並還原",
+        "restoreDesc": "用 .drifting 備份取代目前資料庫。還原前會先儲存目前資料庫的副本。",
+        "restoreTitle": "從備份還原",
+        "restoring": "正在還原…",
+        "summary": "{{projects}} 部作品、{{assets}} 個素材檔案，共 {{size}}。"
+      },
+      "local_data": "本機資料",
+      "local_sub": "不使用 Drifting 帳號或託管雲端，隨時可匯出可讀副本。",
+      "local_title": "作品留在這部裝置上。",
+      "projection": {
+        "allProjects": "所有作品",
+        "allProjectsUnset": "所有作品 · 未選擇位置",
+        "choose": "選擇資料夾",
+        "description": "每部作品都有結構化 Markdown，方便本機閱讀、搜尋及外部工具使用。Drifting 執行時，可在其他編輯器修改章節與構想，變更會合併回來；其餘檔案為自動產生且唯讀。",
+        "locationHint": "其中每部作品各有一個資料夾，僅存在這部裝置上。切換位置後，舊資料夾仍留在原處。",
+        "offHint": "已關閉：作品不再寫入 Markdown，外部修改也不再合併回來。現有檔案保留原處。",
+        "offTitle": "要關閉 Markdown 資料夾嗎？",
+        "offWarning": "所有作品都會停止寫入 Markdown。其他編輯器及外部 Agent 只會看到今天的檔案，外部修改也不再合併回 Drifting。現有檔案仍保留原處，可在「設定 → 同步與資料」重新開啟。",
+        "reveal": "在 Finder 中顯示",
+        "title": "Markdown 資料夾",
+        "turnOff": "關閉 Markdown 資料夾",
+        "turnOn": "開啟"
+      }
+    },
+    "title": "設定",
+    "update": {
+      "channel_desc": "Apple Silicon · macOS 13 以上",
+      "check": "新版本",
+      "check_action": "檢查更新",
+      "check_failed": "目前無法檢查更新，可能是網路未連線。請稍後重試，目前版本仍可繼續使用。",
+      "checking": "正在檢查…",
+      "downloading": "正在下載並驗證簽章…",
+      "downloading_progress": "正在下載並驗證… {{progress}}%",
+      "install_failed": "上次結束時沒能安裝 Drifting {{version}}，目前版本未變更。下次結束時會再試。",
+      "install_failed_admin": "上次結束時沒能安裝 Drifting {{version}}：Drifting 所在的資料夾無法寫入。目前版本未變更。",
+      "interrupted": "更新沒有下載完整，已捨棄。下次檢查時會重新下載。",
+      "local_error": "更新無法存進這台電腦，已停止。目前版本仍可繼續使用。",
+      "no_update": "目前已是最新版本。",
+      "older_offered": "目前已是最新版本。更新服務提供的 {{version}} 比這一版舊，不會安裝。",
+      "ready_on_quit": "Drifting {{version}} 已下載並通過簽章驗證，結束時安裝。",
+      "refused_app": "下載的更新不是 Drifting，已捨棄。目前版本仍可繼續使用。",
+      "refused_signature": "下載的更新未通過簽章驗證，已捨棄。目前版本仍可繼續使用。",
+      "refused_version": "下載的更新不是它標示的版本，可能是舊版本，已拒絕。目前版本仍可繼續使用。",
+      "restart": "重新啟動以更新",
+      "server_error": "更新服務暫時出了問題，請稍後重試。目前版本仍可繼續使用。",
+      "unavailable": "此版本沒有更新簽署金鑰，無法檢查更新。從 GitHub 下載的發行版可使用更新功能。"
+    }
+  },
+  "sidebarLayout": {
+    "split": "恢復雙欄"
+  },
+  "snapshotHistory": {
+    "confirmRestore": "確認覆寫目前版本",
+    "empty": "尚無快照。編輯正文後，系統約每 15 分鐘自動保留一份。",
+    "kind": {
+      "category": "類目",
+      "element": "要素",
+      "library_item": "筆記",
+      "node": "章節",
+      "storyline": "故事線"
+    },
+    "loading": "載入中…",
+    "restore": "還原…",
+    "restoreFailed": "還原失敗：{{error}}",
+    "restoreSuccess": "已還原至選取版本，先前狀態已先存為新快照。",
+    "restoring": "正在還原…",
+    "title": "歷史快照 · 30 天"
+  },
+  "storyGraph": {
+    "edge": {
+      "create": "建立"
+    }
+  },
+  "storylineEditor": {
+    "actions": {
+      "openChapter": "開啟章節"
+    },
+    "alerts": {
+      "deleteFailed": "無法刪除故事線，請再試一次。"
+    },
+    "deleteConfirm": "刪除故事線「{{name}}」？",
+    "empty": {
+      "noChapterSummary": "尚無一句話摘要",
+      "noFacts": "尚無欄位。建立故事線時，作品首頁的「故事線範本」會自動填入。",
+      "noFilteredChapters": "沒有符合篩選條件的章節"
+    },
+    "filters": {
+      "all": "全部",
+      "unwritten": "尚未開始",
+      "written": "已撰寫"
+    },
+    "folio": "故事線",
+    "labels": {
+      "color": "顏色"
+    },
+    "meta": {
+      "chapters": "{{count}} 章",
+      "chaptersWords": "{{chapters}} 章 · {{words}} 千字",
+      "kWords": "{{count}} 千字",
+      "nodeTemplate": "新章節的預設骨架"
+    },
+    "nodeTemplatePlaceholder": "以 H1／H2／H3 撰寫預設章節骨架；新章節將使用此範本…",
+    "sections": {
+      "chapters": "章節順序",
+      "facts": "設定資料",
+      "nodeTemplate": "章節範本",
+      "scratch": "隨筆"
+    },
+    "summaryPlaceholder": "此故事線的一句話摘要…",
+    "untitled": "未命名故事線"
+  },
+  "topTimeline": {
+    "closeTab": "關閉分頁",
+    "dockLock": "保持展開",
+    "dockUnlock": "收回為圓點",
+    "newEntity": "建立實體",
+    "singletons": {
+      "allChapters": "全書"
+    },
+    "untitled": {
+      "category": "未命名類目",
+      "chapter": "未命名章節",
+      "drift": "未命名構想",
+      "element": "未命名要素",
+      "library_item": "未命名素材",
+      "storyline": "未命名故事線"
+    }
+  },
+  "userMenu": {
+    "feedback": "傳送意見回饋",
+    "import": "匯入",
+    "importBook": "匯入作品（.driftingbook）",
+    "language": "語言",
+    "localMenu": "本機資料庫選單",
+    "localStatus": "本機 · 存於此裝置",
+    "settings": "設定",
+    "theme": "主題",
+    "themeDark": "深色",
+    "themeDarkShort": "深色",
+    "themeLight": "淺色",
+    "themeLightShort": "淺色",
+    "themeSystem": "跟隨系統",
+    "themeSystemShort": "系統"
+  },
+  "windowCaption": {
+    "close": "關閉",
+    "maximize": "最大化",
+    "minimize": "最小化",
+    "restore": "還原"
+  },
+  "workspaceWordTally": {
+    "book": "全書",
+    "chapter": "章節",
+    "counting": "計算中",
+    "drift": "構想",
+    "selection": "選取",
+    "storyline": "故事線",
+    "today": "今天"
+  }
+}

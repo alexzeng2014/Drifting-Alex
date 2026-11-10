@@ -1,0 +1,62 @@
+# gpui-prose: a long-form rich-text editor for GPUI, stored in Loro.
+# Design, API and milestones: docs/rust-rewrite/foundations/f4-editor.md
+#
+# Licensed MIT OR Apache-2.0, unlike the rest of the repository (AGPL): it
+# depends on `gpui` (and GPUI's `sum_tree`), `loro` and its own two small
+# crates `gpui-ime` and `prose-linebreak` (plus ICU4X segmentation behind the
+# default `icu` feature, and the crates GPUI's platforms already build for
+# telling the system input method to drop marked text), never on a `dr-*`
+# crate. `cargo check -p gpui-prose --no-default-features` proves the
+# boundary. The examples (a demo window and the screen-reader probe) may use
+# more, as dev-dependencies; the benchmarks, which run the editor on
+# Drifting's storage, are dr-editor's (`prose-bench`, `editor-bench`,
+# `book-bench`).
+[package]
+name = "gpui-prose"
+version = "0.1.0"
+description = "A Chinese-first long-form rich-text editor for GPUI, with its text stored in Loro"
+license = "MIT OR Apache-2.0"
+edition.workspace = true
+rust-version.workspace = true
+# Not on crates.io yet: GPUI itself is a git dependency.
+publish.workspace = true
+
+[features]
+default = ["icu"]
+# Word and grapheme-cluster boundaries from ICU4X (Chinese words from its
+# dictionary). Without it the editor falls back to a small built-in
+# approximation (character classes, common emoji and combining sequences).
+icu = ["dep:icu_segmenter", "prose-linebreak/icu"]
+# The `text::conformance` suite, for hosts that implement `ProseSource`
+# (Drifting's dr-editor runs it on its dr-doc source).
+conformance = []
+
+[dependencies]
+gpui.workspace = true
+gpui-ime.workspace = true
+icu_segmenter = { workspace = true, optional = true }
+loro.workspace = true
+prose-linebreak.workspace = true
+# The window's native handle, for the system input method (input/system_ime.rs).
+raw-window-handle.workspace = true
+sum_tree.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+
+# IMM32, to cancel a composition (G4), and `GetFocus`, to tell late input
+# (input/system_ime.rs); GPUI's Windows backend builds the same crate.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Win32_Globalization", "Win32_UI_Input_Ime", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[dev-dependencies]
+# AccessKit's own reading of a tree, to check the text screen readers get.
+accesskit_consumer.workspace = true
+gpui = { workspace = true, features = ["test-support"] }
+# The examples' windows. Without `font-kit` (on in the workspace's entry),
+# gpui_macos renders no text at all (it logs a warning).
+gpui_platform.workspace = true
+
+[[example]]
+name = "editor"
+path = "examples/editor.rs"

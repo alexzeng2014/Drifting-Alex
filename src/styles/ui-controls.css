@@ -1,0 +1,3845 @@
+/* Shared interactive primitives. Feature styles may position these controls,
+   but geometry, states, and theme behavior stay centralized here. */
+/* `html[data-shell-mode]` and `:root[data-shell-mode]` match every shell: they
+   keep the weight these rules had while the mobile shell was excluded. */
+
+/* Sidebar chrome shares typography-aware desktop rows and retains compact
+   mobile fallbacks. Feature components only own the contents: height and
+   insets live here, so switching panels on either side moves nothing. */
+.workspace-panel-tab-row {
+  box-sizing: border-box;
+  height: var(--ui-row-height, 28px);
+  padding-inline: 6px;
+}
+
+.workspace-panel-header-row {
+  box-sizing: border-box;
+  align-items: center;
+  min-height: var(--ui-control-height, 26px);
+  padding-block: 3px;
+  padding-inline: 12px 10px;
+}
+
+/* On desktop the panel header (filters, sort, new under the tabs) is a
+   quarter roomier than the base control size: its height and padding, the
+   icon buttons and the filter controls all grow by --panel-header-scale.
+   The height also fits the round glass entry to a whole-book view (a 26px
+   button with the 3px padding, 4px above the base control), so a panel with
+   one is exactly as tall as a panel without. Words keep the interface text
+   size. */
+html[data-shell-mode='desktop'] :is(.workspace-panel-header-row, .glass-slider-popover) {
+  --panel-header-scale: 1.25;
+}
+
+html[data-shell-mode='desktop'] .workspace-panel-header-row {
+  min-height: calc((var(--ui-control-height, 26px) + 4px) * var(--panel-header-scale));
+  padding-block: calc(3px * var(--panel-header-scale));
+}
+
+html[data-shell-mode='desktop'] .workspace-panel-header-row .ghost-icon-button {
+  zoom: var(--panel-header-scale);
+}
+
+/* The round glass entry to a whole-book view rides that scale like the
+   header's other icon buttons, so it is the one round glass that is not the
+   shared size: before the scale it fills the room inside the row's padding
+   (32.5px drawn at the standard text size), so a panel with one is exactly
+   as tall as a panel without. Its icon is the shared one, scaled with it. */
+html[data-shell-mode='desktop'] .workspace-panel-header-row .ghost-icon-button--glass.glass--round {
+  width: calc(var(--ui-control-height) - 2px);
+  height: calc(var(--ui-control-height) - 2px);
+}
+
+/* A collapsed slider's options open on body, outside the header, and keep
+   its size there. */
+html[data-shell-mode='desktop'] :is(.workspace-panel-header-row, .glass-slider-popover) :is(.glass-slider__option, .scope-toggle) {
+  min-height: calc(20px * var(--panel-header-scale));
+  padding: calc(2px * var(--panel-header-scale)) calc(8px * var(--panel-header-scale));
+}
+
+/* Agent's text actions fill the room inside the row's padding (the round glass
+   entry's height), so the Agent header is no taller than the others. */
+html[data-shell-mode='desktop'] .workspace-panel-header-row .agt-toolbar-action {
+  min-height: calc((var(--ui-control-height) - 2px) * var(--panel-header-scale));
+}
+
+.left-panel-view-mode-text {
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-align: start;
+  text-overflow: ellipsis;
+  text-transform: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 100ms ease;
+}
+
+.left-panel-view-mode-text:hover,
+.left-panel-view-mode-text:focus-visible {
+  color: hsl(var(--ink-1));
+}
+
+.panel-tab-tray {
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  gap: 0;
+  padding: 0;
+  position: relative;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* The glass block under the chosen panel tab (PanelTabTray): square, the
+   floating fill with the still selected glass, as wide as the tab's share of
+   the row and 2px short of its top and bottom. It slides on the pane's push;
+   its glass runs with the distance it travels (--flow) and never stirs
+   under the pointer. */
+.panel-tab-tray > .panel-tab-tray__block.glass {
+  --glass-gx: calc(var(--flow, 0) * 1.2px + var(--glass-dense-gx));
+  --glass-gy: var(--glass-dense-gy);
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  z-index: 0;
+  width: 0;
+  border-radius: 0;
+  background: var(--glass-fill);
+  pointer-events: none;
+}
+
+.app-panel-tab {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-height-sm);
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: none;
+}
+
+.app-panel-tab--label {
+  padding-inline: 10px;
+  font-size: var(--ui-font-secondary, 11.5px);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.app-panel-tab--caps {
+  font-size: var(--ui-font-secondary, 10px);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* Desktop panes can narrow to their labels. Intrinsic bases give longer
+   English labels room without reserving the same empty width for short ones.
+   Unread Agent dots hang off the labels and need no width of their own. */
+html[data-shell-mode='desktop'] :is(.leftbar-tab-tray, .rightbar-tab-tray) {
+  gap: 12px;
+}
+
+html[data-shell-mode='desktop'] :is(.leftbar-tab-tray, .rightbar-tab-tray) > .app-panel-tab {
+  flex: 1 0 auto;
+  padding-inline: 0;
+}
+
+[data-panel-tab-label] {
+  display: inline-block;
+}
+
+.app-panel-tab:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.app-panel-tab:hover:not(:disabled),
+.app-panel-tab.is-active {
+  color: hsl(var(--ink-1));
+}
+
+.segmented-control {
+  display: inline-flex;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 0;
+  background: hsl(var(--surface));
+}
+
+.segmented-control--lg {
+  padding: 2px;
+  background: hsl(var(--paper-deep));
+}
+
+.segmented-control__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-secondary, 10px);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.segmented-control--sm .segmented-control__option {
+  height: 20px;
+  padding-inline: 8px;
+  letter-spacing: 0.04em;
+}
+
+.segmented-control--md .segmented-control__option {
+  height: 22px;
+}
+
+.segmented-control--lg .segmented-control__option {
+  height: var(--ui-control-height, 20px);
+  padding-inline: 11px;
+  font-size: var(--ui-font-secondary, 10.5px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.segmented-control__option:hover:not(:disabled) {
+  color: hsl(var(--ink-2));
+  background: hsl(var(--rule) / 0.4);
+}
+
+.segmented-control__option.is-active {
+  background: hsl(var(--ink-1));
+  color: hsl(var(--paper));
+}
+
+.segmented-control--lg .segmented-control__option.is-active {
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+  box-shadow: var(--shadow-control);
+}
+
+.segmented-control__option:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A switch is a glass track with a clean white thumb. Off, the track is
+   resting glass: only the thin uneven line (materials.css `.glass--rest`).
+   On, the whole track holds a still accent-coloured glass bleed cut by the
+   same texture; it never flows, and the thumb sits on top of it untouched.
+   Hovering lets only the clear rim bleed and flow. */
+.ui-switch {
+  --switch-width: 32px;
+  --switch-height: 18px;
+  --switch-thumb: 14px;
+  --switch-inset: 2px;
+  --switch-thumb-bg: hsl(var(--page));
+  position: relative;
+  isolation: isolate;
+  width: var(--switch-width);
+  height: var(--switch-height);
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--glass-fill);
+  cursor: pointer;
+}
+
+.dark .ui-switch {
+  --switch-thumb-bg: hsl(var(--ink-2));
+}
+
+.ui-switch--sm {
+  --switch-width: 22px;
+  --switch-height: 12px;
+  --switch-thumb: 8px;
+}
+
+.ui-switch::before,
+.ui-switch__tint {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+}
+
+.ui-switch::before {
+  --switch-rim: color-mix(in srgb, var(--glass-clear) 50%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--switch-rim),
+    inset 0 0 0 0 var(--switch-rim);
+  /* The track is small glass: its line reads the dense patch, like the tint. */
+  -webkit-mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  animation: switch-rim-flow var(--motion-glass-drift) linear infinite paused;
+  transition: box-shadow var(--motion-glass-bleed) ease-out;
+}
+
+.ui-switch:hover:not(:disabled)::before,
+.ui-switch:focus-visible::before {
+  --switch-rim: color-mix(in srgb, var(--glass-clear) 59%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--switch-rim),
+    inset 0 0 calc(var(--switch-height) / 2) 1px var(--switch-rim);
+  animation-play-state: running;
+}
+
+.ui-switch__tint {
+  --switch-tint: hsl(var(--accent));
+  opacity: 0;
+  background: color-mix(in srgb, var(--switch-tint) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--switch-tint) 62%, transparent),
+    inset 0 0 calc(var(--switch-height) * 0.4) calc(var(--switch-height) * 0.1)
+      color-mix(in srgb, var(--switch-tint) 55%, transparent);
+  -webkit-mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  transition: opacity 0.22s ease-out;
+}
+
+.ui-switch.is-on .ui-switch__tint {
+  opacity: 1;
+}
+
+.ui-switch::after {
+  content: '';
+  position: absolute;
+  top: var(--switch-inset);
+  left: var(--switch-inset);
+  width: var(--switch-thumb);
+  height: var(--switch-thumb);
+  border-radius: 50%;
+  background: var(--switch-thumb-bg);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 0 0 0.5px hsl(var(--ink-1) / 0.06);
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ui-switch.is-on::after {
+  transform: translateX(calc(var(--switch-width) - var(--switch-thumb) - var(--switch-inset) * 2));
+}
+
+.ui-switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes switch-rim-flow {
+  from {
+    -webkit-mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+    mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  }
+  to {
+    -webkit-mask-position: calc(var(--glass-dense-gx) + 150px) calc(var(--glass-dense-gy) + 150px);
+    mask-position: calc(var(--glass-dense-gx) + 150px) calc(var(--glass-dense-gy) + 150px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-switch::before,
+  .ui-switch__tint,
+  .ui-switch::after {
+    transition: none;
+    animation: none;
+  }
+}
+
+.ghost-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.ghost-icon-button--sm {
+  width: 22px;
+  height: 22px;
+}
+
+.ghost-icon-button--md {
+  width: 26px;
+  height: 26px;
+}
+
+.ghost-icon-button--lg {
+  width: 28px;
+  height: 28px;
+}
+
+.ghost-icon-button:hover:not(:disabled) {
+  color: hsl(var(--ink-1));
+  background: hsl(var(--paper-deep));
+}
+
+.ghost-icon-button--accent {
+  color: hsl(var(--accent));
+  background: hsl(var(--accent) / 0.1);
+}
+
+.ghost-icon-button--accent:hover:not(:disabled) {
+  color: hsl(var(--accent));
+  background: hsl(var(--accent) / 0.16);
+}
+
+.ghost-icon-button--destructive {
+  color: hsl(var(--destructive));
+}
+
+.ghost-icon-button--destructive:hover:not(:disabled) {
+  color: hsl(var(--destructive));
+  background: hsl(var(--destructive) / 0.1);
+}
+
+.ghost-icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A panel header's "new" action keeps the accent ink until hovered. */
+.ghost-icon-button.panel-header-new {
+  color: hsl(var(--accent));
+}
+
+/* Glass never fills: the rim answers hover and press (materials.css). */
+.ghost-icon-button--glass,
+.ghost-icon-button--glass:hover:not(:disabled) {
+  background: transparent;
+}
+
+.ghost-icon-button--glass[aria-pressed='true'] {
+  color: hsl(var(--ink-1));
+}
+
+/* Round glass is one size wherever it stands (materials.css): the diameter
+   and the icon come from the shared tokens, whatever size the button asks
+   for, and the icon sits in the middle. */
+.ghost-icon-button--glass.glass--round {
+  width: var(--glass-round-size);
+  height: var(--glass-round-size);
+}
+
+.ghost-icon-button--glass.glass--round > .brush-icon {
+  width: var(--glass-round-icon);
+  height: var(--glass-round-icon);
+}
+
+.context-menu-surface {
+  z-index: var(--z-context-menu);
+  margin: 0;
+  overflow-y: auto;
+}
+
+/* -------------------------------------------------------------------------
+   Menu visual primitive
+
+   `AnchoredPopover` and `ContextMenuSurface` intentionally remain separate
+   behavior primitives: one follows a button, the other a pointer coordinate.
+   Every action menu uses these classes so trigger type no longer changes its
+   typography, chrome, row rhythm, hover, focus, active, or danger treatment.
+   Rich menus may opt into `menu-surface--rich` and own their inner layout while
+   retaining the same outer shell.
+
+   The shell is a piece of the desk lifted out: the sidebar's opaque colour
+   and the floating shadow. On the desktop it is a rounded rectangle (16px)
+   whose rim is the resting glass line, the same uneven line as a resting
+   control. Every row leads with its icon, stands 6px in from the edge and,
+   under the pointer, carries one whole ring of flowing hairline glass (red
+   for a destructive row). Moving between rows only fades one row's ring out
+   and the next row's in. Rows carry no fill; groups are parted by a hairline
+   rule. */
+:where(.menu-surface) {
+  position: relative;
+}
+
+.menu-surface {
+  box-sizing: border-box;
+  width: var(--menu-width-standard);
+  max-width: calc(100vw - 16px);
+  padding: 6px 0;
+  overflow: hidden auto;
+  isolation: isolate;
+  border: 1px solid var(--menu-surface-border);
+  border-radius: var(--menu-surface-radius);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-surface-shadow);
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 12.5px);
+  font-weight: 400;
+  line-height: var(--ui-line-body, 18px);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* The rim is a background, not a masked ring on a pseudo-element: a menu is
+   its own scroll container and a pseudo-element would scroll away with the
+   rows, while backgrounds stay put. The tinted texture (ringgen.py) shows only
+   in the 1px transparent border; the desk colour fills the rest. */
+html[data-shell-mode] .menu-surface {
+  border-radius: var(--menu-radius);
+  background:
+    linear-gradient(var(--menu-surface-bg), var(--menu-surface-bg)) padding-box,
+    var(--menu-ring-texture) -14px -46px / 150px 150px border-box var(--menu-surface-bg);
+  box-shadow: var(--menu-shadow);
+}
+
+.menu-surface--rich {
+  padding: 0;
+}
+
+.menu-surface--compact {
+  width: var(--menu-width-compact);
+}
+
+.menu-surface--standard {
+  width: var(--menu-width-standard);
+}
+
+.menu-surface--wide {
+  width: var(--menu-width-wide);
+}
+
+.menu-surface--panel {
+  width: var(--menu-width-panel);
+}
+
+.menu-surface--settings {
+  width: var(--menu-width-settings);
+}
+
+.menu-surface__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--ui-row-height, 30px);
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+/* Inside a menu a row stands in from the edge, its icon first. Owners that
+   lay out their own rows (a class of theirs, loaded later) still win. */
+:where(.menu-surface) .menu-surface__item {
+  width: calc(100% - 2 * var(--menu-row-inset));
+  min-height: calc(30px + var(--ui-text-increment, 0px));
+  margin-inline: var(--menu-row-inset);
+  padding: 5px 10px;
+  gap: 10px;
+  border-radius: 4px;
+}
+
+:where(.menu-surface) .menu-surface__item > .brush-icon,
+:where(.menu-surface) .menu-surface__item > .kind-mark {
+  flex: none;
+}
+
+/* A kind mark is drawn in a 14px slot; centre it in the 16px icon column. */
+:where(.menu-surface) .menu-surface__item > .kind-mark {
+  margin-inline: 1px;
+}
+
+/* The chosen option of a group: a tick at the far end of its row. */
+.menu-surface__check {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* Muted words at a row's far end: the kind of a mentioned entity. */
+.menu-surface__trail {
+  flex: none;
+  margin-inline-start: auto;
+  padding-inline-start: 12px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-secondary, 11.5px);
+}
+
+/* In the editor's suggestions the arrow keys' row is marked by its still
+   ring alone, in the row's own colour; a bolder label would shift as the
+   keys move. */
+.editor-suggestion-menu .menu-surface__item[aria-selected='true'] {
+  color: hsl(var(--ink-2));
+  font-weight: 400;
+}
+
+/* A menu with nothing to offer says so in one quiet line. */
+.menu-surface__empty {
+  padding: 6px 16px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+/* A row keeps one colour under the pointer and under the keys: its ring of
+   glass already says which row it is, so the words do not darken as well.
+   Only a state (chosen, checked) darkens a row. */
+.menu-surface__item:hover:not(:disabled),
+.menu-surface__item:focus-visible {
+  background: transparent;
+}
+
+/* Desktop only: mobile menus keep their own row pseudo-elements.
+   The row under the pointer becomes one whole ring of flowing hairline glass,
+   all four sides cut from one texture, like a sidebar cell's hover ring. */
+html[data-shell-mode] .menu-surface__item::before {
+  --menu-line: color-mix(in srgb, var(--glass-clear), hsl(var(--ink-3)) 30%);
+  content: '';
+  position: absolute;
+  inset: 1px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--menu-line) 82%, transparent),
+    inset 0 0 3px 0.5px color-mix(in srgb, var(--menu-line) 28%, transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  --glass-gx: -30px;
+  --glass-gy: -64px;
+  opacity: 0;
+  animation: glass-flow var(--motion-glass-drift) linear infinite paused;
+  transition: opacity 0.18s ease-out;
+}
+
+html[data-shell-mode] .menu-surface__item:hover:not(:disabled)::before,
+html[data-shell-mode] .menu-surface__item:focus-visible::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+html[data-shell-mode] .menu-surface__item:active::before {
+  --menu-line: color-mix(in srgb, var(--glass-clear), hsl(var(--ink-3)) 55%);
+}
+
+/* A menu's own rows: the ring is the row's own inset outline. */
+html[data-shell-mode] :where(.menu-surface) .menu-surface__item::before {
+  inset: 0;
+  border-radius: inherit;
+}
+
+/* A destructive row's ring is drawn in the danger colour. */
+html[data-shell-mode] .menu-surface__item--danger::before,
+html[data-shell-mode] .menu-surface__item--danger:active::before {
+  --menu-line: var(--menu-item-danger);
+}
+
+.menu-surface__item:focus-visible {
+  outline: none;
+}
+
+.menu-surface__item:disabled,
+.menu-surface__item[aria-disabled='true'] {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: default;
+  opacity: 0.55;
+}
+
+.menu-surface__item--active,
+.menu-surface__item[aria-checked='true'],
+.menu-surface__item[aria-selected='true'] {
+  color: hsl(var(--ink-1));
+  font-weight: 500;
+}
+
+/* The row the arrow keys have moved to (a search result, a select's option)
+   keeps the same ring, standing still like any selected glass, in the row's
+   own colour; the row under the pointer still drifts. */
+html[data-shell-mode] .menu-surface__item.is-current:not(:hover)::before {
+  opacity: 1;
+  animation-play-state: paused;
+}
+
+.menu-surface__item--status {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.menu-surface__item--danger {
+  color: var(--menu-item-danger);
+}
+
+.menu-surface__item--danger:disabled,
+.menu-surface__item--danger[aria-disabled='true'] {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.menu-surface__section-label {
+  padding: 6px 16px 4px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-caption, 9.5px);
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 16px;
+  text-transform: none;
+}
+
+.menu-surface__header {
+  max-width: 280px;
+  padding: 6px 16px;
+  overflow: hidden;
+  color: hsl(var(--ink-2));
+  font-size: var(--ui-font-secondary, 11.5px);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Groups are parted by a hairline rule, in from the edge as far as the icons. */
+.menu-surface__divider,
+.menu-surface__separator {
+  height: 0.5px;
+  margin: 5px 16px;
+  border: 0;
+  background: var(--menu-separator);
+}
+
+/* Account menu (UserMenu). On the desktop its rows run edge to edge, groups
+   are parted by 8px of space and the head has no rule under it; theme uses
+   a slider and language uses a dropdown. Mobile keeps its ruled groups. */
+.user-menu {
+  width: max(var(--menu-width-wide), 20em);
+}
+
+.user-menu__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+
+.user-menu__identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-menu__name {
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 14px);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu__status {
+  margin-top: 2px;
+  color: hsl(var(--accent));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9.5px);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.user-menu__group {
+  padding: 4px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+
+.user-menu__group--last {
+  border-bottom: 0;
+}
+
+html[data-shell-mode] .user-menu__head {
+  padding: 14px 16px 8px;
+  border-bottom: 0;
+}
+
+html[data-shell-mode] .user-menu__name {
+  font-size: var(--ui-font-emphasis, 15px);
+  font-style: normal;
+  font-weight: 500;
+}
+
+html[data-shell-mode] .user-menu__status {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-caption, 12px);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+html[data-shell-mode] .user-menu__group {
+  padding: 0;
+  border-bottom: 0;
+}
+
+/* Like every menu, its groups are parted by a hairline. */
+html[data-shell-mode] .user-menu__group + .user-menu__group::before {
+  content: '';
+  display: block;
+  height: 0.5px;
+  margin: 5px 16px;
+  background: var(--menu-separator);
+}
+
+html[data-shell-mode] .user-menu__group--last {
+  padding-bottom: 6px;
+}
+
+.user-menu__slider {
+  margin-left: auto;
+}
+
+/* A menu control shares its row with an icon and label. The form field's
+   default full width would consume their space and wrap the label by letter. */
+.user-menu .ui-select {
+  width: auto;
+  flex: 0 1 auto;
+}
+
+/* A row's own control (the theme slider, the language select) stands within
+   the row: 24px tall, reaching 2px into the row's padding, so every row of
+   the menu keeps the one height of a menu row. */
+html[data-shell-mode] .user-menu__item--static > :is(.glass-slider, .ui-select) {
+  height: calc(24px + var(--ui-text-increment, 0px));
+  min-height: 0;
+  margin-block: -2px;
+}
+
+html[data-shell-mode] .user-menu__item--static > .ui-select {
+  padding-block: 0;
+}
+
+html[data-shell-mode] .user-menu__item--static::before {
+  display: none;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s,
+    opacity 0.12s;
+}
+
+.ui-button--sm {
+  min-height: 24px;
+  padding: 5px 10px;
+  font-size: var(--ui-font-body, 10.5px);
+}
+
+.ui-button--md {
+  min-height: 30px;
+  padding: 7px 14px;
+  font-size: var(--ui-font-body, 12px);
+}
+
+.ui-button--default {
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-2));
+}
+
+.ui-button--default:hover:not(:disabled),
+.ui-button--ghost:hover:not(:disabled) {
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-1));
+}
+
+.ui-button--primary {
+  border-color: hsl(var(--accent));
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.ui-button--danger {
+  border-color: hsl(var(--destructive));
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.ui-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.ui-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Desktop: the shared Button is made of glass (materials.css) and never
+   fills. Primary is the accent's selected glass in the accent's ink; default
+   is the secondary button, a resting line; danger is that resting line in the
+   danger's own colour, with the danger ink (hover bleeds red, press deepens);
+   ghost is a text button. The paused mobile shell keeps the filled buttons
+   above. */
+html[data-shell-mode] .ui-button.ui-button--glass {
+  height: var(--ui-control-height, 28px);
+  min-height: var(--ui-control-height, 28px);
+  padding: 0 12px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 13px);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 1;
+  transition: color 0.12s ease-out;
+}
+
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--sm {
+  height: calc(var(--ui-control-height, 28px) - 4px);
+  min-height: calc(var(--ui-control-height, 28px) - 4px);
+  padding: 0 9px;
+  font-size: var(--ui-font-caption, 12px);
+}
+
+html[data-shell-mode] .ui-button.ui-button--glass:hover:not(:disabled) {
+  background: transparent;
+  color: hsl(var(--ink-1));
+  opacity: 1;
+}
+
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--ghost {
+  padding-inline: 6px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--primary,
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--primary:hover:not(:disabled) {
+  color: hsl(var(--accent));
+}
+
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--danger,
+html[data-shell-mode] .ui-button.ui-button--glass.ui-button--danger:hover:not(:disabled) {
+  --glass-cc: hsl(var(--destructive));
+  color: hsl(var(--destructive));
+}
+
+/* Disabled: a faint line of clear glass and muted ink; nothing drifts. */
+html[data-shell-mode] .ui-button.ui-button--glass:disabled {
+  --glass-cc: var(--glass-clear);
+  --glass-g: 0.6;
+  --glass-sp: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: default;
+}
+
+html[data-shell-mode] .ui-button.ui-button--glass:disabled::before {
+  animation: none;
+}
+
+/* The brush loader turning: a running button, a waiting row. */
+.ui-spin {
+  animation: control-spinner-rotate 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-spin {
+    animation: none;
+  }
+}
+
+@keyframes control-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.control-spinner {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  animation: control-spinner-rotate 0.8s linear infinite;
+}
+
+.material-import-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px solid hsl(var(--accent) / 0.24);
+  border-radius: 3px;
+  background: hsl(var(--accent) / 0.06);
+  color: hsl(var(--ink-2));
+}
+
+.material-import-feedback__title {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10.5px);
+  letter-spacing: 0.04em;
+}
+
+.material-import-feedback__desc {
+  margin-top: 3px;
+  font-size: var(--ui-font-secondary, 11px);
+  line-height: 1.45;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.material-import-feedback--error {
+  border-color: hsl(var(--destructive) / 0.28);
+  background: hsl(var(--destructive) / 0.07);
+  color: hsl(var(--destructive));
+  font-size: var(--ui-font-secondary, 11px);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.modal-root {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 24px;
+  background: hsl(var(--ink-1) / 0.32);
+}
+
+.modal-root__dialog {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 0;
+  max-height: 100%;
+}
+
+.modal-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, var(--modal-card-width, 520px));
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(80vh, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: var(--radius-md);
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+  box-shadow: 0 12px 32px -14px hsl(var(--shadow-ink) / 0.42);
+}
+
+/* Relation-kind suggestions are modal-safe: AnchoredPopover portals this
+   surface to body and owns its fixed viewport coordinates. */
+.relation-kind-suggestions {
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: var(--radius-xs);
+  background: hsl(var(--paper));
+  box-shadow: 0 12px 26px -14px hsl(var(--shadow-ink) / 0.3);
+}
+
+.relation-kind-suggestions__marker {
+  width: 16px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.relation-type-field__button {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: 3px;
+  padding: 6px 9px;
+  color: hsl(var(--ink-1));
+  background: hsl(var(--paper));
+  font: inherit;
+  text-align: left;
+}
+
+.relation-type-field__summary,
+.relation-type-field__placeholder {
+  margin-left: auto;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9px);
+}
+
+.relation-type-suggestions__option {
+  align-items: flex-start;
+}
+
+.relation-type-suggestions__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.relation-type-suggestions__copy strong {
+  font-weight: 500;
+}
+
+.relation-type-suggestions__copy small,
+.relation-type-suggestions__empty {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 9px);
+}
+
+.relation-type-suggestions__empty {
+  padding: 10px 12px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid hsl(var(--rule));
+}
+
+.modal-header__copy {
+  min-width: 0;
+}
+
+.modal-header__kicker {
+  margin-bottom: 4px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.modal-header__title {
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.modal-header__subtitle {
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-body, 13px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-header__description {
+  margin-top: 4px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-secondary, 12px);
+  line-height: 1.4;
+}
+
+.modal-body {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 16px 18px;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 12px 18px 16px;
+  border-top: 1px solid hsl(var(--rule));
+}
+
+/* Desktop dialog: a piece of the desk lifted out, like a menu (the
+   --menu-surface-* shell: the sidebar's opaque colour, square, a half-pixel
+   ink hairline and the floating shadow), over a thin mist of the desk's own
+   colour rather than a dark scrim. Head, body and actions are parted by
+   space, never by rules. */
+.modal-root {
+  background: color-mix(in srgb, var(--workspace-ui-bg) 58%, transparent);
+}
+
+.modal-card {
+  border: 0;
+  border-radius: var(--menu-surface-radius);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-surface-shadow);
+}
+
+.modal-header {
+  gap: 12px;
+  padding: 18px 16px 6px 20px;
+  border-bottom: 0;
+}
+
+.modal-header__kicker {
+  margin-bottom: 2px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 12px);
+  line-height: 16px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.modal-header__title {
+  font-size: var(--ui-font-heading, 16px);
+  line-height: 22px;
+}
+
+.modal-header__subtitle {
+  margin-top: 2px;
+  font-size: var(--ui-font-secondary, 13px);
+}
+
+.modal-body {
+  padding: 8px 20px 14px;
+  color: hsl(var(--ink-2));
+  font-size: var(--ui-font-body, 14px);
+  line-height: 1.55;
+}
+
+.modal-actions {
+  align-items: center;
+  padding: 8px 20px 18px;
+  border-top: 0;
+}
+
+.confirmation-dialog__message {
+  font-size: var(--ui-font-body, 13px);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* A section inside a dialog: its label in the index face, then its control. */
+.dialog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.dialog-section:last-child {
+  margin-bottom: 0;
+}
+
+.dialog-section__label {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 12px);
+  line-height: 16px;
+}
+
+/* ── Single-line field ─────────────────────────────────────────────
+   Made like the multi-line field the author writes in: a slip of paper
+   colour with a resting line of glass (`glass glass--rest glass--field`), the
+   pointer brings the bleed and the drift, the caret makes it the still
+   selected glass. Small radius per the shape grammar; `--area` is the
+   multi-line slip with its 16px radius. */
+.ui-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--ui-row-height, 32px);
+  padding: 0 10px;
+  border-radius: 2px;
+  background: hsl(var(--page));
+  color: hsl(var(--ink-1));
+  cursor: text;
+}
+
+.ui-field > input,
+.ui-field > textarea {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 13px);
+  line-height: var(--ui-line-body, 20px);
+}
+
+/* The glass is the focus: the base layer's accent ring on focused form
+   controls (index.css) stays off inside a field. */
+.ui-field > input:focus-visible,
+.ui-field > textarea:focus-visible {
+  box-shadow: none;
+}
+
+.ui-field > input::placeholder,
+.ui-field > textarea::placeholder {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.ui-field > .brush-icon {
+  color: hsl(var(--ink-3));
+}
+
+.ui-field__meta {
+  flex: none;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 12px);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ui-field--sm {
+  min-height: calc(var(--ui-row-height, 32px) - 4px);
+}
+
+.ui-field--sm > input {
+  font-size: var(--ui-font-secondary, 12.5px);
+}
+
+.ui-field--area {
+  align-items: stretch;
+  padding: 8px 12px;
+  border-radius: 16px;
+}
+
+.ui-field--area > textarea {
+  min-height: calc(var(--ui-line-body, 20px) * 3);
+  resize: none;
+}
+
+.ui-field:has(> :disabled) {
+  --glass-g: 0.5;
+  background: color-mix(in srgb, hsl(var(--page)) 45%, transparent);
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: default;
+}
+
+/* ── Dropdown select ───────────────────────────────────────────────
+   The trigger is a single-line field ending in one folding stroke; it opens
+   a menu surface below (GlassSelect), each option with its own sand mark.
+   The list takes the trigger's width, never narrower than the standard menu. */
+.ui-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--ui-row-height, 32px);
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: 2px;
+  background: hsl(var(--page));
+  color: hsl(var(--ink-1));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 13px);
+  line-height: var(--ui-line-body, 20px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-select:disabled {
+  --glass-g: 0.5;
+  background: color-mix(in srgb, hsl(var(--page)) 45%, transparent);
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: default;
+}
+
+.ui-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select__value--placeholder {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.ui-select > .brush-icon:last-child {
+  color: hsl(var(--ink-3));
+}
+
+.ui-select__menu {
+  min-width: var(--menu-width-standard);
+  padding-block: 6px;
+}
+
+.ui-select__search {
+  padding: 2px var(--menu-row-inset) 4px;
+}
+
+.ui-select__check {
+  margin-left: auto;
+  color: hsl(var(--ink-2));
+}
+
+.ui-select__empty {
+  padding: 10px 14px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+/* ── Toggle row: a check box that is the whole row ─────────────────
+   The sidebar cell's grammar: under the pointer one ring of flowing glass in
+   the row's colour (--toggle-color), and while it is on the still selected
+   glass in that colour with the name at medium weight. */
+.ui-toggle-row {
+  --glass-cc: var(--toggle-color, var(--glass-clear));
+  --glass-rim: 7px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  min-height: calc(var(--ui-row-height, 32px) + 2px);
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 13px);
+  line-height: var(--ui-line-body, 20px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-toggle-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-toggle-row.is-on {
+  color: hsl(var(--ink-1));
+}
+
+.ui-toggle-row.is-on .ui-toggle-row__label {
+  font-weight: 500;
+}
+
+/* ── Progress: one hairline ────────────────────────────────────────
+   A 1px track and a 2px square-ended fill in the accent; with no known
+   amount a short segment travels along it. */
+.ui-progress {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+}
+
+.ui-progress::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  height: 1px;
+  background: hsl(var(--rule-strong));
+}
+
+.ui-progress__fill {
+  position: absolute;
+  top: 0.5px;
+  left: 0;
+  display: block;
+  height: 2px;
+  background: hsl(var(--accent));
+  transition: width 140ms ease-out;
+}
+/* Working without a measurable share yet: a short segment drifts along the
+   hairline. Reduced motion keeps it still. */
+.ui-progress[data-indeterminate] .ui-progress__fill {
+  width: 28%;
+  animation: ui-progress-drift 1.6s ease-in-out infinite;
+}
+@keyframes ui-progress-drift {
+  from { left: -28%; }
+  to { left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-progress[data-indeterminate] .ui-progress__fill {
+    left: 0;
+    animation: none;
+  }
+}
+
+.ui-progress--indeterminate .ui-progress__fill {
+  width: 22%;
+  animation: ui-progress-travel 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes ui-progress-travel {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(460%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-progress__fill {
+    transition: none;
+  }
+
+  .ui-progress--indeterminate .ui-progress__fill {
+    animation: none;
+  }
+}
+
+/* Native mobile overlays own a safe-area-aware viewport box. The preferred
+   desktop width remains a cap; the dialog itself always shrinks to the space
+   left after system insets, and only its body scrolls so actions stay usable. */
+html[data-shell-mode='mobile'] .modal-root {
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  padding: max(12px, var(--safe-area-top)) max(12px, var(--safe-area-right))
+    max(12px, var(--safe-area-bottom)) max(12px, var(--safe-area-left));
+}
+
+html[data-shell-mode='mobile'] .modal-card {
+  max-height: 100%;
+}
+
+html[data-shell-mode='mobile'] .modal-root__dialog {
+  height: 100%;
+  min-height: 0;
+}
+
+html[data-shell-mode='mobile'] .modal-header {
+  padding: 16px 14px 12px;
+}
+
+html[data-shell-mode='mobile'] .modal-body {
+  padding: 14px;
+}
+
+html[data-shell-mode='mobile'] .modal-actions {
+  flex-wrap: wrap;
+  padding: 12px 14px 14px;
+}
+
+html[data-shell-mode='mobile'] .modal-actions > .ui-button {
+  min-height: 48px;
+  flex: 1 1 120px;
+}
+
+.patch-create-modal__overlay {
+  box-sizing: border-box;
+}
+
+.patch-create-modal {
+  box-sizing: border-box;
+  width: min(460px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: 100%;
+}
+
+html[data-shell-mode='mobile'] .patch-create-modal__overlay {
+  align-items: center;
+  padding: max(12px, var(--safe-area-top)) max(12px, var(--safe-area-right))
+    max(12px, var(--safe-area-bottom)) max(12px, var(--safe-area-left));
+}
+
+html[data-shell-mode='mobile'] .patch-create-modal {
+  width: 100%;
+  max-height: 100%;
+}
+
+.conversion-picker__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+
+/* ── Dialogs built from the shared controls ────────────────────────── */
+.import-dialog__desc,
+.import-dialog__warning {
+  font-size: var(--ui-font-secondary, 12px);
+  line-height: 1.45;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.import-dialog__warning {
+  color: hsl(var(--destructive));
+}
+
+.import-dialog__pickers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-dialog__queue {
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.import-dialog__row {
+  display: grid;
+  grid-template-columns: 16px 44px minmax(0, 1fr) 56px 22px;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-dialog__state {
+  display: grid;
+  place-items: center;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.import-dialog__state--committed {
+  color: hsl(var(--story-3));
+}
+
+.import-dialog__state--error,
+.import-dialog__status--error {
+  color: hsl(var(--destructive));
+}
+
+.import-dialog__format,
+.import-dialog__status {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  line-height: 1;
+}
+
+.import-dialog__status {
+  text-align: right;
+}
+
+.import-dialog__status--committed {
+  color: hsl(var(--ink-2));
+}
+
+.import-dialog__summary {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 11px);
+}
+
+.import-dialog__summary b {
+  color: hsl(var(--ink-1));
+  font-weight: 500;
+}
+
+.import-dialog__summary b.is-error {
+  color: hsl(var(--destructive));
+}
+
+.edit-storyline-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.edit-storyline-modal__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drift-bind-modal,
+.snapshot-history-modal {
+  max-height: min(600px, calc(100vh - 96px));
+}
+
+.drift-bind-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.drift-bind-modal__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.drift-bind-modal__list,
+.patch-create-modal__candidates {
+  margin-inline: -20px;
+}
+
+.drift-bind-modal__option.menu-surface__item {
+  align-items: flex-start;
+  padding-inline: 20px;
+}
+
+.drift-bind-modal__option .kind-mark {
+  margin-top: 3px;
+}
+
+.drift-bind-modal__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.drift-bind-modal__title,
+.drift-bind-modal__summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drift-bind-modal__title {
+  color: hsl(var(--ink-1));
+  font-weight: 500;
+}
+
+.drift-bind-modal__summary {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 11.5px);
+}
+
+.snapshot-history-modal__note {
+  padding: 0 20px 4px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 12px);
+}
+
+.snapshot-history-modal__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.snapshot-history-modal__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+}
+
+.snapshot-history-modal__time {
+  flex-shrink: 0;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-secondary, 11.5px);
+}
+
+.snapshot-history-modal__words {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10.5px);
+}
+
+.snapshot-history-modal__meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 12px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snapshot-history-modal__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.snapshot-history-modal__excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 12px);
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.patch-create-modal__quote {
+  padding: 8px 12px;
+  border-radius: 2px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 12px);
+  line-height: 1.6;
+}
+
+.patch-create-modal__picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding-left: 10px;
+}
+
+.patch-create-modal__picked-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.patch-create-modal__candidates {
+  max-height: 176px;
+  overflow-y: auto;
+}
+
+.patch-create-modal__candidates .menu-surface__item {
+  padding-inline: 20px;
+}
+
+.patch-create-modal__candidate-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* First run's Markdown folder step: where the folders go, as a path in index
+   type under a muted label. Turning the folder off sits apart on the left. */
+.markdown-folder-guide__location {
+  margin-top: 14px;
+}
+
+.markdown-folder-guide__label {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-caption, 12px);
+  line-height: 16px;
+}
+
+.markdown-folder-guide__path {
+  display: block;
+  margin-top: 4px;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-secondary, 13px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.markdown-folder-guide__error {
+  margin: 10px 0 0;
+  color: hsl(var(--destructive));
+}
+
+.markdown-folder-guide__off {
+  margin-right: auto;
+}
+
+.debug-modal__tabs {
+  padding: 0 20px 4px;
+}
+
+.debug-modal__title {
+  margin: 0 0 8px;
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-body, 13px);
+  font-weight: 500;
+}
+
+.debug-modal__muted {
+  padding: 28px 0;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  text-align: center;
+}
+
+.debug-modal__pre {
+  max-height: 384px;
+  margin-bottom: 12px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 2px;
+  background: hsl(var(--page));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 11px);
+}
+
+.debug-modal__pre pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.debug-modal__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+
+.debug-modal__stat-label {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 11px);
+}
+
+.debug-modal__stat-value {
+  color: hsl(var(--ink-1));
+}
+
+.debug-modal__compare {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.debug-modal__compare--head {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 11px);
+}
+
+.debug-modal__num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.debug-modal__ok {
+  color: hsl(var(--ink-2));
+}
+
+.debug-modal__bad {
+  color: hsl(var(--destructive));
+}
+
+.debug-modal__note {
+  margin-top: 16px;
+}
+
+.debug-modal__list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.debug-modal__footer {
+  justify-content: space-between;
+}
+
+.debug-modal__meta {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 11px);
+}
+
+.entity-card-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+  background: hsl(var(--ink-1) / 0.18);
+}
+
+.entity-card-popover {
+  position: fixed;
+  z-index: calc(var(--z-popover) + 1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: var(--radius-md);
+  background: hsl(var(--paper));
+  box-shadow: 0 10px 26px -14px hsl(var(--shadow-ink) / 0.42);
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid hsl(var(--rule));
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background 0.12s,
+    border-color 0.12s,
+    opacity 0.12s;
+}
+
+.filter-chip--sm {
+  min-height: 20px;
+  padding: 2px 8px;
+  font-size: var(--ui-font-caption, 9.5px);
+}
+
+.filter-chip--md {
+  min-height: 24px;
+  padding: 4px 10px;
+}
+
+.filter-chip--pill {
+  border-radius: var(--radius-xs);
+}
+
+.filter-chip--square {
+  border-radius: var(--radius-xs);
+}
+
+.filter-chip--strip {
+  min-height: 22px;
+  border: 0;
+  border-right: 1px solid hsl(var(--rule));
+  border-radius: 0;
+}
+
+.filter-chip--strip:last-child {
+  border-right: 0;
+}
+
+.filter-chip:hover:not(:disabled) {
+  color: hsl(var(--ink-2));
+  border-color: hsl(var(--ink-4));
+}
+
+.filter-chip--soft.is-active {
+  border-color: hsl(var(--ink-3));
+  background: hsl(var(--ink-1) / 0.06);
+  color: hsl(var(--ink-1));
+}
+
+.filter-chip--solid.is-active {
+  border-color: hsl(var(--ink-1));
+  background: hsl(var(--ink-1));
+  color: hsl(var(--paper));
+}
+
+.filter-chip.has-marker.is-active:not(.filter-chip--solid) {
+  border-color: var(--filter-chip-marker);
+}
+
+.filter-chip__marker {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  background: var(--filter-chip-marker);
+}
+
+.filter-chip--strip .filter-chip__marker {
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.filter-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filter-chip__count {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font-size: var(--ui-font-caption, 9px);
+  letter-spacing: 0.06em;
+}
+
+.filter-chip.is-dimmed,
+.filter-chip:disabled {
+  opacity: 0.45;
+}
+
+.filter-chip:disabled {
+  cursor: not-allowed;
+}
+
+.empty-state {
+  padding: 40px 20px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 12px);
+  font-style: italic;
+  text-align: center;
+}
+
+.empty-state--compact {
+  padding-block: 32px;
+  font-size: var(--ui-font-body, 12.5px);
+}
+
+/* Desktop: one plain sentence in the secondary ink (Chinese has no true
+   italic). When what is missing is a kind of thing, its hollow sand mark sits
+   above the sentence; where it can be made right here, a text button follows. */
+html[data-shell-mode] .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 20px;
+  font-size: var(--ui-font-secondary, 13px);
+  font-style: normal;
+  line-height: var(--ui-line-body, 20px);
+}
+
+html[data-shell-mode] .empty-state--compact {
+  padding-block: 22px;
+}
+
+.empty-state__mark.kind-mark {
+  width: 24px;
+  height: 24px;
+}
+
+.empty-state__icon {
+  color: hsl(var(--ink-5));
+}
+
+.empty-state__action {
+  margin-top: 2px;
+}
+
+/* Desktop: what an empty section says (no fields, no relations, no patches,
+   nothing for this filter, no mentions). It is written like the placeholder of
+   an empty template body: the content serif in the placeholder ink, upright,
+   from the left edge, with no dashes or rule around it. On an entity's paper it
+   takes the body size; off the paper (Project Home, the sidebar, a picker
+   list) the size of the place. The paused mobile shell keeps each consumer's
+   own fallback. */
+html[data-shell-mode] .ui-section-empty {
+  margin: 0;
+  padding: 0;
+  color: hsl(var(--ink-4));
+  font-family: var(--font-content);
+  font-size: var(--ui-font-body, 14px);
+  font-style: normal;
+  font-weight: 400;
+  line-height: var(--ui-line-body, 20px);
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  text-wrap: pretty;
+}
+
+html[data-shell-mode] .page--entity .ui-section-empty:not(.refs-picker__empty) {
+  font-size: var(--editor-font-size, 17.5px);
+  line-height: var(--editor-line-height, 1.75);
+}
+
+/* Only the tab strip uses this full-width half-pixel hairline. Panel headers
+   flow directly into their content so adjacent local rows do not double-rule. */
+.workspace-local-divider {
+  position: relative;
+}
+
+.workspace-local-divider::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 0.5px;
+  background: var(--workspace-local-border);
+  pointer-events: none;
+}
+
+/* Dense sidebar collections keep a bounded cell surface, but never lift into
+   another card layer. */
+.workspace-list {
+  background: transparent;
+}
+
+.workspace-list-row {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, hsl(var(--page)) 55%, var(--workspace-ui-bg));
+  box-shadow: none;
+  transition: background 80ms ease;
+}
+
+.workspace-list-row:hover,
+.workspace-list-row:focus-within {
+  background: var(--workspace-cell-hover-bg);
+}
+
+.workspace-list-row--active,
+.workspace-list-row--active:hover {
+  background: hsl(var(--surface));
+}
+
+.label-mono {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.label-mono--xs {
+  font-size: var(--ui-font-caption, 9.5px);
+}
+
+.label-mono--sm {
+  font-size: var(--ui-font-caption, 10.5px);
+}
+
+.label-mono--ink-2 {
+  color: hsl(var(--ink-2));
+}
+
+.label-mono--ink-4 {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+/* Shared interaction-only styles. Keep these static so components do not
+   recreate \3c style> nodes on every mount. */
+.smm-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.smm-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--rule));
+  border-radius: var(--radius-sm);
+}
+
+.smm-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.left-panel-scroll,
+.left-panel-scroll-hidden,
+.top-timeline-container {
+  scrollbar-width: none;
+}
+
+.top-timeline-create-button {
+  width: 38px;
+  min-width: 38px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid hsl(var(--rule));
+  border-bottom: 1px solid hsl(var(--rule));
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.top-timeline-create-button:focus-visible {
+  outline: 1px solid hsl(var(--ink-3));
+  outline-offset: -2px;
+}
+
+.app-tab--create {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 6px 0 10px;
+  overflow: hidden;
+  border-bottom: 1px solid hsl(var(--rule));
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 12.5px);
+  font-style: italic;
+  user-select: none;
+}
+
+.app-tab--create.is-active {
+  border-bottom-color: hsl(var(--surface));
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-1));
+}
+
+.app-tab--create__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-tab--create .app-tab__close {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+}
+
+.app-tab--create .app-tab__close:hover {
+  color: hsl(var(--ink-1));
+}
+
+.app-tab--create .app-tab__close:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.left-panel-scroll::-webkit-scrollbar,
+.left-panel-scroll-hidden::-webkit-scrollbar,
+.top-timeline-container::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.left-sb-group-add {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.left-sb-group-add--always,
+.left-sb-group-add--expanded {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.left-sb-group-header:hover .left-sb-group-add,
+.left-sb-group-header:focus-within .left-sb-group-add,
+.left-sb-inline-group-header:hover .left-sb-group-add,
+.left-sb-inline-group-header:focus-within .left-sb-group-add {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.left-sb-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: -4px;
+}
+
+.left-sb-inline-add-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 3px;
+  padding: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.left-sb-inline-add-button--frame,
+.left-sb-group-header--frame .left-sb-inline-actions {
+  /* Inside the legend plate, which already cuts the sand frame. */
+  background: transparent;
+}
+
+.left-sb-group-header--frame .left-sb-inline-actions {
+  margin-left: -8px;
+  padding: 0 4px 0 2px;
+}
+
+.left-sb-inline-add-button:hover {
+  background: hsl(var(--paper-deep));
+  color: hsl(var(--ink-1));
+}
+
+/* Element compact text index --------------------------------------------
+   Category color becomes the expanded frame around a dense, content-shaped
+   text flow. Collapsing hides the frame; GroupHeaderCell returns the same
+   color as its compact square marker. Neither state adds a tinted surface. */
+.element-category-section--compact {
+  --element-category-color: hsl(var(--rule));
+  position: relative;
+  box-sizing: border-box;
+  margin: 2px 12px 12px;
+  padding-bottom: 8px;
+  background: transparent;
+  transition:
+    padding-bottom 120ms ease,
+    margin-bottom 120ms ease;
+}
+
+/* Each category is boxed in a dry sand frame of its colour, its heading set
+   into the top edge. The frame is nine-sliced so the stroke keeps one weight
+   at any size; collapsing lets it fade out whole. */
+.element-category-section--compact::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: -6px;
+  bottom: -6px;
+  left: -6px;
+  background: color-mix(in srgb, var(--element-category-color), #ffffff var(--pigment-lift));
+  -webkit-mask-box-image: url('../assets/design/sand/frame-box.png') 24 / 12px round;
+  mask-border: url('../assets/design/sand/frame-box.png') 24 / 12px round;
+  mix-blend-mode: var(--pigment-blend);
+  opacity: calc(0.75 * var(--pigment));
+  pointer-events: none;
+  transition: opacity 0.3s ease-out;
+}
+
+.element-category-section--compact.is-collapsed {
+  margin-bottom: 4px;
+  padding-bottom: 0;
+}
+
+.element-category-section--compact.is-collapsed::before {
+  opacity: 0;
+}
+
+.left-sb-group-header--frame {
+  position: relative;
+  z-index: 1;
+  min-height: 26px;
+  box-sizing: border-box;
+}
+
+.left-sb-group-header__legend {
+  display: contents;
+}
+
+/* The heading's own plate cuts the frame's top edge where it sits. It stays
+   opaque while the char sea ebbs under a just-opened workspace and clears
+   the desk (char-sea.css), or the frame would run through the heading. */
+.left-sb-group-header--frame .left-sb-group-header__legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 7px 0 5px;
+  background: var(--workspace-plate-bg, var(--workspace-ui-bg));
+}
+
+.left-sb-group-header__frame-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-4));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.left-sb-group-header--frame:hover .left-sb-group-header__frame-disclosure,
+.left-sb-group-header--frame.is-collapsed .left-sb-group-header__frame-disclosure,
+.left-sb-group-header__frame-disclosure:focus-visible {
+  opacity: 1;
+}
+
+.left-sb-group-header__frame-disclosure:disabled {
+  cursor: default;
+  opacity: 0;
+}
+
+/* A storyline heading is a cell: its chevron shows on hover or collapsed. */
+.left-sb-group-header__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-right: -2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-4));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.left-sb-group-header--cell:hover .left-sb-group-header__chevron,
+.left-sb-group-header__chevron[aria-expanded='false'],
+.left-sb-group-header__chevron:focus-visible {
+  opacity: 1;
+}
+
+.element-identity-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 8px 1px;
+}
+
+/* A low-contrast hairline marks the exact card extent of a named element
+   group. Ungrouped identities deliberately omit it, so the final named group
+   has a visible ending without introducing another surface or semantic wash. */
+.element-identity-flow--grouped {
+  position: relative;
+  padding-bottom: 5px;
+}
+
+/* Consecutive named groups use the same vertical rhythm as label-to-cards.
+   Only the semantic boundary between the final named group and trailing
+   ungrouped cards receives an extra gap. */
+.element-category-group--last-named + .element-category-group--ungrouped {
+  margin-top: 3px;
+}
+
+.element-identity-flow--grouped::before {
+  content: '';
+  position: absolute;
+  inset: 0 4px;
+  border: 1px solid var(--workspace-local-border);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.element-panel-item-label {
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-body, 12.5px);
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+}
+
+.element-identity-tile {
+  --element-identity-basis: 78px;
+  position: relative;
+  display: flex;
+  flex: 1 1 var(--element-identity-basis);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 3px;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.element-identity-tile:hover,
+.element-identity-tile.is-selected {
+  color: hsl(var(--ink-1));
+}
+
+.element-identity-tile .kind-mark {
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+}
+
+.element-identity-tile .kind-mark--element > .sand {
+  inset: 0.5px;
+}
+
+.element-identity-tile:focus-visible {
+  outline: 2px solid hsl(var(--ink-1) / 0.72);
+  outline-offset: 1px;
+}
+
+.element-identity-tile__label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.element-identity-tile__open {
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  align-items: center;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.element-identity-tile__open:focus-visible {
+  outline: 2px solid hsl(var(--ink-1) / 0.72);
+  outline-offset: 1px;
+}
+
+.element-identity-tile__agent {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid hsl(var(--rule-strong));
+  border-radius: 2px;
+  background: hsl(var(--surface));
+  color: hsl(var(--ink-2));
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .element-identity-tile {
+    transition: none;
+  }
+}
+
+.super-element-overlay .super-element-toggle {
+  min-height: var(--control-height-sm);
+  padding: 3px 10px;
+  border: 1px solid hsl(var(--rule));
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: hsl(var(--ink-2));
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 10px);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition:
+    background 120ms,
+    color 120ms,
+    border-color 120ms;
+}
+
+.super-element-overlay .super-element-toggle:hover,
+.super-element-overlay .super-element-toggle.is-on {
+  border-color: hsl(var(--ink-1));
+  background: hsl(var(--ink-1));
+  color: hsl(var(--paper));
+}
+
+svg.super-viewport-edges[data-panning='1'] {
+  visibility: hidden;
+}
+
+@keyframes insp-tab-count-pulse {
+  0% {
+    color: var(--ui-text-muted, hsl(var(--ink-4)));
+    transform: scale(1);
+  }
+  30% {
+    color: hsl(var(--accent));
+    transform: scale(1.4);
+  }
+  100% {
+    color: var(--ui-text-muted, hsl(var(--ink-4)));
+    transform: scale(1);
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Hover cards (HoverCardShell)
+
+   Drifting has no right-click menus. Resting the pointer on a thing shows its
+   card, and what a menu used to offer is the card's rows. The card is the
+   menus' lifted piece of desk with rounded corners (the Agent composer's
+   16px), edged by the resting thin glass line instead of a hairline, and
+   keeps the floating shadow. One size for every word; only the title is
+   bold. Everything starts at one left edge: a kind mark where a line has one,
+   the words where it has not; a section's choices step in behind their own
+   marks. What can be pressed is set in the mono face, one row each, and only
+   the row under the pointer rings. A passive preview (inline links) never
+   takes the pointer. */
+.hover-card-surface {
+  --hover-card-pad: 14px;
+  --hover-card-shadow: 0 16px 30px -16px hsl(var(--shadow-ink) / 0.38);
+  overflow: hidden;
+  background: var(--menu-surface-bg);
+  border-radius: 16px;
+  box-shadow: var(--hover-card-shadow);
+  color: hsl(var(--ink-2));
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-secondary, 13px);
+  line-height: 1.5;
+}
+
+.dark .hover-card-surface {
+  --hover-card-shadow: 0 16px 30px -16px hsl(var(--shadow-ink) / 0.62);
+}
+
+/* The card that follows the pointer; the cards a press opens (a Super View's
+   chapter card, the element island's small card, a relation's card) wear the
+   same surface where they are placed. */
+.hover-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 24px);
+  pointer-events: none;
+}
+
+/* The resting thin glass line (`.glass--rest`: strength 0.85, no bleed), cut
+   from the texture and standing still, over everything inside the card. */
+.hover-card-surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--glass-clear) 50.5%, transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  -webkit-mask-position: -14px -46px;
+  mask-position: -14px -46px;
+}
+
+.hover-card--interactive {
+  pointer-events: auto;
+}
+
+.hover-card__body {
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 13px 14px 13px var(--hover-card-pad);
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--rule-strong)) transparent;
+}
+
+.hover-card__body:not(:last-child) {
+  padding-bottom: 6px;
+}
+
+/* More below: the words fade out at the card's lower edge until the end is
+   scrolled into view. */
+.hover-card__body--more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+}
+
+.hover-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hover-card__head + .hover-card__head {
+  margin-top: 4px;
+}
+
+.hover-card__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: hsl(var(--ink-1));
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hover-card__title--quiet {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-weight: 400;
+}
+
+.hover-card__title > .kind-mark {
+  vertical-align: -0.16em;
+  margin-right: 8px;
+}
+
+.hover-card__index {
+  flex: none;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.hover-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 14px;
+  margin-top: 2px;
+  color: hsl(var(--ink-3));
+  overflow-wrap: anywhere;
+}
+
+.hover-card__tag > .kind-mark {
+  vertical-align: -0.16em;
+  margin-right: 8px;
+}
+
+.hover-card__tag--soft {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+}
+
+.hover-card__tag--soft > .kind-mark > .sand {
+  opacity: calc(0.5 * var(--pigment));
+}
+
+.hover-card__text {
+  margin-top: 8px;
+  color: hsl(var(--ink-2));
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Facts run in: the key leads in muted ink and its value follows on the same
+   line, then wraps the card's full width, so a long key never squeezes its
+   value into a column one character wide. */
+.hover-card__kv {
+  margin: 8px 0 0;
+}
+
+.hover-card__kv-row {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.hover-card__kv-row + .hover-card__kv-row {
+  margin-top: 4px;
+}
+
+.hover-card__kv dt {
+  display: inline;
+  margin-right: 8px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.hover-card__kv dd {
+  display: inline;
+  margin: 0;
+  color: hsl(var(--ink-2));
+}
+
+/* What a review item's passage says: the author's prose on a slip of paper. */
+.hover-card__quote {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: hsl(var(--page));
+  color: hsl(var(--ink-2));
+  font-family: var(--font-content);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── The rows ── Sections (a group of actions, a choice, what is dangerous)
+   are parted by the menus' own hairline (--menu-separator, 0.5px), 5px either
+   side, in from the edge as far as the card's words. */
+.hover-card__actions {
+  flex: none;
+  padding: 0 0 6px;
+}
+
+.hover-card__actions:first-child {
+  padding-top: 6px;
+}
+
+.hover-card__body + .hover-card__actions::before,
+.hover-card__section + .hover-card__section::before {
+  content: '';
+  display: block;
+  height: 0.5px;
+  margin: 5px 14px;
+  background: var(--menu-separator);
+}
+
+.hover-card__section-label,
+.hover-card__section-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 30px;
+  padding: 0 14px 0 var(--hover-card-pad);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: inherit;
+  white-space: nowrap;
+}
+
+.hover-card__section-head {
+  position: relative;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hover-card__chevron {
+  margin-left: auto;
+  opacity: 0.6;
+  transition: transform var(--motion-glass-settle) var(--motion-structural-ease);
+}
+
+.hover-card__section.is-open .hover-card__chevron {
+  transform: rotate(180deg);
+}
+
+/* A folded list opens out of its header. */
+.hover-card__fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--motion-glass-settle) var(--motion-structural-ease),
+    opacity 0.2s ease-out;
+}
+
+.hover-card__section.is-open .hover-card__fold {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.hover-card__fold-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.hover-card__section.is-open .hover-card__fold-inner {
+  max-height: 300px;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+}
+
+.hover-card__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 30px;
+  padding: 0 14px 0 var(--hover-card-pad);
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font: inherit;
+  font-family: var(--font-mono);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hover-card__row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The row under the pointer is marked by its ring alone, its words keep the
+   menus' one colour; only a choice in effect reads darker. */
+.hover-card__row.is-active,
+.hover-card__row.is-checked {
+  color: hsl(var(--ink-1));
+}
+
+.hover-card__row:focus-visible,
+.hover-card__section-head:focus-visible {
+  outline: none;
+}
+
+.hover-card__row--danger {
+  color: hsl(var(--destructive));
+}
+
+.hover-card__row:disabled {
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  cursor: default;
+}
+
+/* The choice in effect is pressed only once: it reads as chosen, not muted. */
+.hover-card__row.is-active:disabled {
+  color: hsl(var(--ink-1));
+}
+
+/* The row's ring: the menus' one hairline of flowing glass, round the row
+   under the pointer; standing still round the choice in effect. A header
+   that was just pressed keeps none once the pointer leaves it. */
+html[data-shell-mode] :is(.hover-card__row, .hover-card__section-head)::before {
+  --hover-card-line: color-mix(in srgb, var(--glass-clear), hsl(var(--ink-3)) 30%);
+  content: '';
+  position: absolute;
+  inset: 1px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--hover-card-line) 82%, transparent),
+    inset 0 0 3px 0.5px color-mix(in srgb, var(--hover-card-line) 28%, transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  --glass-gx: -30px;
+  --glass-gy: -64px;
+  opacity: 0;
+  animation: glass-flow var(--motion-glass-drift) linear infinite paused;
+  transition: opacity 0.18s ease-out;
+}
+
+html[data-shell-mode] :is(.hover-card__row, .hover-card__section-head):hover:not(:disabled)::before,
+html[data-shell-mode] :is(.hover-card__row, .hover-card__section-head):focus-visible::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+html[data-shell-mode] .hover-card__row.is-active::before {
+  opacity: 1;
+  animation-play-state: paused;
+}
+
+html[data-shell-mode] .hover-card__row--danger::before {
+  --hover-card-line: hsl(var(--destructive));
+}
+
+/* No hover on touch: a ⋯ button opens the card, so its rows are taps. */
+html[data-shell-mode='mobile'] .hover-card__row {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+/* A count or a note at the row's far end (× 8 with someone, 3 处). */
+.hover-card__row-aside {
+  flex: none;
+  margin-left: auto;
+  padding-left: 10px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+/* A relation's type ahead of whom it points at. */
+.hover-card__row-type {
+  flex: none;
+  margin-right: 10px;
+  color: hsl(var(--ink-3));
+}
+
+.hover-card__row-type + .kind-mark {
+  margin-right: 6px;
+}
+
+/* A note in a section, under its strip (出场 9/12 章 …). */
+.hover-card__note {
+  padding: 2px 14px 4px var(--hover-card-pad);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+/* What is written in place on a card a press opens (a chapter's summary):
+   a slip of paper; the caret in it is the still selected glass. */
+.hover-card__slip {
+  position: relative;
+  display: block;
+  margin-top: 8px;
+  border-radius: 6px;
+  background: hsl(var(--page));
+}
+
+.hover-card__slip > textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88px;
+  max-height: min(42vh, 320px);
+  padding: 7px 10px;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  font-family: var(--font-content);
+  font-size: inherit;
+  line-height: 1.7;
+}
+
+.hover-card__slip::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--glass-clear) 59%, transparent),
+    inset 0 0 9px 1px color-mix(in srgb, var(--glass-clear) 59%, transparent);
+  -webkit-mask-image: var(--glass-texture);
+  mask-image: var(--glass-texture);
+  -webkit-mask-size: 150px 150px;
+  mask-size: 150px 150px;
+  -webkit-mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  mask-position: var(--glass-dense-gx) var(--glass-dense-gy);
+  opacity: 0;
+  transition: opacity var(--motion-glass-bleed) ease-out;
+}
+
+.hover-card__slip:focus-within::before {
+  opacity: 1;
+}
+
+/* A card a press opens, placed by its own owner. */
+.entity-card-popover--card {
+  position: fixed;
+  z-index: calc(var(--z-popover) + 1);
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 16px);
+}
+
+/* A row's mark sits on the left edge and steps its words in to where the
+   title's begin. */
+.hover-card__mark {
+  flex: none;
+  margin-right: 6px;
+}
+
+.hover-card__mark--kind {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+}
+
+.hover-card__tick {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  visibility: hidden;
+  box-sizing: content-box;
+}
+
+.hover-card__row.is-checked .hover-card__tick {
+  visibility: visible;
+}
+
+/* ── Glass slider: one choice out of several ─────────────────────────
+ * The options sit side by side straight on the panel, with no track under
+ * them. One glass slider — a square slab of the floating fill with the
+ * selected glass rim, standing still, like the block under the chosen panel
+ * tab — lies under the chosen option and slides to the next on the dock's
+ * critically damped spring (GlassSlider sets --slider-ms/--slider-ease).
+ * Only the slider is glass; the options are plain words. */
+.glass-slider {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.glass-slider__thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--slider-w);
+  height: var(--slider-h);
+  border-radius: 0;
+  background: var(--glass-fill);
+  transform: translate(var(--slider-x), var(--slider-y));
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Small glass that moves: the dense patch (materials.css), carried along
+   by the distance the slider travels. */
+.glass-slider > .glass-slider__thumb.glass {
+  --glass-gx: calc(var(--flow, 0) * 1.2px + var(--glass-dense-gx));
+  --glass-gy: var(--glass-dense-gy);
+}
+
+.glass-slider__thumb[data-visible='true'] {
+  opacity: 1;
+}
+
+.glass-slider[data-placed='true'] .glass-slider__thumb {
+  transition:
+    transform var(--slider-ms) var(--slider-ease),
+    width var(--slider-ms) var(--slider-ease),
+    height var(--slider-ms) var(--slider-ease);
+}
+
+/* Stacked options (a collapsed slider's opened list) slide top to bottom;
+   the glass runs down the same dense patch of texture. */
+.glass-slider--vertical {
+  flex-direction: column;
+}
+
+.glass-slider--vertical > .glass-slider__option {
+  text-align: start;
+}
+
+.glass-slider--vertical > .glass-slider__thumb.glass {
+  --glass-gx: var(--glass-dense-gx);
+  --glass-gy: calc(var(--flow, 0) * 1.2px + var(--glass-dense-gy));
+}
+
+/* Where the options don't fit side by side, only the chosen one stays, with
+   the glass under it; hovering opens all of them stacked in a menu surface
+   just below. Choosing there slides the same heavy slab down or up to it and
+   the menu stays until the pointer leaves. A hidden copy keeps measuring the
+   options' natural width so the slider opens out again once there is room. */
+.glass-slider__measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.glass-slider-popover {
+  width: auto;
+}
+
+.glass-slider__option {
+  position: relative;
+  z-index: 1;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 9.5px)/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.glass-slider__option:hover {
+  color: hsl(var(--ink-2));
+}
+
+.glass-slider__option[aria-checked='true'] {
+  color: hsl(var(--ink-1));
+}
+
+.glass-slider__option:focus-visible {
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Scope toggle: just this one, or the whole project ──────────────
+ * Two states only, so one word that never changes, shaped like the dock's
+ * lock: the resting glass line while off (the whole project), the still
+ * selected glass on the floating fill while on (only the current one). */
+.scope-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 9.5px)/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s, background-color 0.24s ease-out;
+}
+
+.scope-toggle:hover:not(:disabled) {
+  color: hsl(var(--ink-2));
+}
+
+.scope-toggle[aria-pressed='true'] {
+  background: var(--glass-fill);
+  color: hsl(var(--ink-1));
+}
+
+.scope-toggle:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-slider[data-placed='true'] .glass-slider__thumb {
+    transition: none;
+  }
+}
+
+/* ── ＋ 关联: the text button that opens a relation picker ───────────
+ * The same word everywhere a TODO, comment or material is linked to an
+ * entity (TODO and Review cards, material cards and tabs, compose dialogs):
+ * no glass, interface type in the caption role, the ink deepens under the
+ * pointer. Desktop only; the paused mobile shell keeps its dashed box. */
+.relation-add-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 11.5px) var(--font-sans);
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+  transition: color 0.12s ease-out;
+}
+
+.relation-add-button:hover,
+.relation-add-button:focus-visible {
+  color: hsl(var(--ink-1));
+  outline: none;
+}
+
+/* ── Single-line field, monospaced ──────────────────────────────────
+   For what is read character by character: a key, a command, a model id,
+   a path, a colour value. Index type: monospaced, no capitals, no spacing. */
+.ui-field--mono > input,
+.ui-field--mono > textarea {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-secondary, 12.5px);
+  letter-spacing: 0.01em;
+}
+
+/* ── Configuration field: several lines of NAME=value ───────────────
+   The single-line field grown to several lines, square-cornered (2px) and
+   monospaced like a terminal, not the 16px slip the author writes prose in. */
+.ui-field--config {
+  align-items: stretch;
+  padding: 7px 10px;
+}
+
+.ui-field--config > textarea {
+  min-height: calc(var(--ui-line-body, 20px) * 3);
+  resize: vertical;
+}
+
+/* ── Number slider ───────────────────────────────────────────────────
+   GlassRange. A 1px hairline track and a 2px ink line for the part already
+   travelled (the progress hairline, in ink rather than the accent). The knob
+   is the Switch's clean thumb; under the pointer a round glass halo comes up
+   round it and drifts, held down it thickens like any glass. The real range
+   input lies on top, unseen, so the pointer, the arrow keys and assistive
+   technology all work the system's way; its thumb is the knob's size so the
+   two always meet. */
+.ui-range {
+  --range-knob: 14px;
+  --range-halo: 24px;
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 150px;
+  height: 22px;
+}
+
+.ui-range--wide {
+  flex: 1;
+  width: auto;
+  min-width: 120px;
+}
+
+.ui-range__track,
+.ui-range__fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  pointer-events: none;
+}
+
+.ui-range__track {
+  right: 0;
+  height: 1px;
+  margin-top: -0.5px;
+  background: hsl(var(--rule-strong));
+}
+
+.ui-range__fill {
+  width: calc(var(--range-knob) / 2 + (100% - var(--range-knob)) * var(--range-p, 0));
+  height: 2px;
+  margin-top: -1px;
+  background: hsl(var(--ink-3));
+}
+
+.ui-range__knob,
+.ui-range__halo {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--range-knob) / 2 + (100% - var(--range-knob)) * var(--range-p, 0));
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.ui-range__knob {
+  z-index: 2;
+  width: var(--range-knob);
+  height: var(--range-knob);
+  margin: calc(var(--range-knob) / -2) 0 0 calc(var(--range-knob) / -2);
+  background: hsl(var(--page));
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.18),
+    0 0 0 0.5px hsl(var(--ink-1) / 0.06);
+}
+
+.dark .ui-range__knob {
+  background: hsl(var(--ink-2));
+}
+
+.ui-range__halo {
+  z-index: 1;
+  width: var(--range-halo);
+  height: var(--range-halo);
+  margin: calc(var(--range-halo) / -2) 0 0 calc(var(--range-halo) / -2);
+}
+
+.ui-range:hover .ui-range__halo,
+.ui-range:has(> input:focus-visible) .ui-range__halo {
+  --glass-g: 1;
+  --glass-sp: 1;
+}
+
+.ui-range:hover .ui-range__halo::before,
+.ui-range:has(> input:focus-visible) .ui-range__halo::before {
+  opacity: 1;
+  animation-play-state: running;
+  transition: opacity var(--motion-glass-bleed) ease-out, box-shadow var(--motion-glass-bleed) ease-out;
+}
+
+.ui-range:active .ui-range__halo {
+  --glass-g: 1.7;
+  --glass-sp: 1.3;
+}
+
+.ui-range:active .ui-range__halo::before {
+  opacity: 1;
+  animation-play-state: paused;
+  transition: opacity var(--motion-glass-bleed) ease-out, box-shadow var(--motion-glass-press) ease-out;
+}
+
+.ui-range > input {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ui-range > input::-webkit-slider-thumb {
+  width: var(--range-knob);
+  height: var(--range-knob);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ui-range.is-disabled {
+  opacity: 0.45;
+}
+
+.ui-range.is-disabled > input {
+  cursor: not-allowed;
+}
+
+.ui-range.is-disabled .ui-range__halo::before {
+  opacity: 0;
+}
+
+/* The number beside it: a small monospaced field, the unit read at its end
+   and two flat strokes to step it. */
+.ui-number {
+  width: 96px;
+  padding: 0 4px 0 8px;
+  gap: 4px;
+}
+
+.ui-number > input {
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+}
+
+.ui-number > input::-webkit-inner-spin-button,
+.ui-number > input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.ui-number__steps {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  margin-left: 2px;
+}
+
+.ui-number__step {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 11px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.ui-number__step:hover:not(:disabled) {
+  color: hsl(var(--ink-1));
+}
+
+.ui-number__step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ── Colour swatch ───────────────────────────────────────────────────
+   Any colour the author picks (the accent, the caret, a kind's highlight):
+   a round glass button holding one seal of that colour. A kind's colour is
+   shown in that kind's own sand mark instead. The system colour picker lies
+   on top, unseen; the value is written beside in index type. */
+.ui-swatch {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.ui-swatch > .sand,
+.ui-swatch > .kind-mark {
+  width: 16px;
+  height: 16px;
+}
+
+.ui-swatch > input[type='color'] {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ui-swatch__value {
+  min-width: 58px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 12px);
+  letter-spacing: 0.02em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-range__halo::before {
+    animation: none;
+  }
+}
+
+/* ── Chip: one of a group of independent toggles ────────────────────
+ * Several at once may be on (which relation types the canvas draws, which
+ * material kinds the library lists). Choose-one is the glass slider, two
+ * states is the scope toggle; the chip is that toggle's family: index type
+ * that never changes, the resting glass line while off, the floating fill
+ * and still selected glass while on. The glass stays clear; a type's colour
+ * lives only in its sand dash, which fades while the chip is off. A drift's
+ * relation leads with the drift's eddy. Nothing to show (a count of 0) is
+ * fainter ink on a fainter line. Desktop only (`FilterChip look="glass"`).
+ *
+ * `.ui-word-toggle` is the same piece for a word beside them that is not one
+ * of a group: a two-state switch (聚焦, 粘带) or a word that opens a menu or
+ * popover (全部, 未放置), pressed or expanded while on or open. */
+.ui-chip,
+.ui-word-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font: var(--ui-font-caption, 10px)/1 var(--font-mono);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s, background-color var(--motion-glass-bleed) ease-out;
+}
+
+:is(.ui-chip, .ui-word-toggle):hover:not(:disabled) {
+  color: hsl(var(--ink-1));
+}
+
+:is(.ui-chip, .ui-word-toggle):is([aria-pressed='true'], [aria-expanded='true']) {
+  background: var(--glass-fill);
+  color: hsl(var(--ink-1));
+}
+
+.ui-word-toggle:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.ui-chip > .kind-mark {
+  margin-inline: -2px -1px;
+  transition: opacity 0.2s ease-out;
+}
+
+.ui-chip[aria-pressed='false'] > .ui-chip__mark {
+  opacity: 0.35;
+}
+
+:is(.ui-chip__count, .ui-word-toggle__count) {
+  color: hsl(var(--ink-4));
+}
+
+.ui-chip.is-empty {
+  --glass-g: 0.5;
+  color: hsl(var(--ink-4));
+}
+
+/* Relation-type list (RelationTypeField: the new-relation dialog, the
+   entity editors' relation cards). Desktop: the menu shell, one menu row per
+   type — its sand dash, the name, the roles in index type, a tick on the
+   chosen one. It keeps the suggestions' modal-safe stacking. */
+.relation-kind-suggestions.menu-surface {
+  gap: 0;
+  min-width: var(--menu-width-wide);
+  padding: 4px 0;
+  border: 1px solid var(--menu-surface-border);
+  border-radius: var(--menu-surface-radius);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-surface-shadow);
+}
+
+.relation-kind-suggestions.menu-surface .relation-type-suggestions__option {
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.relation-kind-suggestions.menu-surface .relation-type-suggestions__option > .kind-mark {
+  margin-top: 2px;
+}
+
+.relation-kind-suggestions.menu-surface .relation-type-suggestions__copy {
+  flex: 1;
+}
+
+.relation-type-suggestions__tick {
+  margin-top: 3px;
+  color: hsl(var(--ink-2));
+}
+
+/* Entity card popover (a chapter, drift or element clicked on a Super View
+   canvas). Desktop: a floating layer on the menu shell — desk colour, square,
+   the half-pixel hairline and the floating shadow — with no rules inside;
+   expanded it sits over the desk's mist like a dialog. The title leads with
+   the thing's own sand mark; the summary is written in the multi-line
+   field's slip; 展开编辑 is a text button and 在编辑器中打开 the one primary
+   button. Expanded, the text is a sheet of page colour inside the shell. */
+.entity-card-backdrop--mist {
+  background: color-mix(in srgb, var(--workspace-ui-bg) 58%, transparent);
+}
+
+.entity-card-popover.entity-card-popover--float {
+  gap: 10px;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--menu-surface-radius);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-surface-shadow);
+  font-family: var(--font-sans);
+}
+
+.entity-card__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  min-height: 26px;
+  padding: 0 0 0 2px;
+}
+
+.entity-card__num {
+  flex-shrink: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 10px)/1 var(--font-mono);
+}
+
+.entity-card__title,
+.entity-card__title-input {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font: 500 var(--ui-font-body, 13px)/1.25 var(--font-sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-card__title-input {
+  padding: 2px 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+}
+
+.entity-card__slip {
+  flex: 1;
+  min-height: 0;
+}
+
+.entity-card__slip > textarea {
+  min-height: 92px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  resize: none;
+  font-size: calc(var(--editor-font-size, 17.5px) - 4px);
+  line-height: 1.55;
+}
+
+.entity-card__page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px;
+  border-radius: 2px;
+  background: hsl(var(--page));
+}
+
+.entity-card__page > .entity-card__summary-line {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: hsl(var(--ink-3));
+  font: var(--ui-font-secondary, 13px)/1.45 var(--font-sans);
+}
+
+.entity-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.entity-card__meta {
+  margin-right: auto;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: var(--ui-font-caption, 10px)/1.3 var(--font-mono);
+}
+
+/* The chapter card's own rules (graph-view.css) give way inside the shell. */
+.entity-card.node-card .node-card__summary {
+  padding: 0;
+  min-height: 92px;
+}
+
+.entity-card.node-card .node-card__loading {
+  padding: 0;
+}
+
+/* A glass field shows its caret as the still selected glass, so the form
+   controls' accent focus ring (index.css) stays off inside it. */
+html[data-shell-mode] .ui-field > :is(input, textarea):focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}

@@ -1,0 +1,194 @@
+{
+  "suite": "milestone-d-domain-crud-and-structural-transactions",
+  "schemaVersion": 1,
+  "nodeVersion": "v24.4.0",
+  "platform": "darwin",
+  "gitHead": "94e9bbca72fba3a23922da389e7ba121436d7f3b",
+  "sourceSetSha256": "sha256:7362ff818772cf009d65bfe69c64f42f6c49ea4c5326c831f668010877a3ee37",
+  "storageReplay": {
+    "sqlite": "real file-backed SQLite from the current product baseline, with CAS guards, receipts, outbox rows, and injected transaction faults",
+    "prose": "real product Yjs coordination for prose-owning workspace resources",
+    "rendererProjection": "product Zustand projections refreshed only after committed domain state",
+    "restart": "database close/reopen plus lost outer acknowledgement reconciliation",
+    "networkRequired": false
+  },
+  "lifecycle": {
+    "domains": 9,
+    "providerWorkspaceVerbs": 6,
+    "hiddenMutationCommands": 25,
+    "contract": "generated from DRIFTING_DOMAIN_CRUD_CONTRACTS and checked against final product composition"
+  },
+  "vitest": {
+    "files": {
+      "required": 9,
+      "discovered": 9
+    },
+    "tests": {
+      "total": 83,
+      "passed": 83,
+      "failed": 0,
+      "pending": 0,
+      "todo": 0
+    },
+    "groups": {
+      "realSqliteDomainLifecycle": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 22,
+          "passed": 22,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "naturalWorkspaceAndReads": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 18,
+          "passed": 18,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "productYjsAndMigration": {
+        "requiredFiles": 2,
+        "discoveredFiles": 2,
+        "tests": {
+          "total": 22,
+          "passed": 22,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      },
+      "trustPolicyAndCapabilityTruth": {
+        "requiredFiles": 3,
+        "discoveredFiles": 3,
+        "tests": {
+          "total": 21,
+          "passed": 21,
+          "failed": 0,
+          "pending": 0
+        },
+        "passed": true
+      }
+    },
+    "requiredAssertions": {
+      "completeStorylineGraph": {
+        "requiredName": "atomically replaces the complete storyline graph and restores the exact preimage",
+        "matches": 1,
+        "passed": true
+      },
+      "transactionRollback": {
+        "requiredName": "rolls back every graph row and outbox mutation when a transaction write fails",
+        "matches": 1,
+        "passed": true
+      },
+      "memoryLifecycle": {
+        "requiredName": "creates, addresses, updates, soft-deletes, and exactly reverts pending Agent memory",
+        "matches": 1,
+        "passed": true
+      },
+      "lostAcknowledgement": {
+        "requiredName": "reconciles a lost outer acknowledgement once and survives a file reopen",
+        "matches": 1,
+        "passed": true
+      },
+      "approvedMemoryTrust": {
+        "requiredName": "keeps approved guidance read-only and allows a separate pending proposal",
+        "matches": 1,
+        "passed": true
+      },
+      "structuralCreateInverse": {
+        "requiredName": "creates and exactly removes every structural resource class",
+        "matches": 1,
+        "passed": true
+      },
+      "structuralUpdateDeleteInverse": {
+        "requiredName": "updates, guards field deletion, and restores structural resource deletes",
+        "matches": 1,
+        "passed": true
+      },
+      "commentRelationLifecycle": {
+        "requiredName": "provides natural JSON CRUD and guarded inverses for TODOs and relations",
+        "matches": 1,
+        "passed": true
+      },
+      "atomicExistingDomainWrites": {
+        "requiredName": "commits all four domain writes with one outbox and typed receipt each without post-write reviews",
+        "matches": 1,
+        "passed": true
+      },
+      "staleStateFailClosed": {
+        "requiredName": "fails closed when the SQLite entity revision changed after the cited read",
+        "matches": 1,
+        "passed": true
+      },
+      "naturalWorkspace": {
+        "requiredName": "reads a chapter by plain chapter name and hides transport vocabulary from model data",
+        "matches": 1,
+        "passed": true
+      },
+      "completeReadCatalog": {
+        "requiredName": "executes every registered read tool without mutating domain state or leaking projects",
+        "matches": 1,
+        "passed": true
+      },
+      "authoritativeYjsWorkspace": {
+        "requiredName": "edits authored prose with semantic model output and an automatic reveal",
+        "matches": 1,
+        "passed": true
+      },
+      "migrationReopen": {
+        "requiredName": "creates the exact current baseline and reopens idempotently",
+        "matches": 1,
+        "passed": true
+      },
+      "memoryApprovalAtomicity": {
+        "requiredName": "activates the proposal and retires its superseded memory atomically",
+        "matches": 1,
+        "passed": true
+      },
+      "graphPermission": {
+        "requiredName": "allows non-destructive relation changes but guards full membership replacement",
+        "matches": 1,
+        "passed": true
+      },
+      "executableLifecycleMatrix": {
+        "requiredName": "proves every declared domain lifecycle and hidden mutation has an executable strategy",
+        "matches": 1,
+        "passed": true
+      }
+    },
+    "process": {
+      "exitCode": 0,
+      "signal": null
+    },
+    "passed": true
+  },
+  "typecheck": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "lint": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "capabilities": {
+    "exitCode": 0,
+    "signal": null,
+    "passed": true
+  },
+  "boundaries": {
+    "checkpointRewind": "Agent checkpoint/fork is intentionally removed; exact per-command inverse remains domain-local and entity snapshot history owns manuscript recovery",
+    "nativeDevices": "headless product storage is covered; desktop/iOS/Android lifecycle remains milestone J",
+    "providerNetwork": "not required for domain semantics; multi-provider conformance remains milestone I",
+    "visualReview": "inline review state is covered by milestone C; native visual smoothness remains user/device acceptance"
+  },
+  "passed": true
+}

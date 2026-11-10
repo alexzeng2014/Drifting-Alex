@@ -1,0 +1,399 @@
+import loglevel from 'loglevel';
+import { getHostedSessionBinding } from '../lib/hosted-session-binding';
+import { createHostedProvider } from './providers/hosted/tauri-transport';
+import { eq } from 'drizzle-orm';
+
+import { events } from '../lib/events';
+import { AgentChatSyncRuntime } from './agent-chat/runtime';
+import { getDb, type DbClient } from '../lib/db';
+import { flushLocalApplicationPersistence } from '../lib/persistence-lifecycle';
+import { reconcileOpenYjsDocumentSessions } from '../services/yjs-document-session';
+import { platform } from '../platform';
+import {
+  nativeSnapshotAssetCapturePort,
+  nativeSyncAssetBlobPort,
+  reconcileNativeSyncAssetAttempts,
+} from './assets';
+import {
+  createProviderCheckpointHook,
+  ProviderSnapshotPublisher,
+} from './checkpoint';
+import {
+  createSyncAppAuthorityRepository,
+  type ActiveProviderRuntimeBinding,
+} from './app-authority-repository';
+import {
+  installSyncEngineCoordinatorRuntime,
+  NativePlaintextSyncEngineObjectCodec,
+  SqliteSyncGenerationRuntime,
+  SyncEngineCoordinator,
+  type SyncEngineCheckpointHook,
+  type RegisteredSyncGenerationRuntime,
+} from './engine';
+import { SyncLogCompactor } from './compaction/policy';
+import { reconcileNativeSyncObjects } from './local-object-gc';
+import { getSyncInstallationIdentity, type SyncWriterIdentitySource } from './journal';
+import { nativeSyncObjectCodec } from './native-object-codec';
+import type { ObjectLogProvider } from './protocol';
+import { productionSyncDomainMaterializationKernel } from './reducer';
+import { SyncGenerationTable } from '../schema/drizzle';
+import { productSyncRuntimeControl } from './product-runtime-control';
+import { reportDiagnosticLog, reportIntegrityEvent } from '../services/diagnostics/crash-reporter';
+
+const log = loglevel.getLogger('SyncEngineProductionRuntime');
+log.setLevel(import.meta.env.DEV ? loglevel.levels.TRACE : loglevel.levels.WARN);
+
+
+/**
+ * A cycle drains every local write before it seals change-sets, so a write
+ * that failed elsewhere (an entity transaction, an asset file, the session
+ * token) surfaces here once. That is not a sync stop: the next attempt no
+ * longer sees it, so the cycle is retried with backoff.
+ */
+export class SyncLocalFlushError extends Error {
+  readonly code = 'LOCAL_FLUSH_FAILED';
+  readonly retryable = true;
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Local writes were not durable before the sync cycle');
+    this.name = 'SyncLocalFlushError';
+    this.cause = cause;
+  }
+}
+
+export async function flushLocalDurabilityForSync(): Promise<void> {
+  try {
+    await flushLocalApplicationPersistence();
+  } catch (error) {
+    throw new SyncLocalFlushError(error);
+  }
+}
+
+// A cycle that cannot be retried stops this project's sync until something
+// changes. Session and deletion outcomes are expected; the rest is reported.
+const EXPECTED_SYNC_STOPS = new Set(['needs-reauth', 'permission-denied', 'ABORTED', 'GENERATION_DELETED']);
+export function reportSyncCycleFailure(error: unknown) {
+  if (error instanceof SyncLocalFlushError) {
+    reportIntegrityEvent('local-flush-failed', error.cause, { reason: 'sync-cycle' });
+    return;
+  }
+  const failure = error as { code?: unknown; retryable?: unknown } | null;
+  if (!failure || failure.retryable === true) return;
+  const code = typeof failure.code === 'string' ? failure.code : 'unknown';
+  if (EXPECTED_SYNC_STOPS.has(code)) return;
+  reportIntegrityEvent(`sync-blocked:${code}`, error);
+}
+
+export interface ProductionSyncRuntimeDependencies {
+  readonly database: () => DbClient;
+  readonly listBindings: (
+    database: DbClient,
+  ) => Promise<readonly ActiveProviderRuntimeBinding[]>;
+  readonly reconcileNativeStorage: (database: DbClient) => Promise<void>;
+  readonly writerIdentity: () => Promise<SyncWriterIdentitySource>;
+  readonly createProvider: (
+    mode: ActiveProviderRuntimeBinding['mode'],
+  ) => ObjectLogProvider;
+  readonly createCoordinator: () => SyncEngineCoordinator;
+  readonly createCheckpoint: (input: {
+    database: DbClient;
+    binding: ActiveProviderRuntimeBinding;
+    provider: ObjectLogProvider;
+  }) => SyncEngineCheckpointHook;
+  readonly createSyncGenerationRuntime: (input: {
+    database: DbClient;
+    binding: ActiveProviderRuntimeBinding;
+    provider: ObjectLogProvider;
+    writerIdentity: SyncWriterIdentitySource;
+    checkpoint: SyncEngineCheckpointHook;
+  }) => RegisteredSyncGenerationRuntime;
+  readonly createAgentChatRuntime?: (input: { database: DbClient; binding: ActiveProviderRuntimeBinding }) => RegisteredSyncGenerationRuntime | null;
+  readonly installCoordinator: (coordinator: SyncEngineCoordinator) => () => void;
+  readonly exposeCoordinator: (coordinator: SyncEngineCoordinator) => () => void;
+  readonly onError: (error: unknown) => void;
+  readonly onStorageReconcileError?: (error: unknown) => void;
+}
+
+function reportStorageReconcileError(error: unknown): void {
+  log.warn('Local sync storage cleanup failed; sync continues without it', error);
+  reportIntegrityEvent('sync-storage-cleanup-failed', error);
+}
+
+/**
+ * Hosted log truncation. Off until lagging-device catch-up from a snapshot
+ * ships; until then a device offline past the grace window would wait on
+ * pruned history instead of fast-forwarding.
+ */
+export const SYNC_LOG_PRUNING_ENABLED = false;
+
+/**
+ * Local journal truncation on a pruning provider (Hosted): once a published
+ * snapshot covers applied history, its change-set rows leave this database.
+ * Independent of Hosted pruning; it needs only snapshots already published.
+ */
+export const SYNC_JOURNAL_TRUNCATION_ENABLED = true;
+
+const defaultDependencies: ProductionSyncRuntimeDependencies = {
+  database: getDb,
+  listBindings: async (database) => {
+    const bindings = await createSyncAppAuthorityRepository(database).listActiveRuntimeBindings();
+    const session = getHostedSessionBinding();
+    return bindings.filter(item => item.mode === 'hosted' && item.binding.accountRef === session?.accountSubject);
+  },
+  async reconcileNativeStorage(database) {
+    await reconcileNativeSyncAssetAttempts({
+      db: database,
+      native: platform.syncAssetStore,
+    });
+    await reconcileNativeSyncObjects({
+      db: database,
+      native: platform.syncObjectStore,
+    });
+  },
+  writerIdentity: getSyncInstallationIdentity,
+  createProvider(mode) {
+    if (mode !== 'hosted') throw new Error('Only Hosted sync is supported');
+    return createHostedProvider();
+  },
+  createCoordinator: () =>
+    new SyncEngineCoordinator({
+      onCycleError(syncGenerationId, error) {
+        reportDiagnosticLog('sync-cycle-failed');
+        log.warn(`SyncEngine cycle failed for ${syncGenerationId}; local journal remains durable`, error);
+        reportSyncCycleFailure(error);
+      },
+    }),
+  createCheckpoint({ database, binding, provider }) {
+    let delegate: Promise<SyncEngineCheckpointHook> | null = null;
+    return {
+      async captureIfDue(input) {
+        delegate ??= (async () => {
+          const [generation] = await database
+            .select({ projectId: SyncGenerationTable.projectId })
+            .from(SyncGenerationTable)
+            .where(eq(SyncGenerationTable.syncGenerationId, binding.binding.syncGenerationId))
+            .limit(1);
+          if (!generation?.projectId) {
+            // A detached active generation owns only a terminal project purge.
+            // The runtime must publish that journal, but there is no remaining
+            // authored project state from which a checkpoint could be captured.
+            return { captureIfDue: async () => false };
+          }
+          const providerGeneration = await provider.openGeneration(binding.binding);
+          const objectCodec = new NativePlaintextSyncEngineObjectCodec(nativeSyncObjectCodec);
+          const publisher = new ProviderSnapshotPublisher({
+            db: database,
+            projectId: generation.projectId,
+            syncGenerationId: binding.binding.syncGenerationId,
+            provider,
+            providerGeneration,
+            objectCodec,
+            blobPort: nativeSyncAssetBlobPort,
+            assetCapturePort: nativeSnapshotAssetCapturePort,
+            flushLocalDurability: flushLocalDurabilityForSync,
+          });
+          const prunesHistory = typeof provider.pruneObjects === 'function';
+          return createProviderCheckpointHook({
+            db: database,
+            syncGenerationId: binding.binding.syncGenerationId,
+            publisher,
+            prunesHistory,
+            ...(prunesHistory
+              ? {
+                  compaction: new SyncLogCompactor({
+                    db: database,
+                    syncGenerationId: binding.binding.syncGenerationId,
+                    provider,
+                    providerGeneration,
+                    objectCodec,
+                    pruneEnabled: SYNC_LOG_PRUNING_ENABLED,
+                  }),
+                }
+              : {}),
+          });
+        })();
+        return (await delegate).captureIfDue(input);
+      },
+    };
+  },
+  createSyncGenerationRuntime({ database, binding, provider, writerIdentity, checkpoint }) {
+    return new SqliteSyncGenerationRuntime({
+      db: database,
+      syncGenerationId: binding.binding.syncGenerationId,
+      projectId: binding.projectId,
+      provider,
+      providerBinding: binding.binding,
+      objectCodec: new NativePlaintextSyncEngineObjectCodec(nativeSyncObjectCodec),
+      blobPort: nativeSyncAssetBlobPort,
+      writerIdentity,
+      domainKernel: productionSyncDomainMaterializationKernel,
+      flushLocalDurability: flushLocalDurabilityForSync,
+      truncateJournal: SYNC_JOURNAL_TRUNCATION_ENABLED,
+      async onRemoteProjectDeleted({ projectId, receipt }) {
+        const { cleanupDeletedProject } = await import('../services/project-deletion-cleanup');
+        await cleanupDeletedProject(projectId, receipt);
+        events.emit('sync:authority-changed');
+      },
+      onBindingRetired: () => events.emit('sync:authority-changed'),
+      reconcileOpenYjsDocuments: ({ projectId, docIds }) =>
+        reconcileOpenYjsDocumentSessions(projectId, docIds),
+      onRemoteChangeCommitted: ({ projectId, projectionImpact, proseDocIds }) => {
+        events.emit('sync:project-changed', { projectId, projectionImpact, proseDocIds });
+      },
+      onReferenceCoverageInvalidated: ({ projectId }) => {
+        events.emit('sync:reference-coverage-invalidated', { projectId });
+      },
+      checkpoint,
+    });
+  },
+  createAgentChatRuntime({ database, binding }) {
+    if (!binding.projectId) return null;
+    return new AgentChatSyncRuntime({ db: database, projectId: binding.projectId, binding: binding.binding, provider: createHostedProvider('agent-chat-v1'), codec: nativeSyncObjectCodec });
+  },
+  installCoordinator: installSyncEngineCoordinatorRuntime,
+  exposeCoordinator: (coordinator) => productSyncRuntimeControl.attach(coordinator),
+  onError(error) {
+    log.error('SyncEngine production runtime could not be activated', error);
+    reportIntegrityEvent('sync-activation-failed', error);
+    productSyncRuntimeControl.reportActivationFailure();
+  },
+};
+
+/**
+ * Owns exactly one product coordinator for the currently-open SQLite database.
+ * Reloads are serialized so a database/provider switch cannot leave old SyncGeneration
+ * callbacks running against a replaced database or credential generation.
+ */
+export class ProductionSyncRuntimeSupervisor {
+  private cleanupActive: () => void = () => {};
+  private tail: Promise<void> = Promise.resolve();
+  private stopped = false;
+  private revision = 0;
+
+  constructor(private readonly dependencies: ProductionSyncRuntimeDependencies) {}
+
+  requestReload(): void {
+    if (this.stopped) return;
+    const revision = ++this.revision;
+    this.tail = this.tail
+      .catch(() => undefined)
+      .then(() => this.reload(revision))
+      .catch((error) => this.dependencies.onError(error));
+  }
+
+  async drain(): Promise<void> {
+    await this.tail;
+  }
+
+  deactivate(): void {
+    this.revision += 1;
+    this.cleanupActive();
+    this.cleanupActive = () => {};
+  }
+
+  stop(): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.deactivate();
+  }
+
+  private async reload(revision: number): Promise<void> {
+    if (this.stopped || revision !== this.revision) return;
+    this.cleanupActive();
+    this.cleanupActive = () => {};
+
+    const database = this.dependencies.database();
+    // Housekeeping only: a cleanup that cannot run must never keep sync off.
+    try {
+      await this.dependencies.reconcileNativeStorage(database);
+    } catch (error) {
+      (this.dependencies.onStorageReconcileError ?? reportStorageReconcileError)(error);
+    }
+    if (this.stopped || revision !== this.revision) return;
+    const bindings = await this.dependencies.listBindings(database);
+    if (this.stopped || revision !== this.revision || bindings.length === 0) return;
+
+    const mode = bindings[0]!.mode;
+    if (bindings.some((binding) => binding.mode !== mode)) {
+      throw new Error('All active SyncGenerations must share one App-wide provider authority');
+    }
+    const authorityGeneration = bindings[0]!.binding.authorityGeneration;
+    if (
+      bindings.some(
+        (binding) => binding.binding.authorityGeneration !== authorityGeneration,
+      )
+    ) {
+      throw new Error('All active SyncGenerations must share one provider authority generation');
+    }
+
+    const provider = this.dependencies.createProvider(mode);
+    const identity = await this.dependencies.writerIdentity();
+    if (this.stopped || revision !== this.revision) return;
+    const coordinator = this.dependencies.createCoordinator();
+    const unregister: Array<() => void> = [];
+    let uninstallSignals: () => void = () => {};
+    let hideCoordinator: () => void = () => {};
+    try {
+      for (const binding of bindings) {
+        const chatRuntime = this.dependencies.createAgentChatRuntime?.({ database, binding });
+
+        const checkpoint = this.dependencies.createCheckpoint({
+          database,
+          binding,
+          provider,
+        });
+        unregister.push(
+          coordinator.register(
+            this.dependencies.createSyncGenerationRuntime({
+              database,
+              binding,
+              provider,
+              writerIdentity: identity,
+              checkpoint,
+            }),
+          ),
+        );
+        if (chatRuntime) unregister.push(coordinator.register(chatRuntime));
+      }
+      const wakeChat = ({ projectId }: { projectId: string }) => {
+        for (const binding of bindings) if (binding.projectId === projectId) coordinator.triggerLocalCommit(`${binding.binding.syncGenerationId}:agent-chat`);
+      };
+      const disposeSignals = this.dependencies.installCoordinator(coordinator);
+      events.on('agent:conversation-committed', wakeChat);
+      uninstallSignals = () => { events.off('agent:conversation-committed', wakeChat); disposeSignals(); };
+      hideCoordinator = this.dependencies.exposeCoordinator(coordinator);
+      this.cleanupActive = () => {
+        hideCoordinator();
+        uninstallSignals();
+        for (const dispose of unregister.reverse()) dispose();
+      };
+    } catch (error) {
+      hideCoordinator();
+      uninstallSignals();
+      for (const dispose of unregister.reverse()) dispose();
+      coordinator.shutdown();
+      throw error;
+    }
+  }
+}
+
+/** Install once at App scope; activation still waits for the database-ready event. */
+export function installProductionSyncRuntime(
+  dependencies: ProductionSyncRuntimeDependencies = defaultDependencies,
+): () => void {
+  const supervisor = new ProductionSyncRuntimeSupervisor(dependencies);
+  const reload = () => supervisor.requestReload();
+  const deactivate = () => supervisor.deactivate();
+  events.on('db:ready', reload);
+  events.on('sync:authority-changed', reload);
+  events.on('sync:activation-retry', reload);
+  events.on('db:error', deactivate);
+  return () => {
+    events.off('db:ready', reload);
+    events.off('sync:authority-changed', reload);
+    events.off('sync:activation-retry', reload);
+    events.off('db:error', deactivate);
+    supervisor.stop();
+  };
+}

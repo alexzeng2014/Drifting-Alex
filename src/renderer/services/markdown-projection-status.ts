@@ -1,0 +1,32 @@
+import type { MarkdownProjectionInfo } from '../platform/contracts';
+
+export type MarkdownProjectionStatus = Partial<MarkdownProjectionInfo> & {
+  /**
+   * `off` once the author turned the Markdown folder off; `unset` while the
+   * project follows all projects and no location is chosen for them.
+   */
+  state: 'pending' | 'ready' | 'error' | 'off' | 'unset';
+  error?: string;
+  /** Authored files edited outside Drifting that could not be merged, and why. */
+  mirrorIssues?: { path: string; reason: string; docId?: string }[];
+  /** Edited files kept under `.drifting/preserved` by the last write. */
+  preserved?: string[];
+};
+const statuses = new Map<string, MarkdownProjectionStatus>();
+const listeners = new Set<() => void>();
+
+export function getMarkdownProjectionStatus(projectId: string): MarkdownProjectionStatus | undefined {
+  return statuses.get(projectId);
+}
+export function subscribeMarkdownProjectionStatus(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+export function publishMarkdownProjectionStatus(projectId: string, value: Partial<MarkdownProjectionStatus>) {
+  // An undefined field clears it. Drop the key: the status is returned by
+  // get_project_overview, and durable Agent payloads reject undefined.
+  const next: Record<string, unknown> = { ...statuses.get(projectId), ...value };
+  for (const key of Object.keys(next)) if (next[key] === undefined) delete next[key];
+  statuses.set(projectId, next as MarkdownProjectionStatus);
+  for (const listener of listeners) listener();
+}

@@ -1,0 +1,87 @@
+{
+  "import": {
+    "v1": {
+      "blocked": {
+        "title": "有几篇正文可能少了最后几秒打的字",
+        "no_handoff": "这个资料库还没在旧版的最后一版里打开过",
+        "unproven": "有 {{count}} 篇正文无法确认是最新的，列在下面",
+        "stale": "有 {{count}} 章比你写到的旧",
+        "changed_after_handoff": "有 {{count}} 篇在交接核对后又改过",
+        "sync": "同步还有没解决的冲突",
+        "get_last_release": "下载旧版的最后一版，打开这个资料库一次再退出，然后重新导入"
+      },
+      "action": {
+        "download_last_release": "下载旧版最后一版",
+        "import_anyway": "仍然导入"
+      },
+      "summary": {
+        "already_imported": "这台设备以前导入过，这次没再导入",
+        "already_in_library": "新资料库里已经有这本书，没有动",
+        "from_caches": "有 {{count}} 篇照缓存导入，可能少了最后几秒的字",
+        "account_libraries_left": "文件夹里还有 {{count}} 个账号资料库没导入，等账号功能做好",
+        "carries_on": "没导入完，再导入一次这个资料库会接着导入"
+      },
+      "notice": {
+        "unfinished": "《{{name}}》没导完",
+        "carry_on": "接着导入"
+      }
+    }
+  },
+  "settings": {
+    "editor": {
+      "justify": "两端对齐"
+    },
+    "sync": {
+      "backup": {
+        "errors": {
+          "legacy": "这是 Drifting 0.1 的备份，这一版不能直接恢复。请先在 Drifting 0.1 里恢复它，再在书架上用「导入 · Drifting 0.1」导入那个资料库。"
+        }
+      }
+    },
+    "update": {
+      "restart": "重启以更新",
+      "ready_on_quit": "Drifting {{version}} 已下载并通过签名校验，退出时安装。",
+      "older_offered": "已是最新版本。更新服务提供的 {{version}} 比这一版旧，不会安装。",
+      "refused_signature": "下载的更新没有通过签名校验，已丢弃。当前版本照常可用。",
+      "refused_version": "下载的更新不是它标明的版本，可能是旧版本，已拒绝。当前版本照常可用。",
+      "refused_app": "下载的更新不是 Drifting，已丢弃。当前版本照常可用。",
+      "interrupted": "更新没有下载完整，已丢弃。下次检查时会重新下载。",
+      "server_error": "更新服务暂时出了问题，稍后再试。当前版本照常可用。",
+      "local_error": "更新没能存进这台电脑，已停止。当前版本照常可用。",
+      "install_failed": "上次退出时没能装上 Drifting {{version}}，当前版本没有改动。下次退出时再试。",
+      "install_failed_admin": "上次退出时没能装上 Drifting {{version}}：Drifting 所在的文件夹不能写入。当前版本没有改动。"
+    }
+  },
+  "findPanel": {
+    "replacePlaceholder": "替换为…",
+    "replace": "替换",
+    "replaceAll": "全部替换"
+  },
+  "positionLink": {
+    "copied": "已复制位置链接"
+  },
+  "projectPicker": {
+    "bookTransfer": {
+      "legacy": "这本书是 Drifting 0.1 导出的。请在旧版里导入它，再把旧版资料库交接给新版。"
+    }
+  },
+  "importDialog": {
+    "targets": {
+      "idea": {
+        "label": "构想",
+        "desc": "构想卡 — 不归属任何故事线，独立悬浮。"
+      }
+    },
+    "warnings": {
+      "imagesDropped": "{{count}} 张图片没有导入",
+      "notUtf8": "不是 UTF-8 文本，有些字符被替换了"
+    }
+  },
+  "notifications": {
+    "markdownFolder": {
+      "issue": {
+        "owned": "这个文件夹由另一个 Drifting 管理，没有读写"
+      }
+    }
+  }
+}

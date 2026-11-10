@@ -1,0 +1,890 @@
+/* Bookshelf — a flat desk. The words are written straight on the desk's own
+   colour (--workspace-ui-bg); each book's cover is the one slip of paper on
+   it, its storylines drawn on it in the shelf's cover style (lib/shelf-cover;
+   sand by default, lib/sand-cover.ts). A left column like the workspace's
+   holds the shelf's name, the import, Recently Deleted and the account cell
+   with the library's sync state; beside it, a year of writing days, the
+   books and, at the foot, the round button that turns the cover style. Glass
+   is what the hand presses: the rail's cells, the account, that button and
+   the cards' rim. Sand is what is left: covers, the heatmap's days, the 30-day
+   strips, progress, icons and marks. No white boxes, solid frames, washes,
+   accent blocks or shadows. */
+
+/* Nothing on the shelf is text to copy, so a double click on the open desk
+   doesn't select the nearest word (the new-book slip's line). */
+.pp {
+  height: 100vh;
+  overflow-y: auto;
+  color: hsl(var(--ink-1));
+  background: var(--workspace-ui-bg);
+  font-family: var(--font-sans);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* WebKit inherits user-select, so the mobile shelf's search field asks for
+   text back. */
+.pp input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* On the desktop the shelf lies on the sea of characters (CharSea), which
+   paints the desk; the cards' resting glass is drawn there too, so the water
+   reaches it (`.pp-card--sea` drops the CSS rim). */
+.pp--sea {
+  background: transparent;
+}
+
+.pp-card--sea.glass::before {
+  display: none;
+}
+
+.pp-heat--sea.glass::before {
+  display: none;
+}
+
+.pp *,
+.pp *::before,
+.pp *::after {
+  box-sizing: border-box;
+}
+
+.pp__window-drag-strip {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 200;
+  height: 36px;
+}
+
+.pp::-webkit-scrollbar {
+  width: 10px;
+}
+
+.pp::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 10px;
+  background: hsl(var(--ink-5));
+  background-clip: padding-box;
+}
+
+/* The rail and the main column; the rail stays put while the books scroll. */
+.pp__frame {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  align-items: start;
+  min-height: 100%;
+}
+
+.pp__inner {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 1320px);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 44px 56px 32px;
+}
+
+.pp__frame > .pp__inner {
+  width: min(100%, 1180px);
+  min-height: 100vh;
+  padding: 44px 40px 32px 16px;
+}
+
+.pp-empty {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+}
+
+/* A Hosted connect restoring this library's books (HostedRestoreProgress):
+   the shelf says so until they arrive, instead of looking empty. */
+.hosted-restore {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  margin: 0 0 18px;
+}
+.hosted-restore__title,
+.hosted-restore__detail {
+  margin: 0;
+}
+.hosted-restore__title {
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-secondary, 13px);
+}
+.hosted-restore__detail {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 12px);
+}
+
+/* 书架 names the place, like the Panel Tabs: the serif structure face, not
+   the author's prose font, which stays with each book's own title. */
+.pp-head__title {
+  margin: 0;
+  color: hsl(var(--ink-1));
+  font: 400 22px/1.2 var(--font-structure);
+  letter-spacing: 0.04em;
+}
+
+/* ─── The rail: the shelf's name, import, Recently Deleted, the account ─── */
+
+.pp-rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 52px 12px 14px 16px;
+}
+
+.pp-rail .pp-head__title {
+  padding: 0 10px;
+}
+
+.pp-rail__library {
+  margin: 10px 10px 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: 400 var(--ui-font-caption, 12px) / 1.4 var(--font-mono);
+}
+
+.pp-rail__grow {
+  flex: 1;
+}
+
+/* A cell like the sidebars': no wash; under the pointer a ring of glass.
+   One line, 32px, while its label and meta fit beside each other; where they
+   do not (English: "Import book" beside .driftingbook), the meta goes under
+   the label and the cell grows, and a label too long for its own line wraps.
+   Nothing is cut short. */
+.pp-rail__cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-font-body, 14px);
+  text-align: left;
+}
+
+.pp-rail__cell .brush-icon {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.pp-rail__cell:hover {
+  color: hsl(var(--ink-1));
+}
+
+.pp-rail__cell:disabled {
+  cursor: default;
+}
+
+.pp-rail__text {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+  line-height: 20px;
+}
+
+/* The label takes the line; the meta ends it, or starts the next one. */
+.pp-rail__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pp-rail__meta {
+  flex: none;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: 400 var(--ui-font-caption, 12px) / 1 var(--font-mono);
+}
+
+/* The account cell and the notification bell share the rail's last line,
+   as they share the foot of the workspace's left sidebar. */
+.pp-rail__foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* The account cell: the avatar, the name and the library's sync state; the
+   menu opens upward from it, as from the workspace's. */
+.pp-rail__account {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: hsl(var(--ink-2));
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.pp-rail__avatar {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: linear-gradient(135deg, hsl(var(--story-1)), hsl(var(--story-5)));
+  color: hsl(var(--paper));
+  font: italic 500 12px/1 var(--font-sans);
+  place-items: center;
+}
+
+.pp-rail__who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pp-rail__name {
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font-size: var(--ui-font-body, 14px);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-rail__status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: 400 var(--ui-font-caption, 12px) / 1.3 var(--font-mono);
+  white-space: nowrap;
+}
+
+.pp-rail__status > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pp-rail__status--danger {
+  color: hsl(var(--destructive));
+}
+
+/* A transfer breathes, as the paper's corner cloud does. */
+.pp-rail__status--moving .brush-icon {
+  animation: pp-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes pp-breathe {
+  50% { opacity: 0.3; }
+}
+
+/* ─── A year of writing days: one dab of sand for each day written ─── */
+
+.pp-heat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 28px;
+  margin-bottom: 14px;
+  padding: 14px 18px 16px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.pp-heat__scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.pp-heat__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.pp-heat__months {
+  position: relative;
+  height: 18px;
+  margin-left: 22px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: 400 11px/1 var(--font-mono);
+}
+
+.pp-heat__months span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+.pp-heat__body {
+  display: flex;
+  gap: 6px;
+}
+
+.pp-heat__weekdays {
+  display: grid;
+  flex: none;
+  grid-template-rows: repeat(7, 14px);
+  width: 16px;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: 400 10px/11px var(--font-mono);
+}
+
+.pp-heat__cells {
+  position: relative;
+  flex: none;
+}
+
+.pp-heat__layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* The loose grains of the days without words stay the ink's. */
+.pp-heat__layer:first-child {
+  --sand-c: hsl(var(--ink-3));
+}
+
+.pp-heat__hot {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px hsl(var(--ink-2) / 0.55);
+  pointer-events: none;
+}
+
+.pp-heat__nums {
+  display: grid;
+  flex: 1 1 150px;
+  gap: 7px;
+  min-width: 0;
+  margin: 0 0 2px;
+}
+
+.pp-heat__nums > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pp-heat__nums dt {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 5.2em;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 13px);
+  white-space: nowrap;
+}
+
+.pp-heat__nums dt.pp-heat__book {
+  width: auto;
+  max-width: 8em;
+  color: hsl(var(--ink-1));
+  font-family: var(--font-content);
+}
+
+.pp-heat__book span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pp-heat__nums dd {
+  margin: 0;
+  color: var(--ui-text-muted, hsl(var(--ink-4)));
+  font: 400 var(--ui-font-caption, 12px) / 1 var(--font-mono);
+  white-space: nowrap;
+}
+
+.pp-heat__nums b {
+  margin-right: 3px;
+  color: hsl(var(--ink-1));
+  font: 400 15px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-heat__mark {
+  width: 9px;
+  height: 9px;
+}
+
+/* The day's hover card: a row per book, its mark, its name, its words. */
+.pp-heat__books {
+  display: grid;
+  gap: 2px;
+  padding: 2px 0 4px;
+}
+
+.pp-heat__books-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 12px;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+
+.pp-heat__books-row span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-content);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-heat__books-row b {
+  color: hsl(var(--ink-1));
+  font: 400 var(--ui-font-caption, 12px) / 1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Covers: a slip of paper, one sand band per storyline ─── */
+
+.pp-cover {
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  width: 126px;
+  height: 226px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: hsl(var(--page));
+}
+
+.pp-cover__band {
+  position: absolute;
+  inset: 0;
+  animation: sand-stroke-arrive 0.24s ease-out backwards;
+}
+
+/* Any style but sand paints the whole slip as one picture, its own ground in
+   every theme, so the genre takes fixed inks: dark on a light
+   ground, light on a dark one (cyanotype, the star chart, a deep field). */
+.pp-cover__art {
+  position: absolute;
+  inset: 0;
+  background-size: 100% 100%;
+  animation: sand-stroke-arrive 0.24s ease-out backwards;
+}
+
+.pp-cover__label {
+  position: absolute;
+  right: 10px;
+  bottom: 11px;
+  left: 14px;
+  z-index: 2;
+  overflow: hidden;
+  color: hsl(var(--ink-3));
+  font: 400 11px/1.2 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-cover--art .pp-cover__label {
+  color: hsl(30 3% 44%);
+}
+
+.pp-cover--art.pp-cover--dark .pp-cover__label {
+  color: hsl(40 12% 92% / 0.66);
+}
+
+/* ─── Cards: a resting line of glass round the cover and its words ─── */
+
+.pp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* The shelf's foot: one round glass button that turns every cover to the
+   next style, below the books however many there are. */
+.pp-cover-style {
+  display: flex;
+  justify-content: center;
+  margin-top: auto;
+  padding-top: 28px;
+}
+
+.pp-cover-style__turn.ghost-icon-button {
+  width: 34px;
+  height: 34px;
+}
+
+.pp-card {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  min-height: 250px;
+  padding: 12px;
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--ink-1));
+  cursor: pointer;
+}
+
+.pp-card__body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  padding: 4px 2px 2px;
+}
+
+.pp-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pp-card__titles {
+  min-width: 0;
+}
+
+.pp-card__title {
+  margin: 0;
+  overflow: hidden;
+  font: 400 19px/1.35 var(--font-content);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-card__subtitle {
+  margin-top: 2px;
+  color: hsl(var(--ink-3));
+  font-size: var(--ui-font-caption, 12px);
+  line-height: 1.4;
+}
+
+.pp-card__summary {
+  display: -webkit-box;
+  margin: 10px 0 0;
+  overflow: hidden;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 13px);
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pp-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 12px;
+  color: hsl(var(--ink-4));
+  font: 400 var(--ui-font-caption, 12px) / 1.4 var(--font-mono);
+}
+
+.pp-card__meta b {
+  margin-right: 3px;
+  color: hsl(var(--ink-2));
+  font-weight: 400;
+}
+
+/* The last 30 days: one upright stroke in ink for each day written, loose
+   grain for each day without (views/shelf/SandStrip). */
+.pp-card__strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.pp-strip {
+  position: relative;
+  height: 20px;
+}
+
+.pp-strip__sand {
+  position: absolute;
+  inset: 0;
+  --sand-c: hsl(var(--ink-2));
+}
+
+.pp-card__strip ~ .pp-card__progress {
+  margin-top: 0;
+  padding-top: 12px;
+}
+
+.pp-card__strip ~ .pp-card__foot--end {
+  margin-top: 10px;
+}
+
+/* Progress is one dry stroke in ink (the stats panel's readout); what is left
+   to write is loose grain under it. */
+.pp-card__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: auto;
+  padding-top: 14px;
+  --sand-stroke-h: 6px;
+}
+
+.pp-card__progress-k {
+  display: flex;
+  justify-content: space-between;
+  color: hsl(var(--ink-4));
+  font: 400 11px/1 var(--font-mono);
+}
+
+.pp-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  color: hsl(var(--ink-4));
+  font: 400 var(--ui-font-caption, 12px) / 1 var(--font-mono);
+}
+
+.pp-card__foot--end {
+  margin-top: auto;
+}
+
+/* The longer a book rests, the fainter its word. */
+.pp-status--writing { color: hsl(var(--ink-2)); }
+.pp-status--draft { color: hsl(var(--ink-3)); }
+.pp-status--paused { color: hsl(var(--ink-4)); }
+
+/* The whole card or row opens the book; its two icons sit above the hit. */
+.pp-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pp-hit:focus-visible {
+  outline: 2px solid hsl(var(--accent));
+  outline-offset: -3px;
+}
+
+.pp-acts {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+
+.pp-card .pp-acts {
+  margin: -4px -4px 0 0;
+}
+
+.pp-card:hover .pp-acts,
+.pp-card:focus-within .pp-acts {
+  opacity: 1;
+}
+
+.pp-act {
+  display: inline-grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  cursor: pointer;
+  place-items: center;
+  transition: color 0.12s ease;
+}
+
+.pp-act:hover {
+  color: hsl(var(--ink-1));
+}
+
+.pp-act--danger:hover {
+  color: hsl(var(--destructive));
+}
+
+.pp-act:focus-visible {
+  outline: 2px solid hsl(var(--accent));
+  outline-offset: -2px;
+}
+
+/* The last place in the grid: two strokes of a cross and a line; a cell, so
+   only the pointer brings its ring of glass. */
+.pp-card--new {
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  color: hsl(var(--ink-3));
+  font-size: var(--ui-font-body, 14px);
+}
+
+.pp-card--new small {
+  color: hsl(var(--ink-4));
+  font: 400 var(--ui-font-caption, 12px) / 1 var(--font-mono);
+}
+
+.pp-card--new:hover {
+  color: hsl(var(--ink-1));
+}
+
+.pp-card--new:focus-visible {
+  outline: 2px solid hsl(var(--accent));
+  outline-offset: -2px;
+}
+
+/* While a new library's built-in sample is written, it holds its place in the
+   grid and the blank-page slip waits. */
+.pp-card--preparing {
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.pp-card--new[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pp-card--new[aria-disabled='true']:hover {
+  color: hsl(var(--ink-3));
+}
+
+/* ─── Desktop dialogs on the shared shell ─── */
+
+.pp-dialog .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pp-dialog .modal-body p {
+  margin: 0;
+}
+
+.pp-dialog .modal-body .dialog-section {
+  margin-bottom: 0;
+}
+
+.pp-dialog__lead {
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+  font-size: var(--ui-font-secondary, 13px);
+  line-height: 1.6;
+}
+
+.pp-dialog__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: hsl(var(--destructive));
+  font-size: var(--ui-font-secondary, 13px);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pp-dialog__error > .brush-icon {
+  margin-top: 3px;
+}
+
+.pp-dialog__kbd {
+  color: hsl(var(--ink-4));
+  font: 400 var(--ui-font-caption, 12px) / 1 var(--font-mono);
+}
+
+.pp-dialog__grow {
+  flex: 1;
+}
+
+.pp-trash {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+}
+
+.pp-trash__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 2px;
+}
+
+.pp-trash__text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pp-trash__name {
+  overflow: hidden;
+  color: hsl(var(--ink-1));
+  font: 400 15px/1.3 var(--font-content);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-trash__meta {
+  color: hsl(var(--ink-4));
+  font: 400 var(--ui-font-caption, 12px) / 1 var(--font-mono);
+}
+
+@media (max-width: 1060px) {
+  .pp__inner {
+    padding-right: 32px;
+    padding-left: 32px;
+  }
+
+  .pp__frame > .pp__inner {
+    padding-right: 24px;
+    padding-left: 8px;
+  }
+}
+
+/* Beside the rail two columns of books need the room of a wide window. */
+@media (max-width: 1080px) {
+  .pp__frame .pp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .pp__inner {
+    padding: 40px 20px 32px;
+  }
+
+  .pp-grid {
+    grid-template-columns: 1fr;
+  }
+}
