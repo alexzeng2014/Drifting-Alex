@@ -552,6 +552,8 @@
       "title": "Drifting 的 AI 功能使用的服務。",
       "sub": "每個服務商在此裝置保留一組金鑰。透過 Agent 初次使用導覽連接的金鑰也會顯示於此，可測試、取代或中斷連線。",
       "credentialsTitle": "模型服務商",
+      "agentModel": "Agent 模型",
+      "agentModelCurrent": "目前使用",
       "credentialsDesc": "金鑰只寫入此裝置的系統鑰匙圈，不會同步到其他裝置或經過 Drifting。請在 Agent 輸入框的設定選單選擇服務商與模型。",
       "providers": {
         "deepseek": "供通用 Agent 使用。",

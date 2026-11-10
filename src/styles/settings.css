@@ -2086,6 +2086,24 @@ html[data-shell-mode='mobile'] .set-overlay {
   align-items: center;
   gap: 6px;
 }
+/* The Agent model picker on a connected provider's row: label, dropdown,
+   and a quiet note when this provider is the one the Agent uses. */
+.set-model-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.set-model-pick__label {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 12px);
+  color: var(--ui-text-muted, hsl(var(--ink-3)));
+}
+.set-model-pick__current {
+  font-family: var(--font-mono);
+  font-size: var(--ui-font-caption, 11px);
+  color: hsl(var(--ink-4));
+}
 .set-provider-line__row:has(> .set-provider-line__code) {
   gap: 12px;
 }

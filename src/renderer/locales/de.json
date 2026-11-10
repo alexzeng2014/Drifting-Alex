@@ -552,6 +552,8 @@
       "title": "Die Dienste, mit denen sich Driftings KI-Funktionen verbinden.",
       "sub": "Pro Anbieter wird ein Schlüssel auf diesem Gerät gespeichert. Auch im Agent-Einstieg verbundene Schlüssel erscheinen hier und lassen sich testen, ersetzen oder trennen.",
       "credentialsTitle": "Modellanbieter",
+      "agentModel": "Agent-Modell",
+      "agentModelCurrent": "in Verwendung",
       "credentialsDesc": "Schlüssel liegen nur im Systemschlüsselbund dieses Geräts. Sie werden weder synchronisiert noch über Drifting geleitet. Anbieter und Modell wählst du im Konfigurationsmenü des Agent-Eingabefelds.",
       "providers": {
         "deepseek": "Vom allgemeinen Agent verwendet.",

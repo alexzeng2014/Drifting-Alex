@@ -554,6 +554,8 @@
       "title": "Los servicios a los que se conecta la IA de Drifting.",
       "sub": "Cada proveedor guarda una clave en este dispositivo. Las conectadas en la guía inicial de Agent también aparecen aquí para probarlas, sustituirlas o desconectarlas.",
       "credentialsTitle": "Proveedores de modelos",
+      "agentModel": "Modelo del Agent",
+      "agentModelCurrent": "en uso",
       "credentialsDesc": "Las claves solo se guardan en el llavero de este dispositivo; no se sincronizan ni pasan por Drifting. Elige proveedor y modelo en el menú de configuración del cuadro de Agent.",
       "providers": {
         "deepseek": "Usado por Agent general.",

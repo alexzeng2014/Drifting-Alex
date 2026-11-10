@@ -119,7 +119,7 @@ export function AgentComposerConfig({
         type="button"
         className={'agt-cfg' + (open ? ' agt-cfg--open' : '') + (glass ? ' glass glass--round' : '')}
         onClick={() => setOpen((o) => !o)}
-        title={t('agentPanel.config.title')}
+        title={`${t('agentPanel.config.title')} · ${modelShort}`}
         aria-label={t('agentPanel.config.aria')}
         aria-expanded={open}
         aria-haspopup="dialog"

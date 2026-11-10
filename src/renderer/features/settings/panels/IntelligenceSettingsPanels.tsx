@@ -10,15 +10,18 @@ import { speechKeychain } from '../../../lib/speech/speech-credentials';
 import { testByokProviderConnection } from '../../../lib/ai/test-provider-connection';
 import { readEnvApiKey } from '../../../lib/ai/credentials/env';
 import { events } from '../../../lib/events';
-import { useSettingsStore } from '../../../store/settings-store';
+import { useSettingsStore, type AgentProviderId } from '../../../store/settings-store';
 import {
   SettingsButton,
   SettingsField,
   SettingsPanelHeader,
   SettingsSectionHeader,
+  SettingsSelect,
   type SettingsRegisterRef,
 } from '../SettingsPrimitives';
 import { BrushIcon } from '../../../components/ui/BrushIcon';
+import { agentProviderOption } from '../../../lib/agent/runtime/agent-provider-contract';
+import { useByokModelLists } from '../../agent/useByokModelLists';
 
 /**
  * One way to reach a model or a transcriber: a flat row (components.md,
@@ -110,6 +113,32 @@ function ProviderRow({
   const [loading, setLoading] = useState(true);
   const agentProvider = useSettingsStore((state) => state.agentProvider);
   const agentModel = useSettingsStore((state) => state.agentModel);
+  const setAgentProvider = useSettingsStore((state) => state.setAgentProvider);
+  const setAgentModel = useSettingsStore((state) => state.setAgentModel);
+
+  // A connected provider can pick its Agent model right here; the list is the
+  // provider's own when it is reachable (OpenCode Go publishes about thirty).
+  useByokModelLists(credentialsActive && live);
+  const providerModels = agentProviderOption(provider).models;
+  const chosenModel = agentProvider === provider ? agentModel : providerModels[0]?.value ?? '';
+  const modelPicker = providerModels.length > 0 && (
+    <span className="set-model-pick">
+      <span className="set-model-pick__label">{t('settings.models.agentModel')}</span>
+      <SettingsSelect
+        value={chosenModel}
+        options={providerModels.map((model) => ({ value: model.value, label: model.label }))}
+        onChange={(value) => {
+          setAgentProvider(provider as AgentProviderId);
+          setAgentModel(value);
+        }}
+        ariaLabel={`${name} ${t('settings.models.agentModel')}`}
+        width={230}
+      />
+      {agentProvider === provider && (
+        <span className="set-model-pick__current">{t('settings.models.agentModelCurrent')}</span>
+      )}
+    </span>
+  );
 
   // Settings needs existence only. On macOS this is an attribute-only native
   // query, so merely scrolling this panel into view never asks to decrypt keys.
@@ -188,6 +217,7 @@ function ProviderRow({
       name={name}
       desc={desc}
       live={live}
+      detail={live ? modelPicker : undefined}
       source={live ? (connected ? 'Keychain' : '.ENV (DEV)') : t('settings.byokProvider.notConnected')}
       actions={
         loading ? null : editing ? (

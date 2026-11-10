@@ -551,6 +551,8 @@
       "title": "AI 功能连接的服务。",
       "sub": "每家服务商在本机只保存一份密钥；在 Agent 首次引导里连接的也会出现在这里，可以测试、更换或断开。",
       "credentialsTitle": "模型服务商",
+      "agentModel": "Agent 模型",
+      "agentModelCurrent": "当前使用",
       "credentialsDesc": "密钥只写入本机系统钥匙串，不会同步到其他设备，也不经过 Drifting。Agent 用哪家服务商、哪个模型，在 Agent 输入框的配置菜单里选。",
       "providers": {
         "deepseek": "供 General Agent 使用。",

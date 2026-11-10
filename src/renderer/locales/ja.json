@@ -552,6 +552,8 @@
       "title": "DriftingのAI機能が接続するサービス。",
       "sub": "提供元ごとにこの端末へ1つのキーを保存します。Agentの初回ガイドで接続したキーもここでテスト、変更、切断できます。",
       "credentialsTitle": "モデル提供元",
+      "agentModel": "Agent モデル",
+      "agentModelCurrent": "使用中",
       "credentialsDesc": "キーはこの端末のシステムキーチェーンだけに保存し、他の端末に同期せずDriftingも経由しません。Agent入力欄の設定メニューで提供元とモデルを選びます。",
       "providers": {
         "deepseek": "汎用Agentで使用します。",

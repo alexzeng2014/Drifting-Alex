@@ -552,6 +552,8 @@
       "title": "The services Drifting's AI features connect to.",
       "sub": "Each provider keeps one key on this device. Keys connected in the Agent's first-run guide appear here too, where you can test, replace or disconnect them.",
       "credentialsTitle": "Model providers",
+      "agentModel": "Agent model",
+      "agentModelCurrent": "in use",
       "credentialsDesc": "Keys are written only to this device's system keychain; they never sync to other devices or pass through Drifting. Pick the provider and model the Agent uses from the configuration menu in its composer.",
       "providers": {
         "deepseek": "Used by General Agent.",
